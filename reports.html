@@ -157,7 +157,12 @@
               </button>
               <div class="date-range-filter__popover" data-date-filter-popover hidden>
                 <div class="date-range-filter__section">
-                  <p class="date-range-filter__section-title">Rentang cepat</p>
+                  <div class="date-range-filter__header">
+                    <p class="date-range-filter__section-title">Rentang cepat</p>
+                    <button type="button" class="date-range-filter__close" data-date-filter-close aria-label="Tutup filter periode">
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
                   <div class="date-range-filter__quick-list">
                     <button type="button" class="date-range-filter__quick-button" data-date-filter-preset="all">Semua periode</button>
                     <button type="button" class="date-range-filter__quick-button" data-date-filter-preset="today">Hari ini</button>

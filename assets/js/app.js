@@ -7741,6 +7741,7 @@ function setupReportDateFilter({ onChange } = {}) {
   const endInput = container.querySelector('[data-date-filter-end]');
   const applyButton = container.querySelector('[data-date-filter-apply]');
   const resetButton = container.querySelector('[data-date-filter-reset]');
+  const closeButton = container.querySelector('[data-date-filter-close]');
   const hiddenKeyInput = container.querySelector('#report-period-filter');
   const hiddenStartInput = container.querySelector('#report-period-start');
   const hiddenEndInput = container.querySelector('#report-period-end');
@@ -7901,6 +7902,15 @@ function setupReportDateFilter({ onChange } = {}) {
       applySelection({ key: preset.key, start: range?.start ?? null, end: range?.end ?? null });
     });
   });
+
+  if (closeButton) {
+    closeButton.addEventListener('click', () => {
+      closePopover();
+      if (trigger) {
+        trigger.focus();
+      }
+    });
+  }
 
   if (resetButton) {
     resetButton.addEventListener('click', () => {
