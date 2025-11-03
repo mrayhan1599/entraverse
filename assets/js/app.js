@@ -7752,49 +7752,63 @@ function setupReportDateFilter({ onChange } = {}) {
     end: hiddenEndInput?.value || null
   };
 
-  let currentSelection = {
-    key: initialSelection.key,
-    start: normalizeDateFilterValue(initialSelection.start),
-    end: normalizeDateFilterValue(initialSelection.end)
+  const normalizeSelection = selection => {
+    if (!selection) {
+      return { key: 'all', start: null, end: null };
+    }
+
+    const key = selection.key ?? 'custom';
+    let start = normalizeDateFilterValue(selection.start ?? selection.startDate);
+    let end = normalizeDateFilterValue(selection.end ?? selection.endDate);
+
+    if (key === 'all') {
+      start = null;
+      end = null;
+    }
+
+    return { key, start, end };
   };
 
-  const updateHiddenInputs = () => {
+  let appliedSelection = normalizeSelection(initialSelection);
+  let draftSelection = { ...appliedSelection };
+
+  const updateHiddenInputs = selection => {
     if (hiddenKeyInput) {
-      hiddenKeyInput.value = currentSelection.key ?? 'custom';
+      hiddenKeyInput.value = selection.key ?? 'custom';
     }
     if (hiddenStartInput) {
-      hiddenStartInput.value = currentSelection.start ?? '';
+      hiddenStartInput.value = selection.start ?? '';
     }
     if (hiddenEndInput) {
-      hiddenEndInput.value = currentSelection.end ?? '';
+      hiddenEndInput.value = selection.end ?? '';
     }
   };
 
-  const updateQuickButtons = () => {
+  const updateQuickButtons = selection => {
     quickButtons.forEach(button => {
       const presetKey = button.dataset.dateFilterPreset;
-      button.classList.toggle('is-active', Boolean(presetKey) && presetKey === currentSelection.key);
+      button.classList.toggle('is-active', Boolean(presetKey) && presetKey === selection.key);
     });
   };
 
-  const updateInputs = () => {
+  const updateInputs = selection => {
     if (startInput) {
-      startInput.value = currentSelection.start ?? '';
+      startInput.value = selection.start ?? '';
     }
     if (endInput) {
-      endInput.value = currentSelection.end ?? '';
+      endInput.value = selection.end ?? '';
     }
   };
 
-  const updateLabel = () => {
+  const updateLabel = selection => {
     if (!labelElement) {
       return;
     }
 
-    const preset = getReportPeriodPreset(currentSelection.key);
-    const rangeText = formatDateRangeDisplay(currentSelection.start, currentSelection.end);
+    const preset = getReportPeriodPreset(selection.key);
+    const rangeText = formatDateRangeDisplay(selection.start, selection.end);
 
-    if (currentSelection.key === 'all' && !currentSelection.start && !currentSelection.end) {
+    if (selection.key === 'all' && !selection.start && !selection.end) {
       labelElement.textContent = preset?.label ?? 'Semua periode';
       return;
     }
@@ -7804,12 +7818,32 @@ function setupReportDateFilter({ onChange } = {}) {
       return;
     }
 
-    if (preset && !currentSelection.start && !currentSelection.end) {
+    if (preset && !selection.start && !selection.end) {
       labelElement.textContent = preset.label;
       return;
     }
 
     labelElement.textContent = rangeText || 'Periode kustom';
+  };
+
+  const setDraftSelection = selection => {
+    draftSelection = normalizeSelection(selection);
+    updateQuickButtons(draftSelection);
+    updateInputs(draftSelection);
+  };
+
+  const setAppliedSelection = (selection, { silent = false } = {}) => {
+    appliedSelection = normalizeSelection(selection);
+    updateHiddenInputs(appliedSelection);
+    updateLabel(appliedSelection);
+
+    if (!silent && typeof onChange === 'function') {
+      onChange({ ...appliedSelection });
+    }
+  };
+
+  const resetDraftToApplied = () => {
+    setDraftSelection(appliedSelection);
   };
 
   const closePopover = () => {
@@ -7820,6 +7854,7 @@ function setupReportDateFilter({ onChange } = {}) {
     if (trigger) {
       trigger.setAttribute('aria-expanded', 'false');
     }
+    resetDraftToApplied();
   };
 
   const openPopover = () => {
@@ -7830,41 +7865,17 @@ function setupReportDateFilter({ onChange } = {}) {
     if (trigger) {
       trigger.setAttribute('aria-expanded', 'true');
     }
+    resetDraftToApplied();
   };
 
-  const applySelection = (nextSelection, { silent = false, close = true } = {}) => {
-    const key = nextSelection.key ?? 'custom';
-    let start = normalizeDateFilterValue(nextSelection.start ?? nextSelection.startDate);
-    let end = normalizeDateFilterValue(nextSelection.end ?? nextSelection.endDate);
-
-    if (key === 'all') {
-      start = null;
-      end = null;
-    } else if (!start && !end) {
-      const preset = getReportPeriodPreset(key);
-      if (preset && typeof preset.getRange === 'function') {
-        const presetRange = preset.getRange(new Date());
-        start = normalizeDateFilterValue(presetRange?.start);
-        end = normalizeDateFilterValue(presetRange?.end);
-      }
-    }
-
-    currentSelection = { key, start, end };
-    updateHiddenInputs();
-    updateQuickButtons();
-    updateInputs();
-    updateLabel();
-
+  const applyDraftSelection = ({ close = true, silent = false } = {}) => {
+    setAppliedSelection(draftSelection, { silent });
     if (close) {
       closePopover();
     }
-
-    if (!silent && typeof onChange === 'function') {
-      onChange({ ...currentSelection });
-    }
   };
 
-  const getSelection = () => ({ ...currentSelection });
+  const getSelection = () => ({ ...appliedSelection });
 
   if (trigger) {
     trigger.addEventListener('click', () => {
@@ -7899,7 +7910,7 @@ function setupReportDateFilter({ onChange } = {}) {
         return;
       }
       const range = typeof preset.getRange === 'function' ? preset.getRange(new Date()) : { start: null, end: null };
-      applySelection({ key: preset.key, start: range?.start ?? null, end: range?.end ?? null });
+      setDraftSelection({ key: preset.key, start: range?.start ?? null, end: range?.end ?? null });
     });
   });
 
@@ -7914,18 +7925,18 @@ function setupReportDateFilter({ onChange } = {}) {
 
   if (resetButton) {
     resetButton.addEventListener('click', () => {
-      if (startInput) {
-        startInput.value = '';
-      }
-      if (endInput) {
-        endInput.value = '';
-      }
-      applySelection({ key: 'all', start: null, end: null });
+      setDraftSelection({ key: 'all', start: null, end: null });
+      applyDraftSelection({ close: false });
     });
   }
 
   if (applyButton) {
     applyButton.addEventListener('click', () => {
+      if (draftSelection.key !== 'custom') {
+        applyDraftSelection();
+        return;
+      }
+
       const startValue = startInput?.value || '';
       const endValue = endInput?.value || '';
 
@@ -7947,7 +7958,8 @@ function setupReportDateFilter({ onChange } = {}) {
         return;
       }
 
-      applySelection({ key: 'custom', start: startValue, end: endValue });
+      setDraftSelection({ key: 'custom', start: startValue, end: endValue });
+      applyDraftSelection();
     });
   }
 
@@ -7956,19 +7968,21 @@ function setupReportDateFilter({ onChange } = {}) {
       return;
     }
     input.addEventListener('input', () => {
-      quickButtons.forEach(button => button.classList.remove('is-active'));
+      const startValue = startInput?.value || '';
+      const endValue = endInput?.value || '';
+      setDraftSelection({ key: 'custom', start: startValue, end: endValue });
     });
   });
 
-  applySelection(currentSelection, { silent: true, close: false });
-  updateHiddenInputs();
-  updateQuickButtons();
-  updateInputs();
-  updateLabel();
+  setAppliedSelection(appliedSelection, { silent: true });
+  setDraftSelection(appliedSelection);
 
   return {
     getSelection,
-    setSelection: (selection, options) => applySelection(selection, options)
+    setSelection: (selection, options) => {
+      setDraftSelection(selection);
+      applyDraftSelection(options);
+    }
   };
 }
 

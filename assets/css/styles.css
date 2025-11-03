@@ -1736,13 +1736,16 @@ a.action-icon {
 }
 
 .date-range-filter__custom-inputs {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .date-range-filter__input {
   display: flex;
+  flex: 1 1 140px;
+  max-width: 150px;
+  min-width: 120px;
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
@@ -1757,6 +1760,7 @@ a.action-icon {
   font-family: inherit;
   font-size: 13px;
   padding: 8px 10px;
+  width: 100%;
 }
 
 .date-range-filter__input input[type="date"]:focus-visible {
