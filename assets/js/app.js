@@ -435,8 +435,6 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
 let mekariIntegrationCache = null;
-let reportProfitLossOverride = null;
-let reportProfitLossAbortController = null;
 let reportRenderState = { filtered: [], reports: [] };
 
 const SALES_REPORT_SYNC_STATUS = new Set(['on-track', 'manual', 'scheduled']);
@@ -7339,208 +7337,360 @@ function getProfitLossDateRange({ periodKey = 'all', startDate = null, endDate =
   return { startDate: null, endDate: null, period: periodKey };
 }
 
-function buildMekariProfitLossUrl(integration, params = {}) {
-  if (!integration) {
-    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
-  }
+const DEFAULT_PNL_SUMMARY = Object.freeze({
+  revenue: 0,
+  cogs: 0,
+  gross_profit: 0,
+  opex: 0,
+  net_income: 0
+});
 
-  const baseUrl = (integration.apiBaseUrl ?? '').toString().trim();
-  const authorizationPath = (integration.authorizationPath ?? '').toString().trim();
-  if (!baseUrl || !authorizationPath) {
-    throw new Error('URL API Mekari Jurnal belum lengkap.');
-  }
-
-  const normalizedBase = baseUrl.replace(/\/+$/, '');
-  const normalizedPath = authorizationPath.replace(/^\/+|\/+$/g, '');
-
-  let endpoint;
-  try {
-    endpoint = new URL(`${normalizedBase}/${normalizedPath}/api/v1/profit_and_loss`);
-  } catch (error) {
-    throw new Error('URL API Mekari Jurnal tidak valid.');
-  }
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== '') {
-      endpoint.searchParams.set(key, value);
-    }
-  });
-
-  return endpoint.toString();
-}
-
-async function fetchMekariProfitLoss(integration, params = {}) {
-  const url = buildMekariProfitLossUrl(integration, params);
-  const token = (integration.accessToken ?? '').toString().trim();
-
-  if (reportProfitLossAbortController) {
-    reportProfitLossAbortController.abort();
-  }
-
-  reportProfitLossAbortController = new AbortController();
-
-  const headers = { Accept: 'application/json' };
-  if (token) {
-    headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-    headers.apiKey = token;
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: reportProfitLossAbortController.signal
-    });
-
-    if (!response.ok) {
-      let message = `Permintaan API Mekari gagal (${response.status})`;
-      try {
-        const errorBody = await response.json();
-        message = errorBody?.message ?? errorBody?.error ?? message;
-      } catch (error) {
-        // Abaikan kegagalan parsing error body.
-      }
-
-      const error = new Error(message);
-      error.status = response.status;
-      throw error;
-    }
-
-    const data = await response.json();
-    return { data, syncedAt: new Date().toISOString() };
-  } finally {
-    reportProfitLossAbortController = null;
-  }
-}
-
-function normalizeProfitLossMetrics(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-
-  const profitLoss =
-    payload.profit_and_loss ??
-    payload.data?.profit_and_loss ??
-    payload.results?.profit_and_loss ??
+function getSupabaseFunctionsUrl() {
+  const globalEnv = typeof window !== 'undefined' ? window : globalThis;
+  const fromEnv =
+    globalEnv?.VITE_SUPABASE_FUNCTIONS_URL ??
+    globalEnv?.__env__?.VITE_SUPABASE_FUNCTIONS_URL ??
     null;
 
-  if (!profitLoss || typeof profitLoss !== 'object') {
-    return null;
+  let base = fromEnv ?? window.entraverseConfig?.supabase?.functionsUrl ?? null;
+
+  if (!base) {
+    const supabaseUrl = window.entraverseConfig?.supabase?.url ?? '';
+    if (supabaseUrl) {
+      base = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1`;
+    }
   }
 
-  const toNumber = value => {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
+  if (!base) {
+    throw new Error('Supabase Functions URL belum dikonfigurasi.');
+  }
+
+  return base.replace(/\/+$/, '');
+}
+
+async function fetchPnL({ start, end } = {}) {
+  const qs = new URLSearchParams();
+  if (start) qs.set('start_date', start);
+  if (end) qs.set('end_date', end);
+
+  const baseUrl = getSupabaseFunctionsUrl();
+  const query = qs.toString();
+  const url = `${baseUrl}/jurnal-pnl${query ? `?${query}` : ''}`;
+
+  const response = await fetch(url, { method: 'GET' });
+  let body = null;
+
+  try {
+    body = await response.json();
+  } catch (error) {
+    body = null;
+  }
+
+  if (!response.ok) {
+    const message = body?.error || `Gagal memanggil fungsi jurnal-pnl (status ${response.status}).`;
+    const err = new Error(message);
+    err.status = response.status;
+    err.body = body;
+    throw err;
+  }
+
+  if (!body) {
+    throw new Error('Respons fungsi jurnal-pnl tidak valid.');
+  }
+
+  if (!body.ok) {
+    const err = new Error(body.error || 'Failed to fetch P&L');
+    err.body = body;
+    throw err;
+  }
+
+  return body.data;
+}
+
+function pnlNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  const normalized = String(value ?? 0)
+    .replace(/[\s,]/g, '')
+    .replace(/[^\d.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function flattenPnLLines(payload) {
+  const candidates = [];
+  if (Array.isArray(payload)) candidates.push(...payload);
+  if (payload?.data && Array.isArray(payload.data)) candidates.push(...payload.data);
+  if (payload?.lines && Array.isArray(payload.lines)) candidates.push(...payload.lines);
+  if (payload?.report && Array.isArray(payload.report)) candidates.push(...payload.report);
+  if (payload?.results && Array.isArray(payload.results)) candidates.push(...payload.results);
+  if (payload?.items && Array.isArray(payload.items)) candidates.push(...payload.items);
+
+  const out = [];
+
+  const visit = node => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (typeof node !== 'object') {
+      return;
+    }
+
+    const name =
+      node.name ??
+      node.account_name ??
+      node.title ??
+      node.label ??
+      node.account ??
+      null;
+    const amount = pnlNumber(
+      node.amount ??
+      node.value ??
+      node.total ??
+      node.balance ??
+      node.net ??
+      node.sum
+    );
+
+    if (name !== null && typeof name !== 'undefined') {
+      out.push({ name: String(name), amount });
+    }
+
+    if (Array.isArray(node.children)) node.children.forEach(visit);
+    if (Array.isArray(node.items)) node.items.forEach(visit);
+    if (Array.isArray(node.lines)) node.lines.forEach(visit);
   };
 
-  const primaryIncome = toNumber(profitLoss.primary_income?.total ?? profitLoss.primary_income?.amount);
-  const otherIncome = toNumber(profitLoss.other_income?.total ?? profitLoss.other_income?.amount);
-  const totalIncome = primaryIncome + otherIncome;
-  const costOfGoods = toNumber(
-    profitLoss.cost_of_good_sold?.total ?? profitLoss.cost_of_good_sold?.amount
-  );
-  const grossProfit = toNumber(
-    profitLoss.gross_profit?.total ?? profitLoss.gross_profit?.amount ?? totalIncome - costOfGoods
-  );
-  const expenses = toNumber(profitLoss.expense?.total ?? profitLoss.expense?.amount);
-  const netIncome = toNumber(
-    profitLoss.net_income?.amount ?? profitLoss.net_income?.total ?? grossProfit - expenses
-  );
+  if (candidates.length) {
+    visit(candidates);
+  } else if (payload && typeof payload === 'object') {
+    visit(payload);
+  }
 
-  const margin = totalIncome !== 0 ? grossProfit / Math.abs(totalIncome) : 0;
-  const netSales = totalIncome - expenses;
+  return out;
+}
+
+function extractAggregatedPnL(payload) {
+  const queue = [payload];
+  const keyMap = {
+    revenue: ['totalrevenue', 'revenue', 'pendapatan'],
+    cogs: ['totalcogs', 'cogs', 'costofgoodssold', 'costofgoods', 'hpp'],
+    gross_profit: ['grossprofit', 'labakotor'],
+    opex: ['operatingexpenses', 'operatingexpense', 'bebanoperasional', 'bebanusaha', 'opex'],
+    tax: ['tax', 'pajak', 'taxexpense'],
+    net_income: ['netincome', 'lababersih', 'profit']
+  };
+
+  const normalizeKey = key => key.toString().toLowerCase().replace(/[\s_\-]/g, '');
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    const normalized = {};
+    for (const [key, value] of Object.entries(current)) {
+      normalized[normalizeKey(key)] = value;
+    }
+
+    const hasAggregate = Object.values(keyMap).some(patterns =>
+      patterns.some(pattern => typeof normalized[pattern] !== 'undefined')
+    );
+
+    if (hasAggregate) {
+      const aggregate = {};
+      for (const [bucket, patterns] of Object.entries(keyMap)) {
+        for (const pattern of patterns) {
+          if (typeof normalized[pattern] !== 'undefined') {
+            aggregate[bucket] = pnlNumber(normalized[pattern]);
+            break;
+          }
+        }
+      }
+
+      if (Object.keys(aggregate).length) {
+        const revenue = aggregate.revenue ?? 0;
+        const rawCogs = aggregate.cogs ?? 0;
+        const rawOpex = aggregate.opex ?? 0;
+        const rawTax = aggregate.tax ?? 0;
+        const gross =
+          typeof aggregate.gross_profit === 'number'
+            ? aggregate.gross_profit
+            : revenue + (rawCogs <= 0 ? rawCogs : -Math.abs(rawCogs));
+        const cogs = rawCogs <= 0 ? rawCogs : -Math.abs(rawCogs);
+        const opex = rawOpex <= 0 ? rawOpex : -Math.abs(rawOpex);
+        const tax = rawTax <= 0 ? rawTax : -Math.abs(rawTax);
+        const net =
+          typeof aggregate.net_income === 'number'
+            ? aggregate.net_income
+            : gross + opex + tax;
+
+        return {
+          revenue,
+          cogs,
+          gross_profit: gross,
+          opex,
+          net_income: net
+        };
+      }
+    }
+
+    Object.values(current).forEach(value => {
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    });
+  }
+
+  return null;
+}
+
+function classifyPnLBuckets(lines) {
+  const patterns = {
+    revenue: /(penjualan|pendapatan|revenue|sales|income(?!.*other))/i,
+    cogs: /(hpp|beban pokok|cost of goods|cogs)/i,
+    opex: /(beban (usaha|operasional)|operating expense|selling|general|administrative|sg&a)/i,
+    other_income: /(pendapatan lain|other income|non-?operating income)/i,
+    other_expense: /(beban lain|other expense|non-?operating expense)/i,
+    tax: /(pajak|tax)/i
+  };
+
+  const sums = {
+    revenue: 0,
+    cogs: 0,
+    opex: 0,
+    other_income: 0,
+    other_expense: 0,
+    tax: 0
+  };
+
+  for (const line of lines) {
+    const name = line.name ?? '';
+    const amount = pnlNumber(line.amount);
+    if (!name) continue;
+
+    if (patterns.cogs.test(name)) {
+      sums.cogs += amount;
+    } else if (patterns.opex.test(name)) {
+      sums.opex += amount;
+    } else if (patterns.other_expense.test(name)) {
+      sums.other_expense += amount;
+    } else if (patterns.other_income.test(name)) {
+      sums.other_income += amount;
+    } else if (patterns.tax.test(name)) {
+      sums.tax += amount;
+    } else if (patterns.revenue.test(name)) {
+      sums.revenue += amount;
+    }
+  }
+
+  const gross_profit = sums.revenue - Math.abs(sums.cogs);
+  const other_net = sums.other_income - Math.abs(sums.other_expense);
+  const pretax = gross_profit - Math.abs(sums.opex) + other_net;
+  const net_income = pretax - Math.abs(sums.tax);
 
   return {
-    totalIncome,
-    netSales,
-    grossProfit,
-    margin,
-    netIncome,
-    expenses,
-    costOfGoods,
-    raw: profitLoss
+    revenue: sums.revenue,
+    cogs: -Math.abs(sums.cogs),
+    gross_profit,
+    opex: -Math.abs(sums.opex),
+    net_income
   };
 }
 
-async function requestProfitLossUpdate({
-  periodKey = 'all',
-  startDate = null,
-  endDate = null,
-  showToastOnSuccess = false,
-  showToastOnError = false,
-  forceRefreshIntegration = false
-} = {}) {
-  try {
-    const integration = await resolveMekariIntegration({ refresh: forceRefreshIntegration });
-    if (!integration) {
-      reportProfitLossOverride = null;
-      if (showToastOnError) {
-        toast.show('Integrasi Mekari Jurnal belum dikonfigurasi.');
-      }
-      updateSalesReportMetrics(reportRenderState.filtered, reportRenderState.reports, reportProfitLossOverride);
-      return { success: false, reason: 'missing-integration' };
-    }
-
-    if (!integration.apiBaseUrl || !integration.authorizationPath || !integration.accessToken) {
-      reportProfitLossOverride = null;
-      if (showToastOnError) {
-        toast.show('Lengkapi API URL, Authorization Path, dan Token Mekari Jurnal terlebih dahulu.');
-      }
-      updateSalesReportMetrics(reportRenderState.filtered, reportRenderState.reports, reportProfitLossOverride);
-      return { success: false, reason: 'incomplete-credentials' };
-    }
-
-    const range = getProfitLossDateRange({ periodKey, startDate, endDate });
-    const params = {};
-    if (range.startDate) {
-      params.start_date = range.startDate;
-    }
-    if (range.endDate) {
-      params.end_date = range.endDate;
-    }
-    if (range.startDate || range.endDate) {
-      params.period = 'custom';
-    }
-
-    const { data, syncedAt } = await fetchMekariProfitLoss(integration, params);
-    const metrics = normalizeProfitLossMetrics(data);
-    if (!metrics) {
-      reportProfitLossOverride = null;
-      updateSalesReportMetrics(reportRenderState.filtered, reportRenderState.reports, reportProfitLossOverride);
-      if (showToastOnError) {
-        toast.show('Format data profit & loss Mekari tidak dikenali.');
-      }
-      return { success: false, reason: 'invalid-payload' };
-    }
-
-    reportProfitLossOverride = { ...metrics, syncedAt };
-    updateSalesReportMetrics(reportRenderState.filtered, reportRenderState.reports, reportProfitLossOverride);
-    await markMekariIntegrationSynced(integration, syncedAt);
-
-    if (showToastOnSuccess) {
-      toast.show('Data profit & loss Mekari berhasil diperbarui.');
-    }
-
-    return { success: true, metrics: reportProfitLossOverride };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { success: false, reason: 'aborted' };
-    }
-
-    console.error('Gagal mengambil data profit & loss Mekari.', error);
-    reportProfitLossOverride = null;
-    updateSalesReportMetrics(reportRenderState.filtered, reportRenderState.reports, reportProfitLossOverride);
-
-    if (showToastOnError) {
-      if (error?.status === 401) {
-        toast.show('Token Mekari Jurnal tidak valid atau telah kedaluwarsa.');
-      } else {
-        toast.show(error?.message ?? 'Gagal mengambil data profit & loss Mekari.');
-      }
-    }
-
-    return { success: false, reason: 'request-failed', error };
+function mapProfitAndLossPayload(payload) {
+  const aggregate = extractAggregatedPnL(payload);
+  if (aggregate) {
+    return {
+      revenue: aggregate.revenue ?? 0,
+      cogs: aggregate.cogs ?? 0,
+      gross_profit: aggregate.gross_profit ?? (aggregate.revenue ?? 0) + (aggregate.cogs ?? 0),
+      opex: aggregate.opex ?? 0,
+      net_income: aggregate.net_income ?? 0
+    };
   }
+
+  const lines = flattenPnLLines(payload);
+  if (!lines.length) {
+    return { ...DEFAULT_PNL_SUMMARY };
+  }
+
+  return classifyPnLBuckets(lines);
+}
+
+function createProfitLossSummaryUI() {
+  const container = document.querySelector('[data-pnl-summary]');
+  if (!container) {
+    return {
+      setLoading() {},
+      setCards() {},
+      setLastSync() {},
+      setError() {}
+    };
+  }
+
+  const valueElements = {
+    revenue: container.querySelector('[data-pnl-value="revenue"]'),
+    cogs: container.querySelector('[data-pnl-value="cogs"]'),
+    gross_profit: container.querySelector('[data-pnl-value="gross_profit"]'),
+    opex: container.querySelector('[data-pnl-value="opex"]'),
+    net_income: container.querySelector('[data-pnl-value="net_income"]')
+  };
+
+  const errorElement = container.querySelector('[data-pnl-error]');
+  const lastSyncElement = container.querySelector('[data-pnl-last-sync]');
+
+  const setCards = (values = DEFAULT_PNL_SUMMARY) => {
+    const merged = { ...DEFAULT_PNL_SUMMARY, ...values };
+    Object.entries(valueElements).forEach(([key, element]) => {
+      if (!element) return;
+      const value = merged[key];
+      element.textContent = formatCurrency(value);
+    });
+  };
+
+  const setLastSync = value => {
+    if (!lastSyncElement) return;
+    if (!value) {
+      lastSyncElement.textContent = '–';
+      return;
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      lastSyncElement.textContent = '–';
+      return;
+    }
+    const formatted = formatIntegrationSyncTime(date.toISOString());
+    lastSyncElement.textContent = formatted && formatted !== 'Belum pernah' ? formatted : '–';
+  };
+
+  const setError = message => {
+    if (!errorElement) return;
+    if (message) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+    } else {
+      errorElement.hidden = true;
+    }
+  };
+
+  return {
+    setLoading: isLoading => {
+      container.classList.toggle('is-loading', Boolean(isLoading));
+    },
+    setCards,
+    setLastSync,
+    setError
+  };
 }
 
 function getReportStatusMeta(status) {
@@ -7555,22 +7705,14 @@ function getReportStatusMeta(status) {
   }
 }
 
-function updateSalesReportMetrics(filtered = [], allReports = [], overrideMetrics = null) {
-  const totalGross = overrideMetrics
-    ? Number(overrideMetrics.totalIncome) || 0
-    : filtered.reduce((sum, report) => sum + (Number(report.grossSales) || 0), 0);
-  const totalNet = overrideMetrics
-    ? Number(overrideMetrics.netSales) || 0
-    : filtered.reduce((sum, report) => sum + (Number(report.netSales) || 0), 0);
-  const totalProfit = overrideMetrics
-    ? Number(overrideMetrics.grossProfit) || 0
-    : filtered.reduce((sum, report) => sum + (Number(report.grossProfit) || 0), 0);
+function updateSalesReportMetrics(filtered = [], allReports = []) {
+  const totalGross = filtered.reduce((sum, report) => sum + (Number(report.grossSales) || 0), 0);
+  const totalNet = filtered.reduce((sum, report) => sum + (Number(report.netSales) || 0), 0);
+  const totalProfit = filtered.reduce((sum, report) => sum + (Number(report.grossProfit) || 0), 0);
   const totalUnits = filtered.reduce((sum, report) => sum + (Number(report.unitsSold) || 0), 0);
-  const averageMargin = overrideMetrics
-    ? Number(overrideMetrics.margin) || 0
-    : filtered.length
-      ? filtered.reduce((sum, report) => sum + (Number(report.margin) || 0), 0) / filtered.length
-      : 0;
+  const averageMargin = filtered.length
+    ? filtered.reduce((sum, report) => sum + (Number(report.margin) || 0), 0) / filtered.length
+    : 0;
 
   const setText = (id, value) => {
     const element = document.getElementById(id);
@@ -7587,34 +7729,29 @@ function updateSalesReportMetrics(filtered = [], allReports = [], overrideMetric
 
   const indicator = document.querySelector('.report-sync-indicator');
   if (indicator) {
-    const hasHealthySync = overrideMetrics
-      ? true
-      : allReports.some(report => report.syncStatus === 'on-track' || report.syncStatus === 'scheduled');
+    const hasHealthySync = allReports.some(
+      report => report.syncStatus === 'on-track' || report.syncStatus === 'scheduled'
+    );
     indicator.classList.toggle('is-online', hasHealthySync);
   }
 
   const lastSyncElement = document.getElementById('report-last-sync');
   if (lastSyncElement) {
-    const overrideSync = overrideMetrics?.syncedAt ?? null;
-    if (overrideSync) {
-      lastSyncElement.textContent = formatIntegrationSyncTime(overrideSync);
-    } else {
-      const latest = allReports.reduce((latestReport, report) => {
-        if (!report?.lastSyncAt) {
-          return latestReport;
-        }
-        const date = new Date(report.lastSyncAt);
-        if (Number.isNaN(date.getTime())) {
-          return latestReport;
-        }
-        if (!latestReport || date > latestReport.date) {
-          return { date, value: report.lastSyncAt };
-        }
+    const latest = allReports.reduce((latestReport, report) => {
+      if (!report?.lastSyncAt) {
         return latestReport;
-      }, null);
+      }
+      const date = new Date(report.lastSyncAt);
+      if (Number.isNaN(date.getTime())) {
+        return latestReport;
+      }
+      if (!latestReport || date > latestReport.date) {
+        return { date, value: report.lastSyncAt };
+      }
+      return latestReport;
+    }, null);
 
-      lastSyncElement.textContent = latest ? formatIntegrationSyncTime(latest.value) : 'Belum pernah';
-    }
+    lastSyncElement.textContent = latest ? formatIntegrationSyncTime(latest.value) : 'Belum pernah';
   }
 }
 
@@ -8074,7 +8211,7 @@ function renderSalesReports({
   }
 
   reportRenderState = { filtered, reports, period: { key: period, startDate, endDate } };
-  updateSalesReportMetrics(filtered, reports, reportProfitLossOverride);
+  updateSalesReportMetrics(filtered, reports);
 
   return reportRenderState;
 }
@@ -8394,6 +8531,14 @@ async function initReportsPage() {
 
   await resolveMekariIntegration();
 
+  const pnlUI = createProfitLossSummaryUI();
+  const pnlState = {
+    lastSignature: null,
+    hasData: false,
+    loading: false,
+    requestSignature: null
+  };
+
   let dateFilter = null;
 
   const getPeriodSelection = () => {
@@ -8420,7 +8565,73 @@ async function initReportsPage() {
   };
 
   let currentPeriodSelection = getPeriodSelection();
-  let lastRequestedPeriodSignature = null;
+
+  const handleSyncPnL = async ({
+    selection = getPeriodSelection(),
+    showToastOnSuccess = false,
+    showToastOnError = false,
+    force = false
+  } = {}) => {
+    const signature = getPeriodSelectionSignature(selection);
+
+    if (!force && signature === pnlState.lastSignature && pnlState.hasData) {
+      return { success: true, skipped: true };
+    }
+
+    if (!force && pnlState.loading && pnlState.requestSignature === signature) {
+      return { success: false, reason: 'in-progress' };
+    }
+
+    pnlState.loading = true;
+    pnlState.requestSignature = signature;
+    pnlUI.setLoading(true);
+    pnlUI.setError(null);
+
+    try {
+      const payload = await fetchPnL({ start: selection.start, end: selection.end });
+      const summary = mapProfitAndLossPayload(payload);
+
+      pnlUI.setCards(summary);
+      const syncedAt = new Date();
+      pnlUI.setLastSync(syncedAt);
+      pnlUI.setError(null);
+
+      pnlState.lastSignature = signature;
+      pnlState.hasData = true;
+
+      try {
+        const integration = await resolveMekariIntegration();
+        if (integration) {
+          await markMekariIntegrationSynced(integration, syncedAt.toISOString());
+        }
+      } catch (syncError) {
+        console.warn('Gagal memperbarui status sinkronisasi Mekari.', syncError);
+      }
+
+      if (showToastOnSuccess) {
+        toast.show('Data profit & loss Mekari berhasil diperbarui.');
+      }
+
+      return { success: true, summary, syncedAt };
+    } catch (error) {
+      console.error('Gagal sinkronisasi P&L Mekari.', error);
+      pnlUI.setCards(DEFAULT_PNL_SUMMARY);
+      pnlUI.setLastSync(null);
+      pnlUI.setError('Gagal sinkronisasi P&L dari Mekari Jurnal.');
+      pnlState.hasData = false;
+      pnlState.lastSignature = null;
+
+      if (showToastOnError) {
+        toast.show('Gagal sinkronisasi P&L dari Mekari Jurnal.');
+      }
+
+      return { success: false, error };
+    } finally {
+      pnlState.loading = false;
+      pnlState.requestSignature = null;
+      pnlUI.setLoading(false);
+    }
+  };
 
   const applyFilters = ({ triggerProfitLoss = true } = {}) => {
     const searchInput = document.getElementById('search-input');
@@ -8442,20 +8653,15 @@ async function initReportsPage() {
       return;
     }
 
+    updateSalesReportMetrics(state.filtered, state.reports);
+
     if (triggerProfitLoss) {
       const signature = getPeriodSelectionSignature(currentPeriodSelection);
-      if (signature !== lastRequestedPeriodSignature || !reportProfitLossOverride) {
-        lastRequestedPeriodSignature = signature;
-        requestProfitLossUpdate({
-          periodKey: currentPeriodSelection.key,
-          startDate: currentPeriodSelection.start,
-          endDate: currentPeriodSelection.end
+      if (signature !== pnlState.lastSignature || !pnlState.hasData) {
+        handleSyncPnL({ selection: currentPeriodSelection }).catch(error => {
+          console.error('Gagal memperbarui ringkasan P&L.', error);
         });
-      } else {
-        updateSalesReportMetrics(state.filtered, state.reports, reportProfitLossOverride);
       }
-    } else {
-      updateSalesReportMetrics(state.filtered, state.reports, reportProfitLossOverride);
     }
   };
 
@@ -8492,23 +8698,19 @@ async function initReportsPage() {
       }
 
       const selection = getPeriodSelection();
-      const signature = getPeriodSelectionSignature(selection);
 
       syncButton.disabled = true;
       syncButton.classList.add('is-loading');
       setButtonLabel(loadingLabel);
 
       try {
-        const result = await requestProfitLossUpdate({
-          periodKey: selection.key,
-          startDate: selection.start,
-          endDate: selection.end,
+        const result = await handleSyncPnL({
+          selection,
           showToastOnSuccess: true,
           showToastOnError: true,
-          forceRefreshIntegration: true
+          force: true
         });
         if (result?.success) {
-          lastRequestedPeriodSignature = signature;
           currentPeriodSelection = selection;
         }
       } finally {
