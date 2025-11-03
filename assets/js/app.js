@@ -7377,7 +7377,14 @@ async function fetchPnL({ start, end } = {}) {
   const query = qs.toString();
   const url = `${baseUrl}/jurnal-pnl${query ? `?${query}` : ''}`;
 
-  const response = await fetch(url, { method: 'GET' });
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET' });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke fungsi jurnal-pnl.';
+    throw new Error(`[network • -] ${message}`);
+  }
+
   let body = null;
 
   try {
@@ -7386,91 +7393,59 @@ async function fetchPnL({ start, end } = {}) {
     body = null;
   }
 
-  if (!response.ok) {
-    const message = body?.error || `Gagal memanggil fungsi jurnal-pnl (status ${response.status}).`;
-    const err = new Error(message);
-    err.status = response.status;
-    err.body = body;
-    throw err;
-  }
-
   if (!body) {
-    throw new Error('Respons fungsi jurnal-pnl tidak valid.');
+    const statusText = response?.status ? ` (status ${response.status})` : '';
+    throw new Error(`Respons fungsi jurnal-pnl tidak valid${statusText}.`);
   }
 
   if (!body.ok) {
-    const err = new Error(body.error || 'Failed to fetch P&L');
-    err.body = body;
-    throw err;
+    const message =
+      body.response_excerpt || body.error || (body.status ? `status ${body.status}` : `status ${response.status}`);
+    const stage = body.stage ?? 'error';
+    const trace = body.trace_id ?? '-';
+    throw new Error(`[${stage} • ${trace}] ${message}`);
   }
 
   return body.data;
 }
 
-function pnlNumber(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
+const toNum = value => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
   }
-
-  const normalized = String(value ?? 0)
-    .replace(/[\s,]/g, '')
-    .replace(/[^\d.-]/g, '');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+  const numeric = Number(String(value ?? 0).replace(/[^\d\-\.]/g, ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+};
 
 function flattenPnLLines(payload) {
-  const candidates = [];
-  if (Array.isArray(payload)) candidates.push(...payload);
-  if (payload?.data && Array.isArray(payload.data)) candidates.push(...payload.data);
-  if (payload?.lines && Array.isArray(payload.lines)) candidates.push(...payload.lines);
-  if (payload?.report && Array.isArray(payload.report)) candidates.push(...payload.report);
-  if (payload?.results && Array.isArray(payload.results)) candidates.push(...payload.results);
-  if (payload?.items && Array.isArray(payload.items)) candidates.push(...payload.items);
-
   const out = [];
-
-  const visit = node => {
+  const crawl = node => {
     if (!node) return;
     if (Array.isArray(node)) {
-      node.forEach(visit);
+      node.forEach(crawl);
       return;
     }
+
     if (typeof node !== 'object') {
       return;
     }
 
-    const name =
-      node.name ??
-      node.account_name ??
-      node.title ??
-      node.label ??
-      node.account ??
-      null;
-    const amount = pnlNumber(
-      node.amount ??
-      node.value ??
-      node.total ??
-      node.balance ??
-      node.net ??
-      node.sum
-    );
-
-    if (name !== null && typeof name !== 'undefined') {
+    const name = node.name || node.account_name || node.title || node.label;
+    const amount = toNum(node.amount ?? node.value ?? node.total ?? node.balance ?? node.net ?? node.sum);
+    if (name != null) {
       out.push({ name: String(name), amount });
     }
 
-    if (Array.isArray(node.children)) node.children.forEach(visit);
-    if (Array.isArray(node.items)) node.items.forEach(visit);
-    if (Array.isArray(node.lines)) node.lines.forEach(visit);
+    if (Array.isArray(node.children)) node.children.forEach(crawl);
+    if (Array.isArray(node.items)) node.items.forEach(crawl);
+    if (Array.isArray(node.data)) node.data.forEach(crawl);
+    if (Array.isArray(node.lines)) node.lines.forEach(crawl);
+    if (Array.isArray(node.results)) node.results.forEach(crawl);
+    if (Array.isArray(node.sections)) node.sections.forEach(crawl);
+    if (node.report && Array.isArray(node.report)) node.report.forEach(crawl);
   };
 
-  if (candidates.length) {
-    visit(candidates);
-  } else if (payload && typeof payload === 'object') {
-    visit(payload);
-  }
-
+  crawl(payload);
   return out;
 }
 
@@ -7511,7 +7486,7 @@ function extractAggregatedPnL(payload) {
       for (const [bucket, patterns] of Object.entries(keyMap)) {
         for (const pattern of patterns) {
           if (typeof normalized[pattern] !== 'undefined') {
-            aggregate[bucket] = pnlNumber(normalized[pattern]);
+            aggregate[bucket] = toNum(normalized[pattern]);
             break;
           }
         }
@@ -7554,9 +7529,9 @@ function extractAggregatedPnL(payload) {
   return null;
 }
 
-function classifyPnLBuckets(lines) {
-  const patterns = {
-    revenue: /(penjualan|pendapatan|revenue|sales|income(?!.*other))/i,
+function toSummary(lines) {
+  const rx = {
+    revenue: /(penjualan|pendapatan(?!.*lain)|revenue|sales|income(?!.*other))/i,
     cogs: /(hpp|beban pokok|cost of goods|cogs)/i,
     opex: /(beban (usaha|operasional)|operating expense|selling|general|administrative|sg&a)/i,
     other_income: /(pendapatan lain|other income|non-?operating income)/i,
@@ -7564,33 +7539,16 @@ function classifyPnLBuckets(lines) {
     tax: /(pajak|tax)/i
   };
 
-  const sums = {
-    revenue: 0,
-    cogs: 0,
-    opex: 0,
-    other_income: 0,
-    other_expense: 0,
-    tax: 0
-  };
+  const sums = { revenue: 0, cogs: 0, opex: 0, other_income: 0, other_expense: 0, tax: 0 };
 
-  for (const line of lines) {
-    const name = line.name ?? '';
-    const amount = pnlNumber(line.amount);
+  for (const { name, amount } of lines) {
     if (!name) continue;
-
-    if (patterns.cogs.test(name)) {
-      sums.cogs += amount;
-    } else if (patterns.opex.test(name)) {
-      sums.opex += amount;
-    } else if (patterns.other_expense.test(name)) {
-      sums.other_expense += amount;
-    } else if (patterns.other_income.test(name)) {
-      sums.other_income += amount;
-    } else if (patterns.tax.test(name)) {
-      sums.tax += amount;
-    } else if (patterns.revenue.test(name)) {
-      sums.revenue += amount;
-    }
+    if (rx.cogs.test(name)) sums.cogs += amount;
+    else if (rx.opex.test(name)) sums.opex += amount;
+    else if (rx.other_expense.test(name)) sums.other_expense += amount;
+    else if (rx.other_income.test(name)) sums.other_income += amount;
+    else if (rx.tax.test(name)) sums.tax += amount;
+    else if (rx.revenue.test(name)) sums.revenue += amount;
   }
 
   const gross_profit = sums.revenue - Math.abs(sums.cogs);
@@ -7624,7 +7582,7 @@ function mapProfitAndLossPayload(payload) {
     return { ...DEFAULT_PNL_SUMMARY };
   }
 
-  return classifyPnLBuckets(lines);
+  return toSummary(lines);
 }
 
 function createProfitLossSummaryUI() {
@@ -8617,12 +8575,13 @@ async function initReportsPage() {
       console.error('Gagal sinkronisasi P&L Mekari.', error);
       pnlUI.setCards(DEFAULT_PNL_SUMMARY);
       pnlUI.setLastSync(null);
-      pnlUI.setError('Gagal sinkronisasi P&L dari Mekari Jurnal.');
+      const message = error?.message ? String(error.message) : 'Gagal sinkronisasi P&L dari Mekari Jurnal.';
+      pnlUI.setError(message);
       pnlState.hasData = false;
       pnlState.lastSignature = null;
 
       if (showToastOnError) {
-        toast.show('Gagal sinkronisasi P&L dari Mekari Jurnal.');
+        toast.show(message);
       }
 
       return { success: false, error };
