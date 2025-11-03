@@ -243,6 +243,43 @@
           </div>
         </div>
       </section>
+      <section class="card report-pnl" data-pnl-summary>
+        <header class="card-header">
+          <div>
+            <h2>Ringkasan Laba Rugi</h2>
+            <p class="card-subtitle">Pantau performa bisnis dari data Profit &amp; Loss Mekari Jurnal.</p>
+          </div>
+          <div class="report-pnl__sync" role="status" aria-live="polite">
+            <span class="report-pnl__sync-label">Terakhir sinkron</span>
+            <strong class="report-pnl__sync-value" data-pnl-last-sync>–</strong>
+          </div>
+        </header>
+        <div class="report-pnl__error" data-pnl-error hidden>
+          Gagal sinkronisasi P&amp;L dari Mekari Jurnal.
+        </div>
+        <div class="report-pnl__cards">
+          <article class="report-pnl__card">
+            <span class="report-pnl__label">Pendapatan</span>
+            <strong class="report-pnl__value" data-pnl-value="revenue">Rp0</strong>
+          </article>
+          <article class="report-pnl__card">
+            <span class="report-pnl__label">HPP</span>
+            <strong class="report-pnl__value" data-pnl-value="cogs">Rp0</strong>
+          </article>
+          <article class="report-pnl__card">
+            <span class="report-pnl__label">Laba Kotor</span>
+            <strong class="report-pnl__value" data-pnl-value="gross_profit">Rp0</strong>
+          </article>
+          <article class="report-pnl__card">
+            <span class="report-pnl__label">Beban Operasional</span>
+            <strong class="report-pnl__value" data-pnl-value="opex">Rp0</strong>
+          </article>
+          <article class="report-pnl__card">
+            <span class="report-pnl__label">Laba Bersih</span>
+            <strong class="report-pnl__value" data-pnl-value="net_income">Rp0</strong>
+          </article>
+        </div>
+      </section>
       <section class="card">
         <header class="card-header">
           <div>
