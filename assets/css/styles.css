@@ -1655,6 +1655,10 @@ a.action-icon {
   gap: 16px;
 }
 
+.date-range-filter__popover[hidden] {
+  display: none !important;
+}
+
 .date-range-filter__section {
   display: flex;
   flex-direction: column;
