@@ -49,25 +49,20 @@ Deno.serve(async (req) => {
       }), { status:500, headers:{ "content-type":"application/json", ...CORS } })
     }
 
-    const normalizedAuth = authPath.replace(/^\/+|\/+$/g, "")
-    const defaultPath = "core/api/v1/profit_and_loss"
+    const defaultAuthPath = "partner/core"
+    const normalizedAuth = (authPath || defaultAuthPath).replace(/^\/+|\/+$/g, "")
 
-    let resolvedPath = defaultPath
+    let resolvedPath = normalizedAuth
+    const lower = normalizedAuth.toLowerCase()
 
-    if (normalizedAuth) {
-      const lower = normalizedAuth.toLowerCase()
-
-      if (/profit|loss/.test(lower)) {
-        resolvedPath = normalizedAuth
-      } else if (!/oauth|authorize/.test(lower)) {
-        const basePath = normalizedAuth.replace(/\/+$/, "")
-        if (/api\/v\d+/i.test(basePath)) {
-          resolvedPath = `${basePath}/profit_and_loss`
-        } else if (/api\b/i.test(basePath)) {
-          resolvedPath = `${basePath}/v1/profit_and_loss`
-        } else {
-          resolvedPath = `${basePath}/api/v1/profit_and_loss`
-        }
+    if (!/profit|loss/.test(lower) && !/oauth|authorize/.test(lower)) {
+      const basePath = normalizedAuth.replace(/\/+$/, "")
+      if (/api\/v\d+/i.test(basePath)) {
+        resolvedPath = `${basePath}/profit_and_loss`
+      } else if (/api\b/i.test(basePath)) {
+        resolvedPath = `${basePath}/v1/profit_and_loss`
+      } else {
+        resolvedPath = `${basePath}/api/v1/profit_and_loss`
       }
     }
 
@@ -82,13 +77,19 @@ Deno.serve(async (req) => {
     const queryString = qs.toString()
     const finalUrl = queryString ? `${endpoint}?${queryString}` : endpoint
 
-    // 3) Call Jurnal dengan header apikey
+    // 3) Call Jurnal dengan header apikey/authorization
+    const headers: Record<string, string> = {
+      "Accept": "application/json"
+    }
+
+    if (token) {
+      headers["apikey"] = token
+      headers["Authorization"] = token
+    }
+
     const res = await fetch(finalUrl, {
       method: "GET",
-      headers: {
-        "Accept": "application/json",
-        "apikey": token
-      }
+      headers
     })
 
     const raw = await res.text()
