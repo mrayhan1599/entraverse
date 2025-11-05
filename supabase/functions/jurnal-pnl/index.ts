@@ -27,18 +27,19 @@ Deno.serve(async (req) => {
     const { data: cfg, error: cfgErr } = await sb
       .from("api_integrations")
       .select("api_base_url, authorization_path, access_token")
-      .limit(1).single()
+      .limit(1)
+      .single()
 
     if (cfgErr || !cfg) {
       return new Response(JSON.stringify({
         ok:false, trace_id, stage:"load_config",
-        error: cfgErr?.message || "Config integrasi tidak ditemukan (table public.api_integrations kosong)."
+        error: cfgErr?.message || "Config integrasi tidak ditemukan (public.api_integrations)."
       }), { status:500, headers:{ "content-type":"application/json", ...CORS } })
     }
 
-    const baseUrl  = (cfg.api_base_url || "").replace(/\/+$/,"")
-    const authPath = (cfg.authorization_path || "").replace(/^\/+|\/+$/g,"")
-    const token    = cfg.access_token
+    const baseUrl  = String(cfg.api_base_url || "").trim().replace(/\/+$/, "")
+    const authPath = String(cfg.authorization_path || "").trim().replace(/^\/+|\/+$/g, "")
+    const token    = String(cfg.access_token || "").trim()
 
     if (!baseUrl || !authPath || !token) {
       return new Response(JSON.stringify({
@@ -54,12 +55,16 @@ Deno.serve(async (req) => {
     if (start_date) qs.set("start_date", start_date)
     if (end_date)   qs.set("end_date", end_date)
 
-    const finalUrl = `${endpoint}?${qs.toString()}`
+    const queryString = qs.toString()
+    const finalUrl = queryString ? `${endpoint}?${queryString}` : endpoint
 
     // 3) Call Jurnal dengan header apikey
     const res = await fetch(finalUrl, {
       method: "GET",
-      headers: { "Accept":"application/json", "apikey": token }
+      headers: {
+        "Accept": "application/json",
+        "apikey": token
+      }
     })
 
     const raw = await res.text()
@@ -68,10 +73,11 @@ Deno.serve(async (req) => {
       // (opsional) simpan log ringkas ke tabel khusus jika ada
       // await sb.from("integration_logs").insert({ provider:"mekari_jurnal", trace_id, stage:"jurnal_call", status:res.status, request_url:endpoint, query:qs.toString(), response_excerpt: excerpt(raw) })
 
+      const requestQuery = Object.fromEntries(qs.entries())
       return new Response(JSON.stringify({
         ok:false, trace_id, stage:"jurnal_call",
         status: res.status,
-        request: { url: endpoint, query: Object.fromEntries(qs.entries()) },
+        request: { url: finalUrl, query: requestQuery },
         error: `Jurnal API error ${res.status}`,
         response_excerpt: excerpt(raw)
       }), { status:502, headers:{ "content-type":"application/json", ...CORS } })
