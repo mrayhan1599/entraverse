@@ -41,9 +41,12 @@ Deno.serve(async (req) => {
     const authPathFromDb = String(cfg.authorization_path || "").trim().replace(/^\/+|\/+$/g, "")
     const token = String(cfg.access_token || "").trim()
 
-    const authPath = authPathFromDb && authPathFromDb.toLowerCase() === "partner/core"
-      ? "partner/core"
-      : "partner/core" // fallback WAJIB untuk tenant ini
+    const authPath = authPathFromDb || "partner/core"
+    const normalizedAuthPath = authPath.split("/").filter(Boolean).join("/")
+
+    const endpoint = /profit_and_loss$/i.test(normalizedAuthPath)
+      ? `${baseUrl}/${normalizedAuthPath}`
+      : `${baseUrl}/${normalizedAuthPath}/api/v1/profit_and_loss`
 
     if (!baseUrl || !token) {
       return new Response(JSON.stringify({
@@ -55,7 +58,6 @@ Deno.serve(async (req) => {
 
     // 3) Build URL FINAL SESUAI DOKUMEN
     //    CONTOH hasil: https://api.jurnal.id/partner/core/api/v1/profit_and_loss?start_date=...&end_date=...
-    const endpoint = `${baseUrl}/${authPath}/api/v1/profit_and_loss`
     const qs = new URLSearchParams()
     if (start_date) qs.set("start_date", start_date)
     if (end_date) qs.set("end_date", end_date)
@@ -63,13 +65,13 @@ Deno.serve(async (req) => {
     const finalUrl = queryString ? `${endpoint}?${queryString}` : endpoint
 
     // 4) Call Jurnal (auth header: apikey)
-    const res = await fetch(finalUrl, {
-      method: "GET",
-      headers: {
-        "Accept": "application/json",
-        "apikey": token
-      }
+    const headers = new Headers({
+      "Accept": "application/json",
+      "apikey": token
     })
+    headers.set("Authorization", token)
+
+    const res = await fetch(finalUrl, { method: "GET", headers })
 
     const raw = await res.text()
 
