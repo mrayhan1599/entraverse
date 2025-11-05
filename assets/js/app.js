@@ -7399,11 +7399,12 @@ async function fetchPnL({ start, end } = {}) {
   }
 
   if (!body.ok) {
-    const message =
-      body.response_excerpt || body.error || (body.status ? `status ${body.status}` : `status ${response.status}`);
+    const statusText = body.status ? `status ${body.status}` : response?.status ? `status ${response.status}` : '';
+    const info = body.response_excerpt || body.error || statusText || 'Unknown error';
     const stage = body.stage ?? 'error';
     const trace = body.trace_id ?? '-';
-    throw new Error(`[${stage} • ${trace}] ${message}`);
+    const finalUrl = body.finalUrl || body.request?.url || '-';
+    throw new Error(`[${stage} • ${trace}] ${statusText}`.trim() + ` • URL: ${finalUrl} • ${info}`);
   }
 
   return body.data;
