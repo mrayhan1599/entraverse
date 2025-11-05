@@ -57,12 +57,13 @@ Deno.serve(async (req) => {
 
     if (!/profit|loss/.test(lower) && !/oauth|authorize/.test(lower)) {
       const basePath = normalizedAuth.replace(/\/+$/, "")
+
       if (/api\/v\d+/i.test(basePath)) {
         resolvedPath = `${basePath}/profit_and_loss`
-      } else if (/api\b/i.test(basePath)) {
-        resolvedPath = `${basePath}/v1/profit_and_loss`
+      } else if (/\bapi\b/i.test(basePath)) {
+        resolvedPath = `${basePath}/profit_and_loss`
       } else {
-        resolvedPath = `${basePath}/api/v1/profit_and_loss`
+        resolvedPath = `${basePath}/api/profit_and_loss`
       }
     }
 
