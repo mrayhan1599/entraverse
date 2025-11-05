@@ -38,19 +38,43 @@ Deno.serve(async (req) => {
     }
 
     const baseUrl  = String(cfg.api_base_url || "").trim().replace(/\/+$/, "")
-    const authPath = String(cfg.authorization_path || "").trim().replace(/^\/+|\/+$/g, "")
+    const authPath = String(cfg.authorization_path || "").trim()
     const token    = String(cfg.access_token || "").trim()
 
-    if (!baseUrl || !authPath || !token) {
+    if (!baseUrl || !token) {
       return new Response(JSON.stringify({
         ok:false, trace_id, stage:"validate_config",
-        error:"Config tidak lengkap (api_base_url / authorization_path / access_token).",
+        error:"Config tidak lengkap (api_base_url / access_token).",
         config_preview:{ baseUrl, authPath, token_len: token?.length ?? 0 }
       }), { status:500, headers:{ "content-type":"application/json", ...CORS } })
     }
 
-    // 2) Build URL sesuai dokumen
-    const endpoint = `${baseUrl}/${authPath}/api/v1/profit_and_loss`
+    const normalizedAuth = authPath.replace(/^\/+|\/+$/g, "")
+    const defaultPath = "core/api/v1/profit_and_loss"
+
+    let resolvedPath = defaultPath
+
+    if (normalizedAuth) {
+      const lower = normalizedAuth.toLowerCase()
+
+      if (/profit|loss/.test(lower)) {
+        resolvedPath = normalizedAuth
+      } else if (!/oauth|authorize/.test(lower)) {
+        const basePath = normalizedAuth.replace(/\/+$/, "")
+        if (/api\/v\d+/i.test(basePath)) {
+          resolvedPath = `${basePath}/profit_and_loss`
+        } else if (/api\b/i.test(basePath)) {
+          resolvedPath = `${basePath}/v1/profit_and_loss`
+        } else {
+          resolvedPath = `${basePath}/api/v1/profit_and_loss`
+        }
+      }
+    }
+
+    const endpoint = new URL(
+      resolvedPath.replace(/^\/+/, ""),
+      baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+    ).toString()
     const qs = new URLSearchParams()
     if (start_date) qs.set("start_date", start_date)
     if (end_date)   qs.set("end_date", end_date)
@@ -77,13 +101,13 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         ok:false, trace_id, stage:"jurnal_call",
         status: res.status,
-        request: { url: finalUrl, query: requestQuery },
+        request: { url: finalUrl, query: requestQuery, resolved_path: resolvedPath },
         error: `Jurnal API error ${res.status}`,
         response_excerpt: excerpt(raw)
       }), { status:502, headers:{ "content-type":"application/json", ...CORS } })
     }
 
-    return new Response(JSON.stringify({ ok:true, trace_id, data: safeJson(raw) }), {
+    return new Response(JSON.stringify({ ok:true, trace_id, resolved_path: resolvedPath, data: safeJson(raw) }), {
       headers:{ "content-type":"application/json", ...CORS }
     })
 
