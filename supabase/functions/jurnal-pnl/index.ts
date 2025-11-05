@@ -44,13 +44,17 @@ Deno.serve(async (req) => {
     const authPath = authPathFromDb || "partner/core"
     const normalizedAuthPath = authPath.split("/").filter(Boolean).join("/")
 
-    const needsProfitLossSuffix = !/profit_and_loss$/i.test(normalizedAuthPath)
+    const needsProfitLossSuffix = !/profit_and_loss(?:\.json)?$/i.test(normalizedAuthPath)
 
     let endpointPath = normalizedAuthPath
     if (needsProfitLossSuffix) {
       const hasApiVersionSegment = /(?:^|\/)api\/v\d+(?:\/|$)/i.test(normalizedAuthPath)
       const suffixBase = hasApiVersionSegment ? normalizedAuthPath : `${normalizedAuthPath}/api/v1`
       endpointPath = `${suffixBase}/profit_and_loss`
+    }
+
+    if (!/\.json$/i.test(endpointPath)) {
+      endpointPath = `${endpointPath}.json`
     }
 
     const endpoint = `${baseUrl.replace(/\/+$/, "")}/${endpointPath}`
@@ -76,7 +80,8 @@ Deno.serve(async (req) => {
       "Accept": "application/json",
       "apikey": token
     })
-    headers.set("Authorization", token)
+    const bearerToken = /^bearer\s/i.test(token) ? token : `Bearer ${token}`
+    headers.set("Authorization", bearerToken)
 
     const res = await fetch(finalUrl, { method: "GET", headers })
 
