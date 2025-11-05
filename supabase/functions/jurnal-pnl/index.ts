@@ -82,13 +82,19 @@ Deno.serve(async (req) => {
     const queryString = qs.toString()
     const finalUrl = queryString ? `${endpoint}?${queryString}` : endpoint
 
-    // 3) Call Jurnal dengan header apikey
+    // 3) Call Jurnal dengan header apikey/authorization
+    const headers: Record<string, string> = {
+      "Accept": "application/json"
+    }
+
+    if (token) {
+      headers["apikey"] = token
+      headers["Authorization"] = token
+    }
+
     const res = await fetch(finalUrl, {
       method: "GET",
-      headers: {
-        "Accept": "application/json",
-        "apikey": token
-      }
+      headers
     })
 
     const raw = await res.text()
