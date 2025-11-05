@@ -44,9 +44,16 @@ Deno.serve(async (req) => {
     const authPath = authPathFromDb || "partner/core"
     const normalizedAuthPath = authPath.split("/").filter(Boolean).join("/")
 
-    const endpoint = /profit_and_loss$/i.test(normalizedAuthPath)
-      ? `${baseUrl}/${normalizedAuthPath}`
-      : `${baseUrl}/${normalizedAuthPath}/api/v1/profit_and_loss`
+    const needsProfitLossSuffix = !/profit_and_loss$/i.test(normalizedAuthPath)
+
+    let endpointPath = normalizedAuthPath
+    if (needsProfitLossSuffix) {
+      const hasApiVersionSegment = /(?:^|\/)api\/v\d+(?:\/|$)/i.test(normalizedAuthPath)
+      const suffixBase = hasApiVersionSegment ? normalizedAuthPath : `${normalizedAuthPath}/api/v1`
+      endpointPath = `${suffixBase}/profit_and_loss`
+    }
+
+    const endpoint = `${baseUrl.replace(/\/+$/, "")}/${endpointPath}`
 
     if (!baseUrl || !token) {
       return new Response(JSON.stringify({
