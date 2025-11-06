@@ -7431,7 +7431,41 @@ const toNum = value => {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : 0;
   }
-  const numeric = Number(String(value ?? 0).replace(/[^\d\-\.]/g, ''));
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return 0;
+    }
+
+    const parenNegative = /^\(.*\)$/.test(trimmed.replace(/\s+/g, ''));
+
+    const sanitized = trimmed.replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
+    if (!sanitized) {
+      return 0;
+    }
+
+    const hasLeadingMinus = sanitized.startsWith('-');
+    const negative = hasLeadingMinus || parenNegative;
+    const unsigned = hasLeadingMinus ? sanitized.slice(1) : sanitized;
+
+    const commaCount = (unsigned.match(/,/g) || []).length;
+    const dotCount = (unsigned.match(/\./g) || []).length;
+
+    let normalized = unsigned;
+    if (commaCount && dotCount) {
+      normalized = unsigned.replace(/\./g, '').replace(/,/g, '.');
+    } else if (commaCount) {
+      normalized = unsigned.replace(/,/g, '.');
+    } else if (dotCount > 1) {
+      normalized = unsigned.replace(/\./g, '');
+    }
+
+    const numeric = Number(`${negative ? '-' : ''}${normalized}`);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
