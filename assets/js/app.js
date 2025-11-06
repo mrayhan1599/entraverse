@@ -7459,6 +7459,11 @@ const toNum = value => {
       normalized = unsigned.replace(/,/g, '.');
     } else if (dotCount > 1) {
       normalized = unsigned.replace(/\./g, '');
+    } else if (dotCount === 1) {
+      const [head, tail = ''] = unsigned.split('.');
+      if (tail.length === 3 && Number(head) >= 1) {
+        normalized = `${head}${tail}`;
+      }
     }
 
     const numeric = Number(`${negative ? '-' : ''}${normalized}`);
@@ -7471,30 +7476,110 @@ const toNum = value => {
 
 function flattenPnLLines(payload) {
   const out = [];
+  const visited = typeof WeakSet === 'function' ? new WeakSet() : null;
+  const numericKeys = ['amount', 'value', 'total', 'balance', 'net', 'sum'];
+
+  const hasNumericKey = node =>
+    numericKeys.some(key => Object.prototype.hasOwnProperty.call(node, key));
+
+  const aggregateFromCollection = collection => {
+    let aggregated = 0;
+    let found = false;
+
+    collection.forEach(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+
+      if (!found && hasNumericKey(entry)) {
+        found = true;
+      }
+
+      aggregated += toNum(
+        entry.amount ?? entry.value ?? entry.total ?? entry.balance ?? entry.net ?? entry.sum
+      );
+    });
+
+    return { aggregated, found };
+  };
+
   const crawl = node => {
-    if (!node) return;
-    if (Array.isArray(node)) {
-      node.forEach(crawl);
+    if (!node || typeof node !== 'object') {
       return;
     }
 
-    if (typeof node !== 'object') {
+    if (visited) {
+      if (visited.has(node)) {
+        return;
+      }
+      visited.add(node);
+    }
+
+    if (Array.isArray(node)) {
+      node.forEach(child => crawl(child));
       return;
     }
 
     const name = node.name || node.account_name || node.title || node.label;
-    const amount = toNum(node.amount ?? node.value ?? node.total ?? node.balance ?? node.net ?? node.sum);
-    if (name != null) {
-      out.push({ name: String(name), amount });
+
+    const hasDirectNumeric = hasNumericKey(node);
+    let amount = toNum(
+      node.amount ?? node.value ?? node.total ?? node.balance ?? node.net ?? node.sum
+    );
+    let hasValue = hasDirectNumeric && Number.isFinite(amount);
+
+    if (!hasValue) {
+      const nestedSources = [node.data, node.entries, node.values, node.details];
+      for (const source of nestedSources) {
+        if (!Array.isArray(source) || !source.length) {
+          continue;
+        }
+
+        const { aggregated, found } = aggregateFromCollection(source);
+        if (found) {
+          amount = aggregated;
+          hasValue = true;
+          break;
+        }
+      }
     }
 
-    if (Array.isArray(node.children)) node.children.forEach(crawl);
-    if (Array.isArray(node.items)) node.items.forEach(crawl);
-    if (Array.isArray(node.data)) node.data.forEach(crawl);
-    if (Array.isArray(node.lines)) node.lines.forEach(crawl);
-    if (Array.isArray(node.results)) node.results.forEach(crawl);
-    if (Array.isArray(node.sections)) node.sections.forEach(crawl);
-    if (node.report && Array.isArray(node.report)) node.report.forEach(crawl);
+    if (name != null && hasValue) {
+      const categoryName =
+        node.category && typeof node.category === 'object' && node.category.name != null
+          ? String(node.category.name)
+          : null;
+
+      out.push({ name: String(name), amount, category: categoryName });
+    }
+
+    const candidateCollections = [
+      node.children,
+      node.items,
+      node.data,
+      node.lines,
+      node.results,
+      node.sections,
+      node.report,
+      node.accounts,
+      node.entries,
+      node.values,
+      node.details
+    ];
+
+    candidateCollections.forEach(collection => {
+      if (Array.isArray(collection)) {
+        collection.forEach(child => crawl(child));
+      } else if (collection && typeof collection === 'object' && !(collection instanceof Date)) {
+        crawl(collection);
+      }
+    });
+
+    Object.values(node).forEach(value => {
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        crawl(value);
+      }
+    });
   };
 
   crawl(payload);
@@ -7583,9 +7668,9 @@ function extractAggregatedPnL(payload) {
 
 function toSummary(lines) {
   const rx = {
-    revenue: /(penjualan|pendapatan(?!.*lain)|revenue|sales|income(?!.*other))/i,
+    revenue: /(pendapatan(?!.*lain)|penjualan|revenue|sales|income(?!.*other))/i,
     cogs: /(hpp|beban pokok|cost of goods|cogs)/i,
-    opex: /(beban (usaha|operasional)|operating expense|selling|general|administrative|sg&a)/i,
+    opex: /(biaya|beban (usaha|operasional)|operating expense|selling|general|administrative|sg&a)/i,
     other_income: /(pendapatan lain|other income|non-?operating income)/i,
     other_expense: /(beban lain|other expense|non-?operating expense)/i,
     tax: /(pajak|tax)/i
@@ -7593,14 +7678,51 @@ function toSummary(lines) {
 
   const sums = { revenue: 0, cogs: 0, opex: 0, other_income: 0, other_expense: 0, tax: 0 };
 
-  for (const { name, amount } of lines) {
-    if (!name) continue;
-    if (rx.cogs.test(name)) sums.cogs += amount;
-    else if (rx.opex.test(name)) sums.opex += amount;
-    else if (rx.other_expense.test(name)) sums.other_expense += amount;
-    else if (rx.other_income.test(name)) sums.other_income += amount;
-    else if (rx.tax.test(name)) sums.tax += amount;
-    else if (rx.revenue.test(name)) sums.revenue += amount;
+  for (const { name, amount, category } of lines) {
+    if (name == null && category == null) {
+      continue;
+    }
+
+    let classified = false;
+
+    const apply = bucket => {
+      sums[bucket] += amount;
+      classified = true;
+    };
+
+    const categoryName = category ? String(category) : '';
+    if (categoryName) {
+      const categoryPatterns = [
+        { rx: /(other income|pendapatan lain)/i, bucket: 'other_income' },
+        { rx: /(other expense|beban lain)/i, bucket: 'other_expense' },
+        { rx: /(cost of sales|cost of goods|beban pokok)/i, bucket: 'cogs' },
+        { rx: /(expense|beban|biaya)/i, bucket: 'opex' },
+        { rx: /(income|pendapatan|penjualan)/i, bucket: 'revenue' }
+      ];
+
+      for (const { rx: pattern, bucket } of categoryPatterns) {
+        if (pattern.test(categoryName)) {
+          apply(bucket);
+          break;
+        }
+      }
+    }
+
+    if (classified) {
+      continue;
+    }
+
+    const label = name ? String(name) : '';
+    if (!label) {
+      continue;
+    }
+
+    if (rx.cogs.test(label)) apply('cogs');
+    else if (rx.opex.test(label)) apply('opex');
+    else if (rx.other_expense.test(label)) apply('other_expense');
+    else if (rx.other_income.test(label)) apply('other_income');
+    else if (rx.tax.test(label)) apply('tax');
+    else if (rx.revenue.test(label)) apply('revenue');
   }
 
   const gross_profit = sums.revenue - Math.abs(sums.cogs);
