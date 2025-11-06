@@ -7374,12 +7374,22 @@ async function fetchPnL({ start, end } = {}) {
   if (end) qs.set('end_date', end);
 
   const baseUrl = getSupabaseFunctionsUrl();
+  const supabaseConfig = getSupabaseConfig();
+
+  if (!supabaseConfig) {
+    throw new Error('Supabase belum dikonfigurasi untuk memanggil fungsi jurnal-pnl.');
+  }
+
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', `Bearer ${supabaseConfig.anonKey}`);
+  headers.set('apikey', supabaseConfig.anonKey);
+
   const query = qs.toString();
   const url = `${baseUrl}/jurnal-pnl${query ? `?${query}` : ''}`;
 
   let response;
   try {
-    response = await fetch(url, { method: 'GET' });
+    response = await fetch(url, { method: 'GET', headers });
   } catch (networkError) {
     const message = networkError?.message || networkError || 'Gagal terhubung ke fungsi jurnal-pnl.';
     throw new Error(`[network • -] ${message}`);
