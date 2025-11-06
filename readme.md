@@ -93,3 +93,13 @@ serve .
 
 Pastikan koneksi internet aktif agar library Supabase dapat dimuat dari CDN.
 
+### Konfigurasi fungsi `jurnal-pnl`
+
+Supabase Edge Function `jurnal-pnl` kini langsung meneruskan permintaan ke API Mekari Jurnal. Sebelum melakukan deploy, set variabel lingkungan berikut pada project Supabase Anda:
+
+- `JURNAL_API_TOKEN` (wajib): API token/Authorization key dari Mekari Jurnal. Contoh: `gkVa5vJxxmzriunIyOHINHEmnZqew3H6`.
+- `JURNAL_API_BASE_URL` (opsional): Basis URL API. Default: `https://api.jurnal.id`.
+- `JURNAL_API_PATH` (opsional): Path endpoint. Default: `partner/core/api/v1/profit_and_loss`.
+
+Function akan meneruskan parameter `start_date` dan `end_date` yang dikirimkan dari aplikasi ke endpoint tersebut dan mengembalikan payload JSON dari Mekari Jurnal kepada frontend.
+
