@@ -7345,69 +7345,92 @@ const DEFAULT_PNL_SUMMARY = Object.freeze({
   net_income: 0
 });
 
-function getSupabaseFunctionsUrl() {
-  const globalEnv = typeof window !== 'undefined' ? window : globalThis;
-  const fromEnv =
-    globalEnv?.VITE_SUPABASE_FUNCTIONS_URL ??
-    globalEnv?.__env__?.VITE_SUPABASE_FUNCTIONS_URL ??
-    null;
-
-  let base = fromEnv ?? window.entraverseConfig?.supabase?.functionsUrl ?? null;
-
-  if (!base) {
-    const supabaseUrl = window.entraverseConfig?.supabase?.url ?? '';
-    if (supabaseUrl) {
-      base = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1`;
-    }
+function toJurnalApiDate(value) {
+  const normalized = toDateOnlyString(value);
+  if (!normalized) {
+    return null;
   }
 
-  if (!base) {
-    throw new Error('Supabase Functions URL belum dikonfigurasi.');
+  const [year, month, day] = normalized.split('-');
+  if (!year || !month || !day) {
+    return null;
   }
 
-  return base.replace(/\/+$/, '');
+  return `${day}/${month}/${year}`;
 }
 
 async function fetchPnL({ start, end } = {}) {
-  const qs = new URLSearchParams();
-  if (start) qs.set('start_date', start);
-  if (end) qs.set('end_date', end);
+  const integration = await resolveMekariIntegration();
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
 
-  const baseUrl = getSupabaseFunctionsUrl();
+  const token = (integration.accessToken ?? '').trim();
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia.');
+  }
+
+  const baseUrl = (integration.apiBaseUrl || 'https://api.jurnal.id').replace(/\/+$/, '');
+  const endpoint = `${baseUrl}/partner/core/api/v1/profit_and_loss`;
+
+  const qs = new URLSearchParams();
+  const startDate = toJurnalApiDate(start);
+  const endDate = toJurnalApiDate(end);
+  if (startDate) qs.set('start_date', startDate);
+  if (endDate) qs.set('end_date', endDate);
+
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
   const query = qs.toString();
-  const url = `${baseUrl}/jurnal-pnl${query ? `?${query}` : ''}`;
+  const url = `${endpoint}${query ? `?${query}` : ''}`;
 
   let response;
   try {
-    response = await fetch(url, { method: 'GET' });
+    response = await fetch(url, { method: 'GET', headers });
   } catch (networkError) {
-    const message = networkError?.message || networkError || 'Gagal terhubung ke fungsi jurnal-pnl.';
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
     throw new Error(`[network • -] ${message}`);
   }
 
   let body = null;
 
-  try {
-    body = await response.json();
-  } catch (error) {
-    body = null;
+  const contentType = response?.headers?.get ? response.headers.get('content-type') || '' : '';
+  if (contentType.includes('application/json')) {
+    try {
+      body = await response.json();
+    } catch (error) {
+      body = null;
+    }
+  } else {
+    try {
+      const text = await response.text();
+      body = text ? { raw: text } : null;
+    } catch (error) {
+      body = null;
+    }
+  }
+
+  if (!response.ok) {
+    const status = response.status || '-';
+    const info =
+      (body && (body.message || body.error || body.errors?.[0]?.detail || body.raw)) ||
+      response.statusText ||
+      'Unknown error';
+    throw new Error(`[api • ${status}] Gagal mengambil data Profit & Loss Mekari • ${info}`);
   }
 
   if (!body) {
     const statusText = response?.status ? ` (status ${response.status})` : '';
-    throw new Error(`Respons fungsi jurnal-pnl tidak valid${statusText}.`);
+    throw new Error(`Respons API Mekari tidak valid${statusText}.`);
   }
 
-  if (!body.ok) {
-    const statusText = body.status ? `status ${body.status}` : response?.status ? `status ${response.status}` : '';
-    const info = body.response_excerpt || body.error || statusText || 'Unknown error';
-    const stage = body.stage ?? 'error';
-    const trace = body.trace_id ?? '-';
-    const finalUrl = body.finalUrl || body.request?.url || '-';
-    throw new Error(`[${stage} • ${trace}] ${statusText}`.trim() + ` • URL: ${finalUrl} • ${info}`);
+  const payload = body?.data?.profit_and_loss ?? body?.data ?? body?.profit_and_loss ?? body;
+  if (!payload || (typeof payload !== 'object' && !Array.isArray(payload))) {
+    throw new Error('Respons API Mekari tidak memuat data Profit & Loss.');
   }
 
-  return body.data;
+  return payload;
 }
 
 const toNum = value => {
