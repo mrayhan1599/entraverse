@@ -7904,11 +7904,17 @@ function createProfitLossSummaryUI() {
       return formatCurrency(0);
     }
 
+    const absoluteValue = Math.abs(numeric);
+    const shouldUseCompact = absoluteValue >= 1000;
+    const formatted = shouldUseCompact
+      ? formatCurrencyCompact(absoluteValue)
+      : formatCurrency(absoluteValue);
+
     if (numeric < 0) {
-      return `(${formatCurrency(Math.abs(numeric))})`;
+      return `(${formatted})`;
     }
 
-    return formatCurrency(numeric);
+    return formatted;
   };
 
   const setCards = (values = DEFAULT_PNL_SUMMARY) => {
