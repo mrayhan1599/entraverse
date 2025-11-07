@@ -263,13 +263,48 @@
           <table class="category-table report-table">
             <thead>
               <tr>
-                <th>Gudang</th>
-                <th>Produk</th>
-                <th>Satuan</th>
-                <th>Saldo Awal</th>
-                <th>Qty Masuk</th>
-                <th>Qty Keluar</th>
-                <th>Saldo Akhir</th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="warehouseName">
+                    Gudang
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="productName">
+                    Produk
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="units">
+                    Satuan
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="openingBalance">
+                    Saldo Awal
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="qtyIn">
+                    Qty Masuk
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="qtyOut">
+                    Qty Keluar
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="table-sort-button" data-sort-key="closingBalance">
+                    Saldo Akhir
+                    <span class="table-sort-indicator" aria-hidden="true"></span>
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody id="warehouse-movements-table-body">
@@ -290,41 +325,22 @@
             >
               <button type="button" class="btn ghost-btn small" data-pagination="prev">Sebelumnya</button>
               <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+              <div class="table-pagination__jump" data-pagination-jump hidden>
+                <label class="visually-hidden" for="warehouse-pagination-input">Loncat ke halaman pergerakan gudang</label>
+                <input
+                  type="number"
+                  id="warehouse-pagination-input"
+                  class="table-pagination__input"
+                  min="1"
+                  inputmode="numeric"
+                  data-pagination-input
+                  aria-label="Loncat ke halaman tertentu"
+                />
+              </div>
               <button type="button" class="btn ghost-btn small" data-pagination="next">Berikutnya</button>
             </nav>
           </div>
         </footer>
-      </section>
-      <section class="card">
-        <header class="card-header">
-          <div>
-            <h2>Sinkronisasi ke Mekari Jurnal</h2>
-            <p class="card-subtitle">Siapkan token API Mekari Jurnal untuk otomatisasi posting penjualan dan jurnal.</p>
-          </div>
-        </header>
-        <div class="report-integration-guide">
-          <article class="report-integration-step">
-            <span class="report-integration-step__icon" aria-hidden="true">1</span>
-            <div>
-              <h3>Hubungkan Integrasi</h3>
-              <p>Buka menu <strong>Integrasi Aplikasi API</strong> dan tambahkan kredensial Mekari Jurnal untuk mengaktifkan sinkronisasi otomatis.</p>
-            </div>
-          </article>
-          <article class="report-integration-step">
-            <span class="report-integration-step__icon" aria-hidden="true">2</span>
-            <div>
-              <h3>Atur Skema Akun</h3>
-              <p>Mapping akun penjualan, HPP, dan piutang agar data yang dikirim ke Mekari Jurnal langsung siap dibukukan.</p>
-            </div>
-          </article>
-          <article class="report-integration-step">
-            <span class="report-integration-step__icon" aria-hidden="true">3</span>
-            <div>
-              <h3>Sinkron Otomatis</h3>
-              <p>Gunakan tombol <em>Sinkronkan Sekarang</em> atau jadwalkan sinkronisasi berkala untuk memastikan laporan selalu terbaru.</p>
-            </div>
-          </article>
-        </div>
       </section>
     </main>
   </div>
