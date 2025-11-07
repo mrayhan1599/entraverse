@@ -7676,7 +7676,13 @@ function extractAggregatedPnL(payload) {
     other_income: ['otherincome', 'pendapatanlain', 'nonoperatingincome'],
     other_expense: ['otherexpense', 'bebanlain', 'nonoperatingexpense'],
     tax: ['tax', 'pajak', 'taxexpense'],
-    net_income: ['netincome', 'netoperatingincome', 'lababersih', 'profit']
+    net_income: [
+      'netincome',
+      'netoperatingincome',
+      'lababersih',
+      'profit',
+      'totalcomprehensiveincome'
+    ]
   };
 
   const normalizeKey = key => key.toString().toLowerCase().replace(/[\s_\-]/g, '');
@@ -7868,8 +7874,12 @@ function mapProfitAndLossPayload(payload) {
       ? payload.profit_and_loss
       : payload;
 
+  const headerComprehensive = resolveNumericValue(reportRoot?.header?.total_comprehensive_income);
   const headerNet = resolveNumericValue(reportRoot?.header?.net_income);
-  if (headerNet.found) {
+
+  if (headerComprehensive.found) {
+    summary.net_income = headerComprehensive.value;
+  } else if (headerNet.found) {
     summary.net_income = headerNet.value;
   }
 
