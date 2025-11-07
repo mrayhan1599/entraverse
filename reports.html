@@ -121,17 +121,16 @@
           <p>Monitor performa penjualan lintas marketplace, bandingkan margin, dan siapkan data untuk integrasi ke Mekari Jurnal.</p>
         </div>
       </section>
-      <section class="card report-overview">
+      <section class="card report-overview report-pnl" data-pnl-summary>
         <header class="card-header">
           <div>
-            <h2>Ringkasan Penjualan</h2>
-            <p class="card-subtitle">Data penjualan terhitung dari sinkronisasi terakhir dengan Mekari Jurnal.</p>
+            <h2>Ringkasan Laba Rugi</h2>
+            <p class="card-subtitle">Pantau performa bisnis dari data Profit &amp; Loss Mekari Jurnal.</p>
           </div>
           <div class="report-sync-status" role="status" aria-live="polite">
-            <span class="report-sync-indicator is-online" aria-hidden="true"></span>
-            <div class="report-sync-text">
+            <div class="report-pnl__sync">
               <span class="report-sync-label">Terakhir sinkron</span>
-              <strong id="report-last-sync">-</strong>
+              <strong class="report-pnl__sync-value" data-pnl-last-sync>–</strong>
             </div>
             <a class="btn ghost-btn small" href="integrations.html">Kelola Integrasi</a>
           </div>
@@ -215,45 +214,6 @@
             </select>
           </div>
         </form>
-        <div class="report-metrics">
-          <div class="report-metric">
-            <span class="report-metric__label">Penjualan Bruto</span>
-            <strong class="report-metric__value" id="report-total-gross">Rp0</strong>
-            <p class="report-metric__meta">Belum termasuk diskon &amp; retur</p>
-          </div>
-          <div class="report-metric">
-            <span class="report-metric__label">Penjualan Bersih</span>
-            <strong class="report-metric__value" id="report-total-net">Rp0</strong>
-            <p class="report-metric__meta">Setelah diskon &amp; biaya marketplace</p>
-          </div>
-          <div class="report-metric">
-            <span class="report-metric__label">Laba Kotor</span>
-            <strong class="report-metric__value" id="report-total-profit">Rp0</strong>
-            <p class="report-metric__meta">Dikurangi HPP yang tercatat</p>
-          </div>
-          <div class="report-metric">
-            <span class="report-metric__label">Rata-rata Margin</span>
-            <strong class="report-metric__value" id="report-average-margin">0%</strong>
-            <p class="report-metric__meta">Margin kotor rata-rata per produk</p>
-          </div>
-          <div class="report-metric">
-            <span class="report-metric__label">Unit Terjual</span>
-            <strong class="report-metric__value" id="report-total-units">0</strong>
-            <p class="report-metric__meta">Akumulasi periode terpilih</p>
-          </div>
-        </div>
-      </section>
-      <section class="card report-pnl" data-pnl-summary>
-        <header class="card-header">
-          <div>
-            <h2>Ringkasan Laba Rugi</h2>
-            <p class="card-subtitle">Pantau performa bisnis dari data Profit &amp; Loss Mekari Jurnal.</p>
-          </div>
-          <div class="report-pnl__sync" role="status" aria-live="polite">
-            <span class="report-pnl__sync-label">Terakhir sinkron</span>
-            <strong class="report-pnl__sync-value" data-pnl-last-sync>–</strong>
-          </div>
-        </header>
         <div class="report-pnl__error" data-pnl-error hidden>
           Gagal sinkronisasi P&amp;L dari Mekari Jurnal.
         </div>
