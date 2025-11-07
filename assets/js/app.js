@@ -7893,7 +7893,8 @@ function createProfitLossSummaryUI() {
       setLoading() {},
       setCards() {},
       setLastSync() {},
-      setError() {}
+      setError() {},
+      setIntegration() {}
     };
   }
 
@@ -7907,6 +7908,15 @@ function createProfitLossSummaryUI() {
 
   const errorElement = container.querySelector('[data-pnl-error]');
   const lastSyncElement = container.querySelector('[data-pnl-last-sync]');
+  const integrationCard = container.querySelector('[data-pnl-integration]');
+  const integrationDetails = container.querySelector('[data-pnl-integration-details]');
+  const integrationPlaceholder = container.querySelector('[data-pnl-integration-placeholder]');
+  const integrationNameElement = container.querySelector('[data-pnl-integration-name]');
+  const integrationAccountElement = container.querySelector('[data-pnl-integration-account]');
+  const integrationStatusElement = container.querySelector('[data-pnl-integration-status]');
+  const baseUrlElement = container.querySelector('[data-pnl-api-base-url]');
+  const authPathElement = container.querySelector('[data-pnl-api-auth-path]');
+  const tokenElement = container.querySelector('[data-pnl-api-access-token]');
 
   const formatAccountingCurrency = value => {
     const numeric = Number(value);
@@ -7961,13 +7971,103 @@ function createProfitLossSummaryUI() {
     }
   };
 
+  const setConfigValue = (element, value, { fallback = 'Belum diatur', rawValue = null } = {}) => {
+    if (!element) {
+      return;
+    }
+
+    const wrapper = element.closest('[data-pnl-config-item]');
+    const text = typeof value === 'string' ? value.trim() : value;
+    const hasValue = Boolean(text);
+
+    if (hasValue) {
+      element.textContent = text;
+      if (rawValue) {
+        element.setAttribute('title', rawValue);
+      } else {
+        element.removeAttribute('title');
+      }
+      if (wrapper) {
+        wrapper.classList.remove('is-empty');
+      }
+    } else {
+      element.textContent = fallback;
+      element.removeAttribute('title');
+      if (wrapper) {
+        wrapper.classList.add('is-empty');
+      }
+    }
+  };
+
+  const setIntegration = integration => {
+    if (!integrationCard) {
+      return;
+    }
+
+    const hasIntegration = Boolean(integration);
+    integrationCard.classList.toggle('is-empty', !hasIntegration);
+
+    if (integrationDetails) {
+      integrationDetails.hidden = !hasIntegration;
+    }
+    if (integrationPlaceholder) {
+      integrationPlaceholder.hidden = hasIntegration;
+    }
+
+    const statusMeta = getIntegrationStatusMeta(integration?.status ?? 'available');
+    if (integrationStatusElement) {
+      integrationStatusElement.className = statusMeta.className;
+      integrationStatusElement.textContent = statusMeta.label;
+    }
+
+    const integrationName = integration?.name || MEKARI_INTEGRATION_NAME;
+    if (integrationNameElement) {
+      integrationNameElement.textContent = integrationName;
+    }
+
+    const connectedAccount = integration?.connectedAccount
+      ? `Terhubung sebagai ${integration.connectedAccount}`
+      : 'Belum ada akun terhubung';
+    if (integrationAccountElement) {
+      integrationAccountElement.textContent = connectedAccount;
+      integrationAccountElement.classList.toggle('is-empty', !integration?.connectedAccount);
+    }
+
+    if (!hasIntegration) {
+      setConfigValue(baseUrlElement, '', { fallback: 'Belum diatur' });
+      setConfigValue(authPathElement, '', { fallback: 'Belum diatur' });
+      setConfigValue(tokenElement, '', { fallback: 'Belum diatur' });
+      return;
+    }
+
+    const baseUrl = (integration.apiBaseUrl ?? '').toString().trim();
+    const authPath = (integration.authorizationPath ?? '').toString().trim();
+    const token = (integration.accessToken ?? '').toString().trim();
+
+    setConfigValue(baseUrlElement, baseUrl, {
+      fallback: 'Belum diatur',
+      rawValue: baseUrl || null
+    });
+    setConfigValue(authPathElement, authPath, {
+      fallback: 'Belum diatur',
+      rawValue: authPath || null
+    });
+
+    const maskedToken = maskAccessToken(token);
+    setConfigValue(tokenElement, maskedToken, {
+      fallback: 'Belum diatur',
+      rawValue: token || null
+    });
+  };
+
   return {
     setLoading: isLoading => {
       container.classList.toggle('is-loading', Boolean(isLoading));
     },
     setCards,
     setLastSync,
-    setError
+    setError,
+    setIntegration
   };
 }
 
@@ -8807,15 +8907,36 @@ async function initReportsPage() {
     setStoredIntegrations(getStoredIntegrations());
   }
 
-  await resolveMekariIntegration();
+    let mekariIntegration = null;
+    try {
+      mekariIntegration = await resolveMekariIntegration();
+    } catch (error) {
+      console.warn('Gagal memuat konfigurasi Mekari Jurnal.', error);
+    }
 
-  const pnlUI = createProfitLossSummaryUI();
-  const pnlState = {
-    lastSignature: null,
-    hasData: false,
-    loading: false,
-    requestSignature: null
-  };
+    const pnlUI = createProfitLossSummaryUI();
+    pnlUI.setIntegration(mekariIntegration);
+
+    const refreshMekariIntegrationCard = async ({ refresh = false } = {}) => {
+      try {
+        const integration = await resolveMekariIntegration({ refresh });
+        mekariIntegration = integration ?? null;
+        pnlUI.setIntegration(mekariIntegration);
+      } catch (error) {
+        console.warn('Gagal memperbarui konfigurasi Mekari Jurnal.', error);
+      }
+    };
+
+    document.addEventListener('integrations:changed', () => {
+      refreshMekariIntegrationCard({ refresh: true });
+    });
+
+    const pnlState = {
+      lastSignature: null,
+      hasData: false,
+      loading: false,
+      requestSignature: null
+    };
 
   let dateFilter = null;
 
@@ -8879,9 +9000,14 @@ async function initReportsPage() {
 
       try {
         const integration = await resolveMekariIntegration();
+        mekariIntegration = integration ?? null;
         if (integration) {
-          await markMekariIntegrationSynced(integration, syncedAt.toISOString());
+          const updated = await markMekariIntegrationSynced(integration, syncedAt.toISOString());
+          if (updated) {
+            mekariIntegration = updated;
+          }
         }
+        pnlUI.setIntegration(mekariIntegration);
       } catch (syncError) {
         console.warn('Gagal memperbarui status sinkronisasi Mekari.', syncError);
       }

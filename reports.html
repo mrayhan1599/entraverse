@@ -217,27 +217,56 @@
         <div class="report-pnl__error" data-pnl-error hidden>
           Gagal sinkronisasi P&amp;L dari Mekari Jurnal.
         </div>
-        <div class="report-pnl__cards">
-          <article class="report-pnl__card">
-            <span class="report-pnl__label">Pendapatan</span>
-            <strong class="report-pnl__value" data-pnl-value="revenue">Rp0</strong>
-          </article>
-          <article class="report-pnl__card">
-            <span class="report-pnl__label">HPP</span>
-            <strong class="report-pnl__value" data-pnl-value="cogs">Rp0</strong>
-          </article>
-          <article class="report-pnl__card">
-            <span class="report-pnl__label">Laba Kotor</span>
-            <strong class="report-pnl__value" data-pnl-value="gross_profit">Rp0</strong>
-          </article>
-          <article class="report-pnl__card">
-            <span class="report-pnl__label">Beban Operasional</span>
-            <strong class="report-pnl__value" data-pnl-value="opex">Rp0</strong>
-          </article>
-          <article class="report-pnl__card">
-            <span class="report-pnl__label">Laba Bersih</span>
-            <strong class="report-pnl__value" data-pnl-value="net_income">Rp0</strong>
-          </article>
+        <div class="report-pnl__layout">
+          <div class="report-pnl__cards">
+            <article class="report-pnl__card">
+              <span class="report-pnl__label">Pendapatan</span>
+              <strong class="report-pnl__value" data-pnl-value="revenue">Rp0</strong>
+            </article>
+            <article class="report-pnl__card">
+              <span class="report-pnl__label">HPP</span>
+              <strong class="report-pnl__value" data-pnl-value="cogs">Rp0</strong>
+            </article>
+            <article class="report-pnl__card">
+              <span class="report-pnl__label">Laba Kotor</span>
+              <strong class="report-pnl__value" data-pnl-value="gross_profit">Rp0</strong>
+            </article>
+            <article class="report-pnl__card">
+              <span class="report-pnl__label">Beban Operasional</span>
+              <strong class="report-pnl__value" data-pnl-value="opex">Rp0</strong>
+            </article>
+            <article class="report-pnl__card">
+              <span class="report-pnl__label">Laba Bersih</span>
+              <strong class="report-pnl__value" data-pnl-value="net_income">Rp0</strong>
+            </article>
+          </div>
+          <aside class="report-pnl__integration" data-pnl-integration>
+            <div class="report-pnl__integration-heading">
+              <div class="report-pnl__integration-meta">
+                <p class="report-pnl__integration-label">Integrasi API</p>
+                <h3 class="report-pnl__integration-name" data-pnl-integration-name>Mekari Jurnal</h3>
+                <p class="report-pnl__integration-account" data-pnl-integration-account>Terhubung sebagai Finance Ops</p>
+              </div>
+              <span class="status-chip status-chip--connected" data-pnl-integration-status>Tersambung</span>
+            </div>
+            <dl class="report-pnl__integration-config" data-pnl-integration-details>
+              <div class="report-pnl__config-item" data-pnl-config-item>
+                <dt>Base URL</dt>
+                <dd><code data-pnl-api-base-url>https://api.jurnal.id</code></dd>
+              </div>
+              <div class="report-pnl__config-item" data-pnl-config-item>
+                <dt>Auth Path</dt>
+                <dd><code data-pnl-api-auth-path>/oauth/authorize</code></dd>
+              </div>
+              <div class="report-pnl__config-item" data-pnl-config-item>
+                <dt>Access Token</dt>
+                <dd><span class="report-pnl__token" data-pnl-api-access-token>JURNAL••••45</span></dd>
+              </div>
+            </dl>
+            <p class="report-pnl__integration-placeholder" data-pnl-integration-placeholder hidden>
+              Konfigurasi Mekari Jurnal belum tersedia. <a href="integrations.html">Kelola integrasi sekarang</a>.
+            </p>
+          </aside>
         </div>
       </section>
       <section class="card">
