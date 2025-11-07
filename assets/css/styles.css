@@ -1528,6 +1528,16 @@ a.action-icon {
   flex-wrap: wrap;
 }
 
+.report-sync-status .report-pnl__sync {
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.report-sync-status .report-pnl__sync-value {
+  color: var(--color-text);
+}
+
 .report-sync-indicator {
   width: 12px;
   height: 12px;

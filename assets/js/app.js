@@ -7898,12 +7898,25 @@ function createProfitLossSummaryUI() {
   const errorElement = container.querySelector('[data-pnl-error]');
   const lastSyncElement = container.querySelector('[data-pnl-last-sync]');
 
+  const formatAccountingCurrency = value => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return formatCurrency(0);
+    }
+
+    if (numeric < 0) {
+      return `(${formatCurrency(Math.abs(numeric))})`;
+    }
+
+    return formatCurrency(numeric);
+  };
+
   const setCards = (values = DEFAULT_PNL_SUMMARY) => {
     const merged = { ...DEFAULT_PNL_SUMMARY, ...values };
     Object.entries(valueElements).forEach(([key, element]) => {
       if (!element) return;
       const value = merged[key];
-      element.textContent = formatCurrency(value);
+      element.textContent = formatAccountingCurrency(value);
     });
   };
 
