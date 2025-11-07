@@ -7345,6 +7345,78 @@ const DEFAULT_PNL_SUMMARY = Object.freeze({
   net_income: 0
 });
 
+const PNL_NUMERIC_FIELDS = Object.freeze([
+  'value',
+  'amount',
+  'total',
+  'balance',
+  'net',
+  'sum',
+  'income',
+  'revenue'
+]);
+
+function resolveNumericValue(input) {
+  const visited = typeof WeakSet === 'function' ? new WeakSet() : null;
+
+  const walk = value => {
+    if (value == null) {
+      return { found: false, value: 0 };
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? { found: true, value } : { found: false, value: 0 };
+    }
+
+    if (typeof value === 'string') {
+      const numeric = toNum(value);
+      return Number.isFinite(numeric) ? { found: true, value: numeric } : { found: false, value: 0 };
+    }
+
+    if (visited) {
+      if (visited.has(value)) {
+        return { found: false, value: 0 };
+      }
+      visited.add(value);
+    }
+
+    if (Array.isArray(value)) {
+      let total = 0;
+      let found = false;
+      value.forEach(entry => {
+        const result = walk(entry);
+        if (result.found) {
+          total += result.value;
+          found = true;
+        }
+      });
+      return found ? { found: true, value: total } : { found: false, value: 0 };
+    }
+
+    if (typeof value === 'object') {
+      for (const field of PNL_NUMERIC_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(value, field)) {
+          const result = walk(value[field]);
+          if (result.found) {
+            return result;
+          }
+        }
+      }
+
+      for (const child of Object.values(value)) {
+        const result = walk(child);
+        if (result.found) {
+          return result;
+        }
+      }
+    }
+
+    return { found: false, value: 0 };
+  };
+
+  return walk(input);
+}
+
 function formatDateForMekari(value) {
   const normalized = toDateOnlyString(value);
   if (!normalized) {
@@ -7587,31 +7659,49 @@ function flattenPnLLines(payload) {
 }
 
 function extractAggregatedPnL(payload) {
-  const queue = [payload];
+  const queue = [{ node: payload, key: null }];
   const keyMap = {
-    revenue: ['totalrevenue', 'revenue', 'pendapatan'],
-    cogs: ['totalcogs', 'cogs', 'costofgoodssold', 'costofgoods', 'hpp'],
+    revenue: ['totalrevenue', 'revenue', 'pendapatan', 'primaryincome', 'salesincome'],
+    cogs: ['totalcogs', 'cogs', 'costofgoodssold', 'costofgoodsold', 'costofgoods', 'hpp'],
     gross_profit: ['grossprofit', 'labakotor'],
-    opex: ['operatingexpenses', 'operatingexpense', 'bebanoperasional', 'bebanusaha', 'opex'],
+    opex: [
+      'operatingexpenses',
+      'operatingexpense',
+      'bebanoperasional',
+      'bebanusaha',
+      'opex',
+      'expense',
+      'expenses'
+    ],
+    other_income: ['otherincome', 'pendapatanlain', 'nonoperatingincome'],
+    other_expense: ['otherexpense', 'bebanlain', 'nonoperatingexpense'],
     tax: ['tax', 'pajak', 'taxexpense'],
-    net_income: ['netincome', 'lababersih', 'profit']
+    net_income: ['netincome', 'netoperatingincome', 'lababersih', 'profit']
   };
 
   const normalizeKey = key => key.toString().toLowerCase().replace(/[\s_\-]/g, '');
 
   while (queue.length) {
-    const current = queue.shift();
+    const { node: current, key: parentKey } = queue.shift();
     if (!current || typeof current !== 'object') {
       continue;
     }
     if (Array.isArray(current)) {
-      queue.push(...current);
+      current.forEach(child => {
+        queue.push({ node: child, key: parentKey || null });
+      });
       continue;
     }
 
     const normalized = {};
     for (const [key, value] of Object.entries(current)) {
-      normalized[normalizeKey(key)] = value;
+      const normalizedKey = normalizeKey(key);
+      normalized[normalizedKey] = value;
+      queue.push({ node: value, key: normalizedKey });
+    }
+
+    if (parentKey) {
+      normalized[parentKey] = current;
     }
 
     const hasAggregate = Object.values(keyMap).some(patterns =>
@@ -7620,20 +7710,36 @@ function extractAggregatedPnL(payload) {
 
     if (hasAggregate) {
       const aggregate = {};
+      let foundAny = false;
+
       for (const [bucket, patterns] of Object.entries(keyMap)) {
         for (const pattern of patterns) {
-          if (typeof normalized[pattern] !== 'undefined') {
-            aggregate[bucket] = toNum(normalized[pattern]);
+          if (typeof normalized[pattern] === 'undefined') {
+            continue;
+          }
+
+          const result = resolveNumericValue(normalized[pattern]);
+          if (result.found) {
+            aggregate[bucket] = result.value;
+            foundAny = true;
             break;
           }
         }
       }
 
-      if (Object.keys(aggregate).length) {
+      const filledBuckets = Object.entries(aggregate).filter(([, value]) =>
+        typeof value === 'number' && Number.isFinite(value)
+      );
+
+      if (foundAny && filledBuckets.length >= 2) {
+        const rawNet = aggregate.net_income;
         const revenue = aggregate.revenue ?? 0;
         const rawCogs = aggregate.cogs ?? 0;
         const rawOpex = aggregate.opex ?? 0;
         const rawTax = aggregate.tax ?? 0;
+        const otherIncome = aggregate.other_income ?? 0;
+        const rawOtherExpense = aggregate.other_expense ?? 0;
+        const otherExpense = rawOtherExpense <= 0 ? rawOtherExpense : -Math.abs(rawOtherExpense);
         const gross =
           typeof aggregate.gross_profit === 'number'
             ? aggregate.gross_profit
@@ -7641,10 +7747,11 @@ function extractAggregatedPnL(payload) {
         const cogs = rawCogs <= 0 ? rawCogs : -Math.abs(rawCogs);
         const opex = rawOpex <= 0 ? rawOpex : -Math.abs(rawOpex);
         const tax = rawTax <= 0 ? rawTax : -Math.abs(rawTax);
+        const otherNet = otherIncome + otherExpense;
         const net =
-          typeof aggregate.net_income === 'number'
-            ? aggregate.net_income
-            : gross + opex + tax;
+          typeof rawNet === 'number' && Number.isFinite(rawNet)
+            ? rawNet
+            : gross + opex + tax + otherNet;
 
         return {
           revenue,
@@ -7656,11 +7763,6 @@ function extractAggregatedPnL(payload) {
       }
     }
 
-    Object.values(current).forEach(value => {
-      if (value && typeof value === 'object') {
-        queue.push(value);
-      }
-    });
   }
 
   return null;
@@ -7740,9 +7842,10 @@ function toSummary(lines) {
 }
 
 function mapProfitAndLossPayload(payload) {
+  let summary = null;
   const aggregate = extractAggregatedPnL(payload);
   if (aggregate) {
-    return {
+    summary = {
       revenue: aggregate.revenue ?? 0,
       cogs: aggregate.cogs ?? 0,
       gross_profit: aggregate.gross_profit ?? (aggregate.revenue ?? 0) + (aggregate.cogs ?? 0),
@@ -7751,12 +7854,26 @@ function mapProfitAndLossPayload(payload) {
     };
   }
 
-  const lines = flattenPnLLines(payload);
-  if (!lines.length) {
-    return { ...DEFAULT_PNL_SUMMARY };
+  if (!summary) {
+    const lines = flattenPnLLines(payload);
+    if (!lines.length) {
+      summary = { ...DEFAULT_PNL_SUMMARY };
+    } else {
+      summary = toSummary(lines);
+    }
   }
 
-  return toSummary(lines);
+  const reportRoot =
+    payload && typeof payload === 'object' && payload.profit_and_loss
+      ? payload.profit_and_loss
+      : payload;
+
+  const headerNet = resolveNumericValue(reportRoot?.header?.net_income);
+  if (headerNet.found) {
+    summary.net_income = headerNet.value;
+  }
+
+  return summary;
 }
 
 function createProfitLossSummaryUI() {
