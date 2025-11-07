@@ -1142,6 +1142,10 @@ a.action-icon {
   justify-content: space-between;
 }
 
+.card-footer {
+  flex-wrap: wrap;
+}
+
 .card-header h2 {
   margin: 0;
   font-size: 20px;
@@ -1160,6 +1164,30 @@ a.action-icon {
 .table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.table-pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.table-pagination[hidden] {
+  display: none;
+}
+
+.table-pagination__info {
+  font-size: 14px;
+  color: var(--color-muted);
 }
 
 .variant-table-wrapper {

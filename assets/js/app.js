@@ -435,6 +435,8 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
 let mekariIntegrationCache = null;
+const TARGET_WAREHOUSE_NAME = 'Display';
+
 let warehouseMovementsState = {
   rows: [],
   header: null,
@@ -442,7 +444,10 @@ let warehouseMovementsState = {
   warehouses: 0,
   lastSignature: null,
   loading: false,
-  error: null
+  error: null,
+  currentPage: 1,
+  pageSize: 10,
+  lastFilteredCount: 0
 };
 
 const SALES_REPORT_SYNC_STATUS = new Set(['on-track', 'manual', 'scheduled']);
@@ -8513,6 +8518,8 @@ function setWarehouseMovementsLoading(isLoading) {
   warehouseMovementsState.loading = Boolean(isLoading);
   if (isLoading) {
     warehouseMovementsState.error = null;
+    warehouseMovementsState.currentPage = 1;
+    warehouseMovementsState.lastFilteredCount = 0;
     if (!warehouseMovementsState.rows.length) {
       const tbody = document.getElementById('warehouse-movements-table-body');
       if (tbody) {
@@ -8525,6 +8532,8 @@ function setWarehouseMovementsLoading(isLoading) {
 function setWarehouseMovementsError(message) {
   warehouseMovementsState.error = message || 'Gagal memuat data pergerakan barang.';
   if (!warehouseMovementsState.rows.length) {
+    warehouseMovementsState.currentPage = 1;
+    warehouseMovementsState.lastFilteredCount = 0;
     const tbody = document.getElementById('warehouse-movements-table-body');
     if (tbody) {
       tbody.innerHTML = `<tr class="empty-state"><td colspan="7">${escapeHtml(warehouseMovementsState.error)}</td></tr>`;
@@ -8552,12 +8561,22 @@ function normalizeWarehouseMovementsPayload(summary) {
   const list = Array.isArray(summary.list) ? summary.list : [];
   const rows = [];
 
+  const targetName = TARGET_WAREHOUSE_NAME.trim().toLowerCase();
+  const trackedWarehouses = new Set();
+
   list.forEach(entry => {
     if (!entry || typeof entry !== 'object') {
       return;
     }
 
-    const warehouseName = (entry.warehouse_name ?? 'Gudang Tanpa Nama').toString();
+    const rawWarehouseName = (entry.warehouse_name ?? 'Gudang Tanpa Nama').toString();
+    const warehouseName = rawWarehouseName.trim();
+    if (!warehouseName || warehouseName.toLowerCase() !== targetName) {
+      return;
+    }
+
+    trackedWarehouses.add(warehouseName);
+
     const products = Array.isArray(entry.products) ? entry.products : [];
 
     products.forEach(product => {
@@ -8579,21 +8598,23 @@ function normalizeWarehouseMovementsPayload(summary) {
     });
   });
 
-  const totalsValues = Array.isArray(summary?.grand_total?.values) ? summary.grand_total.values : [];
-  const totals = totalsValues.length
-    ? {
-        opening: toNum(totalsValues[0]?.total),
-        in: toNum(totalsValues[1]?.total),
-        out: toNum(totalsValues[2]?.total),
-        closing: toNum(totalsValues[3]?.total)
-      }
+  const totals = rows.length
+    ? rows.reduce(
+        (acc, item) => ({
+          opening: acc.opening + (Number.isFinite(item.openingBalance) ? item.openingBalance : 0),
+          in: acc.in + (Number.isFinite(item.qtyIn) ? item.qtyIn : 0),
+          out: acc.out + (Number.isFinite(item.qtyOut) ? item.qtyOut : 0),
+          closing: acc.closing + (Number.isFinite(item.closingBalance) ? item.closingBalance : 0)
+        }),
+        { opening: 0, in: 0, out: 0, closing: 0 }
+      )
     : null;
 
   return {
     header,
     rows,
     totals,
-    warehouses: list.length
+    warehouses: trackedWarehouses.size
   };
 }
 
@@ -8615,7 +8636,28 @@ function renderSalesReports({ search = '' } = {}) {
       })
     : rows;
 
-  if (!filtered.length) {
+  warehouseMovementsState.lastFilteredCount = filtered.length;
+
+  const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
+  let currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+  const totalRows = filtered.length;
+  const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
+
+  if (!totalPages) {
+    currentPage = 1;
+  } else if (currentPage > totalPages) {
+    currentPage = totalPages;
+  }
+
+  if (warehouseMovementsState.currentPage !== currentPage) {
+    warehouseMovementsState.currentPage = currentPage;
+  }
+
+  const startIndex = totalRows ? (currentPage - 1) * pageSize : 0;
+  const endIndex = totalRows ? Math.min(startIndex + pageSize, totalRows) : 0;
+  const paginatedRows = totalRows ? filtered.slice(startIndex, endIndex) : [];
+
+  if (!totalRows) {
     const message = warehouseMovementsState.loading
       ? 'Memuat pergerakan barang dari Mekari Jurnal...'
       : warehouseMovementsState.error
@@ -8623,7 +8665,7 @@ function renderSalesReports({ search = '' } = {}) {
         : 'Tidak ada data pergerakan barang untuk filter saat ini.';
     tbody.innerHTML = `<tr class="empty-state"><td colspan="7">${escapeHtml(message)}</td></tr>`;
   } else {
-    tbody.innerHTML = filtered
+    tbody.innerHTML = paginatedRows
       .map(row => `
         <tr>
           <td>
@@ -8649,7 +8691,7 @@ function renderSalesReports({ search = '' } = {}) {
 
   const countElement = document.getElementById('warehouse-movement-count');
   if (countElement) {
-    countElement.textContent = `${formatNumber(filtered.length)} baris`;
+    countElement.textContent = `${formatNumber(totalRows)} baris`;
   }
 
   const metaElement = document.getElementById('warehouse-table-meta');
@@ -8664,8 +8706,15 @@ function renderSalesReports({ search = '' } = {}) {
     if (warehouseMovementsState.header?.companyName) {
       parts.push(`Perusahaan: ${warehouseMovementsState.header.companyName}`);
     }
-    if (filtered.length || rows.length) {
-      parts.push(`Menampilkan ${formatNumber(filtered.length)} produk${rows.length !== filtered.length ? ` dari ${formatNumber(rows.length)} total produk` : ''}`);
+    if (totalRows) {
+      const startDisplay = startIndex + 1;
+      const endDisplay = endIndex;
+      const baseText = rows.length !== totalRows
+        ? `Menampilkan ${formatNumber(startDisplay)}–${formatNumber(endDisplay)} dari ${formatNumber(totalRows)} produk (total ${formatNumber(rows.length)} produk tersedia)`
+        : `Menampilkan ${formatNumber(startDisplay)}–${formatNumber(endDisplay)} dari ${formatNumber(totalRows)} produk`;
+      parts.push(baseText);
+    } else if (rows.length) {
+      parts.push(`0 produk ditemukan dari ${formatNumber(rows.length)} total produk`);
     }
     if (warehouseMovementsState.warehouses) {
       parts.push(`Gudang: ${formatNumber(warehouseMovementsState.warehouses)}`);
@@ -8684,7 +8733,82 @@ function renderSalesReports({ search = '' } = {}) {
     metaElement.textContent = parts.filter(Boolean).join(' • ') || 'Data Mekari Jurnal belum dimuat.';
   }
 
+  renderWarehousePagination({
+    totalRows,
+    pageSize,
+    currentPage,
+    totalPages,
+    start: totalRows ? startIndex + 1 : 0,
+    end: totalRows ? endIndex : 0
+  });
+
   return { filtered, rows, header: warehouseMovementsState.header };
+}
+
+function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPages, start, end }) {
+  const container = document.getElementById('warehouse-pagination');
+  if (!container) {
+    return;
+  }
+
+  const info = container.querySelector('[data-pagination-info]');
+  const prevButton = container.querySelector('[data-pagination="prev"]');
+  const nextButton = container.querySelector('[data-pagination="next"]');
+
+  if (!totalRows || !totalPages || totalPages <= 1) {
+    container.hidden = true;
+    if (info) {
+      info.textContent = 'Halaman 1 dari 1';
+    }
+    if (prevButton) {
+      prevButton.disabled = true;
+    }
+    if (nextButton) {
+      nextButton.disabled = true;
+    }
+    return;
+  }
+
+  container.hidden = false;
+
+  if (info) {
+    const rangeText = `${formatNumber(start)}–${formatNumber(end)} dari ${formatNumber(totalRows)} baris`;
+    info.textContent = `Halaman ${currentPage} dari ${totalPages} • ${rangeText}`;
+  }
+
+  if (prevButton) {
+    prevButton.disabled = currentPage <= 1;
+  }
+
+  if (nextButton) {
+    nextButton.disabled = currentPage >= totalPages;
+  }
+
+  container.dataset.totalPages = String(totalPages);
+  container.dataset.currentPage = String(currentPage);
+  container.dataset.pageSize = String(pageSize);
+}
+
+function changeWarehousePage(delta) {
+  const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
+  const totalRows = warehouseMovementsState.lastFilteredCount || 0;
+  const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
+
+  if (!totalPages) {
+    warehouseMovementsState.currentPage = 1;
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+    return;
+  }
+
+  const currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+  const nextPage = Math.min(Math.max(1, currentPage + delta), totalPages);
+
+  if (nextPage === currentPage) {
+    return;
+  }
+
+  warehouseMovementsState.currentPage = nextPage;
+  renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 }
 
 async function fetchWarehouseMovements({ start, end } = {}) {
@@ -8789,7 +8913,9 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
       warehouses: normalized.warehouses,
       lastSignature: signature,
       loading: false,
-      error: null
+      error: null,
+      currentPage: 1,
+      lastFilteredCount: 0
     };
 
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
@@ -9260,6 +9386,9 @@ async function initReportsPage() {
 
     currentPeriodSelection = getPeriodSelection();
 
+    warehouseMovementsState.currentPage = 1;
+    warehouseMovementsState.lastFilteredCount = 0;
+
     renderSalesReports({
       search: searchInput ? searchInput.value : ''
     });
@@ -9294,6 +9423,23 @@ async function initReportsPage() {
   handleSearch(() => {
     applyFilters({ triggerProfitLoss: false });
   });
+
+  const pagination = document.getElementById('warehouse-pagination');
+  if (pagination) {
+    pagination.addEventListener('click', event => {
+      const button = event.target.closest('[data-pagination]');
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      const action = button.dataset.pagination;
+      if (action === 'prev') {
+        changeWarehousePage(-1);
+      } else if (action === 'next') {
+        changeWarehousePage(1);
+      }
+    });
+  }
 
   const filtersForm = document.getElementById('sales-report-filters');
   if (filtersForm) {
