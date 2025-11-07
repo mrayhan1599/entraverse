@@ -280,7 +280,19 @@
           </table>
         </div>
         <footer class="card-footer">
-          <span class="table-meta" id="warehouse-table-meta">Menunggu sinkronisasi data Mekari Jurnal</span>
+          <div class="table-footer">
+            <span class="table-meta" id="warehouse-table-meta">Menunggu sinkronisasi data Mekari Jurnal</span>
+            <nav
+              class="table-pagination"
+              id="warehouse-pagination"
+              aria-label="Navigasi halaman pergerakan gudang"
+              hidden
+            >
+              <button type="button" class="btn ghost-btn small" data-pagination="prev">Sebelumnya</button>
+              <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+              <button type="button" class="btn ghost-btn small" data-pagination="next">Berikutnya</button>
+            </nav>
+          </div>
         </footer>
       </section>
       <section class="card">
