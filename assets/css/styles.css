@@ -1190,6 +1190,38 @@ a.action-icon {
   color: var(--color-muted);
 }
 
+.table-pagination__jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-pagination__input {
+  width: 72px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: center;
+}
+
+.table-pagination__input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.table-pagination__input::-webkit-outer-spin-button,
+.table-pagination__input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.table-pagination__input[type='number'] {
+  -moz-appearance: textfield;
+}
+
 .variant-table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1253,6 +1285,59 @@ a.action-icon {
   letter-spacing: 0.04em;
   font-size: 12px;
   color: var(--color-muted);
+}
+
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.table-sort-button:hover,
+.table-sort-button:focus-visible {
+  color: var(--color-primary);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.table-sort-button[data-sort-active='true'] {
+  color: var(--color-primary);
+}
+
+.table-sort-indicator {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.4;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.table-sort-indicator::before {
+  content: '↕';
+}
+
+.table-sort-button[data-sort-active='true'] .table-sort-indicator {
+  opacity: 1;
+}
+
+.table-sort-button[data-sort-direction='asc'] .table-sort-indicator::before {
+  content: '▲';
+}
+
+.table-sort-button[data-sort-direction='desc'] .table-sort-indicator::before {
+  content: '▼';
 }
 
 .category-table .empty-state td {

@@ -447,8 +447,14 @@ let warehouseMovementsState = {
   error: null,
   currentPage: 1,
   pageSize: 10,
-  lastFilteredCount: 0
+  lastFilteredCount: 0,
+  sort: { key: null, direction: 'asc' },
+  lastLoadedAt: null
 };
+
+const WAREHOUSE_MOVEMENTS_CACHE_KEY = 'entraverse_warehouse_movements_cache';
+const WAREHOUSE_MOVEMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const WAREHOUSE_NUMERIC_SORT_KEYS = new Set(['openingBalance', 'qtyIn', 'qtyOut', 'closingBalance']);
 
 const SALES_REPORT_SYNC_STATUS = new Set(['on-track', 'manual', 'scheduled']);
 
@@ -8514,11 +8520,14 @@ function setupReportDateFilter({ onChange } = {}) {
   };
 }
 
-function setWarehouseMovementsLoading(isLoading) {
+function setWarehouseMovementsLoading(isLoading, options = {}) {
+  const { preservePage = false } = options;
   warehouseMovementsState.loading = Boolean(isLoading);
   if (isLoading) {
     warehouseMovementsState.error = null;
-    warehouseMovementsState.currentPage = 1;
+    if (!preservePage) {
+      warehouseMovementsState.currentPage = 1;
+    }
     warehouseMovementsState.lastFilteredCount = 0;
     if (!warehouseMovementsState.rows.length) {
       const tbody = document.getElementById('warehouse-movements-table-body');
@@ -8542,6 +8551,87 @@ function setWarehouseMovementsError(message) {
     if (countElement) {
       countElement.textContent = '0 baris';
     }
+  }
+}
+
+function sanitizeWarehouseSort(sort) {
+  if (!sort || typeof sort !== 'object') {
+    return { key: null, direction: 'asc' };
+  }
+
+  const key = typeof sort.key === 'string' && sort.key ? sort.key : null;
+  const direction = sort.direction === 'desc' ? 'desc' : 'asc';
+  return { key, direction };
+}
+
+function getCachedWarehouseMovements(signature) {
+  if (!signature) {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(WAREHOUSE_MOVEMENTS_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const cache = JSON.parse(raw);
+    if (!cache || typeof cache !== 'object' || cache.signature !== signature) {
+      return null;
+    }
+
+    if (cache.expiresAt && Number(cache.expiresAt) > 0 && Date.now() > Number(cache.expiresAt)) {
+      localStorage.removeItem(WAREHOUSE_MOVEMENTS_CACHE_KEY);
+      return null;
+    }
+
+    const snapshot = cache.snapshot;
+    if (!snapshot || typeof snapshot !== 'object') {
+      return null;
+    }
+
+    return {
+      rows: Array.isArray(snapshot.rows) ? snapshot.rows.map(row => ({ ...row })) : [],
+      header: snapshot.header && typeof snapshot.header === 'object' ? { ...snapshot.header } : null,
+      totals: snapshot.totals && typeof snapshot.totals === 'object' ? { ...snapshot.totals } : null,
+      warehouses: Number(snapshot.warehouses) || 0,
+      currentPage: Number(snapshot.currentPage) || 1,
+      pageSize: Number(snapshot.pageSize) || warehouseMovementsState.pageSize || 10,
+      sort: sanitizeWarehouseSort(snapshot.sort),
+      lastLoadedAt: snapshot.lastLoadedAt || null
+    };
+  } catch (error) {
+    console.error('Gagal membaca cache pergerakan gudang.', error);
+    return null;
+  }
+}
+
+function setCachedWarehouseMovements(signature, state) {
+  if (!signature) {
+    return;
+  }
+
+  const snapshot = {
+    rows: Array.isArray(state.rows) ? state.rows.map(row => ({ ...row })) : [],
+    header: state.header && typeof state.header === 'object' ? { ...state.header } : null,
+    totals: state.totals && typeof state.totals === 'object' ? { ...state.totals } : null,
+    warehouses: Number(state.warehouses) || 0,
+    currentPage: Number(state.currentPage) || 1,
+    pageSize: Number(state.pageSize) || 10,
+    sort: sanitizeWarehouseSort(state.sort),
+    lastLoadedAt: state.lastLoadedAt || Date.now()
+  };
+
+  const payload = {
+    signature,
+    snapshot,
+    expiresAt: Date.now() + WAREHOUSE_MOVEMENTS_CACHE_TTL_MS
+  };
+
+  try {
+    localStorage.setItem(WAREHOUSE_MOVEMENTS_CACHE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error('Gagal menyimpan cache pergerakan gudang.', error);
   }
 }
 
@@ -8618,6 +8708,62 @@ function normalizeWarehouseMovementsPayload(summary) {
   };
 }
 
+function sortWarehouseRows(rows, sort) {
+  const workingRows = Array.isArray(rows) ? rows.slice() : [];
+  const { key, direction } = sanitizeWarehouseSort(sort);
+
+  if (!key) {
+    return workingRows;
+  }
+
+  const multiplier = direction === 'desc' ? -1 : 1;
+
+  workingRows.sort((a, b) => {
+    const left = a && typeof a === 'object' ? a[key] : null;
+    const right = b && typeof b === 'object' ? b[key] : null;
+
+    if (WAREHOUSE_NUMERIC_SORT_KEYS.has(key)) {
+      const valueA = Number(left) || 0;
+      const valueB = Number(right) || 0;
+      if (valueA === valueB) {
+        return 0;
+      }
+      return valueA < valueB ? -1 * multiplier : 1 * multiplier;
+    }
+
+    const textA = left === null || left === undefined ? '' : left.toString();
+    const textB = right === null || right === undefined ? '' : right.toString();
+    const comparison = textA.localeCompare(textB, 'id', { sensitivity: 'base', numeric: true });
+    return comparison * multiplier;
+  });
+
+  return workingRows;
+}
+
+function updateWarehouseSortIndicators() {
+  const sortState = sanitizeWarehouseSort(warehouseMovementsState.sort);
+  const buttons = document.querySelectorAll('.table-sort-button[data-sort-key]');
+
+  buttons.forEach(button => {
+    const key = button.dataset.sortKey;
+    const isActive = key && sortState.key === key;
+    button.dataset.sortActive = isActive ? 'true' : 'false';
+    if (isActive) {
+      button.dataset.sortDirection = sortState.direction;
+      const th = button.closest('th');
+      if (th) {
+        th.setAttribute('aria-sort', sortState.direction === 'desc' ? 'descending' : 'ascending');
+      }
+    } else {
+      button.dataset.sortDirection = '';
+      const th = button.closest('th');
+      if (th) {
+        th.removeAttribute('aria-sort');
+      }
+    }
+  });
+}
+
 function renderSalesReports({ search = '' } = {}) {
   const tbody = document.getElementById('warehouse-movements-table-body');
   if (!tbody) {
@@ -8634,13 +8780,15 @@ function renderSalesReports({ search = '' } = {}) {
           .map(value => value.toString().toLowerCase());
         return terms.some(value => value.includes(normalizedSearch));
       })
-    : rows;
+    : rows.slice();
 
-  warehouseMovementsState.lastFilteredCount = filtered.length;
+  const sorted = sortWarehouseRows(filtered, warehouseMovementsState.sort);
+
+  warehouseMovementsState.lastFilteredCount = sorted.length;
 
   const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
   let currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
-  const totalRows = filtered.length;
+  const totalRows = sorted.length;
   const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
 
   if (!totalPages) {
@@ -8655,7 +8803,7 @@ function renderSalesReports({ search = '' } = {}) {
 
   const startIndex = totalRows ? (currentPage - 1) * pageSize : 0;
   const endIndex = totalRows ? Math.min(startIndex + pageSize, totalRows) : 0;
-  const paginatedRows = totalRows ? filtered.slice(startIndex, endIndex) : [];
+  const paginatedRows = totalRows ? sorted.slice(startIndex, endIndex) : [];
 
   if (!totalRows) {
     const message = warehouseMovementsState.loading
@@ -8742,7 +8890,9 @@ function renderSalesReports({ search = '' } = {}) {
     end: totalRows ? endIndex : 0
   });
 
-  return { filtered, rows, header: warehouseMovementsState.header };
+  updateWarehouseSortIndicators();
+
+  return { filtered: sorted, rows, header: warehouseMovementsState.header };
 }
 
 function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPages, start, end }) {
@@ -8754,6 +8904,8 @@ function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPage
   const info = container.querySelector('[data-pagination-info]');
   const prevButton = container.querySelector('[data-pagination="prev"]');
   const nextButton = container.querySelector('[data-pagination="next"]');
+  const jumpContainer = container.querySelector('[data-pagination-jump]');
+  const input = container.querySelector('[data-pagination-input]');
 
   if (!totalRows || !totalPages || totalPages <= 1) {
     container.hidden = true;
@@ -8765,6 +8917,14 @@ function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPage
     }
     if (nextButton) {
       nextButton.disabled = true;
+    }
+    if (jumpContainer) {
+      jumpContainer.hidden = true;
+    }
+    if (input) {
+      input.value = '1';
+      input.disabled = true;
+      input.setAttribute('aria-disabled', 'true');
     }
     return;
   }
@@ -8784,12 +8944,24 @@ function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPage
     nextButton.disabled = currentPage >= totalPages;
   }
 
+  if (jumpContainer) {
+    jumpContainer.hidden = false;
+  }
+
+  if (input) {
+    input.disabled = false;
+    input.removeAttribute('aria-disabled');
+    input.min = '1';
+    input.max = String(totalPages);
+    input.value = String(currentPage);
+  }
+
   container.dataset.totalPages = String(totalPages);
   container.dataset.currentPage = String(currentPage);
   container.dataset.pageSize = String(pageSize);
 }
 
-function changeWarehousePage(delta) {
+function goToWarehousePage(page) {
   const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
   const totalRows = warehouseMovementsState.lastFilteredCount || 0;
   const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
@@ -8800,15 +8972,41 @@ function changeWarehousePage(delta) {
     return;
   }
 
-  const currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
-  const nextPage = Math.min(Math.max(1, currentPage + delta), totalPages);
+  const nextPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
 
-  if (nextPage === currentPage) {
+  if (nextPage === warehouseMovementsState.currentPage) {
     return;
   }
 
   warehouseMovementsState.currentPage = nextPage;
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+
+  if (warehouseMovementsState.lastSignature) {
+    setCachedWarehouseMovements(warehouseMovementsState.lastSignature, warehouseMovementsState);
+  }
+}
+
+function changeWarehousePage(delta) {
+  const currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+  goToWarehousePage(currentPage + delta);
+}
+
+function setWarehouseSort(sortKey) {
+  if (!sortKey) {
+    return;
+  }
+
+  const currentSort = sanitizeWarehouseSort(warehouseMovementsState.sort);
+  const direction = currentSort.key === sortKey && currentSort.direction === 'asc' ? 'desc' : 'asc';
+
+  warehouseMovementsState.sort = { key: sortKey, direction };
+  warehouseMovementsState.currentPage = 1;
+
+  renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+
+  if (warehouseMovementsState.lastSignature) {
+    setCachedWarehouseMovements(warehouseMovementsState.lastSignature, warehouseMovementsState);
+  }
 }
 
 async function fetchWarehouseMovements({ start, end } = {}) {
@@ -8892,7 +9090,31 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
     return { success: true, cached: true };
   }
 
-  setWarehouseMovementsLoading(true);
+  let cachedSnapshot = null;
+  if (!force) {
+    cachedSnapshot = getCachedWarehouseMovements(signature);
+    if (cachedSnapshot && cachedSnapshot.rows.length) {
+      warehouseMovementsState = {
+        ...warehouseMovementsState,
+        rows: cachedSnapshot.rows,
+        header: cachedSnapshot.header,
+        totals: cachedSnapshot.totals,
+        warehouses: cachedSnapshot.warehouses,
+        lastSignature: signature,
+        loading: false,
+        error: null,
+        currentPage: Math.max(1, Number(cachedSnapshot.currentPage) || 1),
+        pageSize: Math.max(1, Number(cachedSnapshot.pageSize) || warehouseMovementsState.pageSize || 10),
+        sort: sanitizeWarehouseSort(cachedSnapshot.sort),
+        lastLoadedAt: cachedSnapshot.lastLoadedAt || null,
+        lastFilteredCount: 0
+      };
+
+      renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+    }
+  }
+
+  setWarehouseMovementsLoading(true, { preservePage: Boolean(cachedSnapshot) });
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
   try {
@@ -8905,6 +9127,11 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
     const payload = await fetchWarehouseMovements({ start: range.startDate, end: range.endDate });
     const normalized = normalizeWarehouseMovementsPayload(payload);
 
+    const previousPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+    const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
+    const totalPages = normalized.rows.length ? Math.ceil(normalized.rows.length / pageSize) : 1;
+    const nextPage = Math.min(previousPage, totalPages) || 1;
+
     warehouseMovementsState = {
       ...warehouseMovementsState,
       rows: normalized.rows,
@@ -8914,9 +9141,12 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
       lastSignature: signature,
       loading: false,
       error: null,
-      currentPage: 1,
-      lastFilteredCount: 0
+      currentPage: nextPage,
+      lastFilteredCount: 0,
+      lastLoadedAt: Date.now()
     };
+
+    setCachedWarehouseMovements(signature, warehouseMovementsState);
 
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
     return { success: true, data: normalized };
@@ -9439,7 +9669,29 @@ async function initReportsPage() {
         changeWarehousePage(1);
       }
     });
+
+    const paginationInput = pagination.querySelector('[data-pagination-input]');
+    if (paginationInput) {
+      paginationInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        event.preventDefault();
+        goToWarehousePage(event.target.value);
+      });
+
+      paginationInput.addEventListener('change', event => {
+        goToWarehousePage(event.target.value);
+      });
+    }
   }
+
+  const sortButtons = document.querySelectorAll('.table-sort-button[data-sort-key]');
+  sortButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      setWarehouseSort(button.dataset.sortKey);
+    });
+  });
 
   const filtersForm = document.getElementById('sales-report-filters');
   if (filtersForm) {
