@@ -435,7 +435,15 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
 let mekariIntegrationCache = null;
-let reportRenderState = { filtered: [], reports: [] };
+let warehouseMovementsState = {
+  rows: [],
+  header: null,
+  totals: null,
+  warehouses: 0,
+  lastSignature: null,
+  loading: false,
+  error: null
+};
 
 const SALES_REPORT_SYNC_STATUS = new Set(['on-track', 'manual', 'scheduled']);
 
@@ -8501,97 +8509,307 @@ function setupReportDateFilter({ onChange } = {}) {
   };
 }
 
-function renderSalesReports({
-  search = '',
-  channel = 'all',
-  period = 'all',
-  syncStatus = 'all',
-  startDate = null,
-  endDate = null
-} = {}) {
-  const tbody = document.getElementById('sales-report-table-body');
+function setWarehouseMovementsLoading(isLoading) {
+  warehouseMovementsState.loading = Boolean(isLoading);
+  if (isLoading) {
+    warehouseMovementsState.error = null;
+    if (!warehouseMovementsState.rows.length) {
+      const tbody = document.getElementById('warehouse-movements-table-body');
+      if (tbody) {
+        tbody.innerHTML = '<tr class="empty-state"><td colspan="7">Memuat pergerakan barang dari Mekari Jurnal...</td></tr>';
+      }
+    }
+  }
+}
+
+function setWarehouseMovementsError(message) {
+  warehouseMovementsState.error = message || 'Gagal memuat data pergerakan barang.';
+  if (!warehouseMovementsState.rows.length) {
+    const tbody = document.getElementById('warehouse-movements-table-body');
+    if (tbody) {
+      tbody.innerHTML = `<tr class="empty-state"><td colspan="7">${escapeHtml(warehouseMovementsState.error)}</td></tr>`;
+    }
+    const countElement = document.getElementById('warehouse-movement-count');
+    if (countElement) {
+      countElement.textContent = '0 baris';
+    }
+  }
+}
+
+function normalizeWarehouseMovementsPayload(summary) {
+  if (!summary || typeof summary !== 'object') {
+    return { header: null, rows: [], totals: null, warehouses: 0 };
+  }
+
+  const header = summary.header && typeof summary.header === 'object'
+    ? {
+        date: summary.header.date ? summary.header.date.toString() : null,
+        currency: summary.header.currency ? summary.header.currency.toString() : null,
+        companyName: summary.header.company_name ? summary.header.company_name.toString() : null
+      }
+    : null;
+
+  const list = Array.isArray(summary.list) ? summary.list : [];
+  const rows = [];
+
+  list.forEach(entry => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+
+    const warehouseName = (entry.warehouse_name ?? 'Gudang Tanpa Nama').toString();
+    const products = Array.isArray(entry.products) ? entry.products : [];
+
+    products.forEach(product => {
+      if (!product || typeof product !== 'object') {
+        return;
+      }
+
+      rows.push({
+        warehouseName,
+        warehouseUrl: entry.warehouse_name_url ? entry.warehouse_name_url.toString() : null,
+        productName: (product.product_name ?? product.product_code ?? 'Produk tanpa nama').toString(),
+        productCode: product.product_code ? product.product_code.toString() : '',
+        units: product.units ? product.units.toString() : '-',
+        openingBalance: toNum(product.opening_balance),
+        qtyIn: toNum(product.qty_in),
+        qtyOut: toNum(product.qty_out),
+        closingBalance: toNum(product.closing_balance)
+      });
+    });
+  });
+
+  const totalsValues = Array.isArray(summary?.grand_total?.values) ? summary.grand_total.values : [];
+  const totals = totalsValues.length
+    ? {
+        opening: toNum(totalsValues[0]?.total),
+        in: toNum(totalsValues[1]?.total),
+        out: toNum(totalsValues[2]?.total),
+        closing: toNum(totalsValues[3]?.total)
+      }
+    : null;
+
+  return {
+    header,
+    rows,
+    totals,
+    warehouses: list.length
+  };
+}
+
+function renderSalesReports({ search = '' } = {}) {
+  const tbody = document.getElementById('warehouse-movements-table-body');
   if (!tbody) {
     return;
   }
 
-  ensureSalesReportsSeeded();
-  const reports = getStoredSalesReports();
   const normalizedSearch = search.toString().trim().toLowerCase();
+  const rows = Array.isArray(warehouseMovementsState.rows) ? warehouseMovementsState.rows : [];
 
-  const filtered = reports.filter(report => {
-    const matchesSearch = !normalizedSearch
-      || [
-        report.productName,
-        report.sku,
-        report.channel,
-        report.period?.label,
-        report.integration
-      ]
-        .filter(Boolean)
-        .map(value => value.toString().toLowerCase())
-        .some(value => value.includes(normalizedSearch));
-
-    const matchesChannel = channel === 'all' || report.channel === channel;
-    const matchesPeriod = doesReportMatchPeriod(report, { key: period, startDate, endDate });
-    const matchesStatus = syncStatus === 'all' || report.syncStatus === syncStatus;
-
-    return matchesSearch && matchesChannel && matchesPeriod && matchesStatus;
-  });
+  const filtered = normalizedSearch
+    ? rows.filter(row => {
+        const terms = [row.warehouseName, row.productName, row.productCode]
+          .filter(Boolean)
+          .map(value => value.toString().toLowerCase());
+        return terms.some(value => value.includes(normalizedSearch));
+      })
+    : rows;
 
   if (!filtered.length) {
-    tbody.innerHTML = '<tr class="empty-state"><td colspan="12">Tidak ada data penjualan sesuai filter.</td></tr>';
+    const message = warehouseMovementsState.loading
+      ? 'Memuat pergerakan barang dari Mekari Jurnal...'
+      : warehouseMovementsState.error
+        ? warehouseMovementsState.error
+        : 'Tidak ada data pergerakan barang untuk filter saat ini.';
+    tbody.innerHTML = `<tr class="empty-state"><td colspan="7">${escapeHtml(message)}</td></tr>`;
   } else {
     tbody.innerHTML = filtered
-      .map(report => {
-        const statusMeta = getReportStatusMeta(report.syncStatus);
-        const lastSync = formatIntegrationSyncTime(report.lastSyncAt);
-        const periodLabel = report.period?.label ?? '';
-
-        return `
-          <tr>
-            <td>
-              <div class="product-cell">
-                <strong>${escapeHtml(report.productName)}</strong>
-                <span class="product-meta">${escapeHtml(report.integration)}</span>
-              </div>
-            </td>
-            <td>${escapeHtml(report.sku || '-')}</td>
-            <td>${escapeHtml(report.channel)}</td>
-            <td>${escapeHtml(periodLabel)}</td>
-            <td>${escapeHtml(formatNumber(report.unitsSold))}</td>
-            <td>${escapeHtml(formatCurrency(report.grossSales))}</td>
-            <td>${escapeHtml(formatCurrency(report.discounts))}</td>
-            <td>${escapeHtml(formatCurrency(report.netSales))}</td>
-            <td>${escapeHtml(formatCurrency(report.grossProfit))}</td>
-            <td>${escapeHtml(formatPercentage(report.margin))}</td>
-            <td>
-              <span class="${statusMeta.className}" title="${escapeHtml(report.syncFrequency)}">${escapeHtml(statusMeta.label)}</span>
-            </td>
-            <td>${escapeHtml(lastSync)}</td>
-          </tr>
-        `;
-      })
+      .map(row => `
+        <tr>
+          <td>
+            <div class="product-cell">
+              <strong>${escapeHtml(row.warehouseName)}</strong>
+            </div>
+          </td>
+          <td>
+            <div class="product-cell">
+              <strong>${escapeHtml(row.productName)}</strong>
+              ${row.productCode ? `<span class="product-meta">${escapeHtml(row.productCode)}</span>` : ''}
+            </div>
+          </td>
+          <td>${escapeHtml(row.units || '-')}</td>
+          <td>${escapeHtml(formatNumber(row.openingBalance))}</td>
+          <td>${escapeHtml(formatNumber(row.qtyIn))}</td>
+          <td>${escapeHtml(formatNumber(row.qtyOut))}</td>
+          <td>${escapeHtml(formatNumber(row.closingBalance))}</td>
+        </tr>
+      `)
       .join('');
   }
 
-  const countElement = document.getElementById('report-count');
+  const countElement = document.getElementById('warehouse-movement-count');
   if (countElement) {
     countElement.textContent = `${formatNumber(filtered.length)} baris`;
   }
 
-  const metaElement = document.getElementById('report-table-meta');
+  const metaElement = document.getElementById('warehouse-table-meta');
   if (metaElement) {
-    if (filtered.length === reports.length) {
-      metaElement.textContent = `Menampilkan ${formatNumber(filtered.length)} data penjualan`;
-    } else {
-      metaElement.textContent = `Menampilkan ${formatNumber(filtered.length)} dari ${formatNumber(reports.length)} data penjualan`;
+    const parts = [];
+    if (warehouseMovementsState.header?.date) {
+      parts.push(`Periode ${warehouseMovementsState.header.date}`);
     }
+    if (warehouseMovementsState.header?.currency) {
+      parts.push(warehouseMovementsState.header.currency);
+    }
+    if (warehouseMovementsState.header?.companyName) {
+      parts.push(`Perusahaan: ${warehouseMovementsState.header.companyName}`);
+    }
+    if (filtered.length || rows.length) {
+      parts.push(`Menampilkan ${formatNumber(filtered.length)} produk${rows.length !== filtered.length ? ` dari ${formatNumber(rows.length)} total produk` : ''}`);
+    }
+    if (warehouseMovementsState.warehouses) {
+      parts.push(`Gudang: ${formatNumber(warehouseMovementsState.warehouses)}`);
+    }
+    if (warehouseMovementsState.totals) {
+      parts.push(
+        `Total Saldo Awal: ${formatNumber(warehouseMovementsState.totals.opening)} • Masuk: ${formatNumber(warehouseMovementsState.totals.in)} • Keluar: ${formatNumber(warehouseMovementsState.totals.out)} • Saldo Akhir: ${formatNumber(warehouseMovementsState.totals.closing)}`
+      );
+    }
+    if (warehouseMovementsState.loading) {
+      parts.push('Sedang menyinkronkan data gudang...');
+    }
+    if (warehouseMovementsState.error && !warehouseMovementsState.loading) {
+      parts.push(`⚠ ${warehouseMovementsState.error}`);
+    }
+    metaElement.textContent = parts.filter(Boolean).join(' • ') || 'Data Mekari Jurnal belum dimuat.';
   }
 
-  reportRenderState = { filtered, reports, period: { key: period, startDate, endDate } };
-  updateSalesReportMetrics(filtered, reports);
+  return { filtered, rows, header: warehouseMovementsState.header };
+}
 
-  return reportRenderState;
+async function fetchWarehouseMovements({ start, end } = {}) {
+  const qs = new URLSearchParams();
+  const formattedStart = formatDateForMekari(start);
+  const formattedEnd = formatDateForMekari(end);
+
+  if (formattedStart) qs.set('start_date', formattedStart);
+  if (formattedEnd) qs.set('end_date', formattedEnd);
+
+  const integration = await resolveMekariIntegration();
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const baseUrl = (integration.apiBaseUrl || 'https://api.jurnal.id').replace(/\/+$/, '');
+  const query = qs.toString();
+  const url = `${baseUrl}/partner/core/api/v1/warehouse_items_stock_movement_summary${query ? `?${query}` : ''}`;
+
+  const token = (integration.accessToken || '').trim();
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(`[network • warehouse] ${message}`);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  if (!bodyText) {
+    const statusText = response?.status ? ` (status ${response.status})` : '';
+    if (!response.ok) {
+      throw new Error(`Gagal memuat data pergerakan barang dari Mekari Jurnal${statusText}.`);
+    }
+    throw new Error('Respons Mekari Jurnal tidak berisi data pergerakan barang.');
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    const statusText = response?.status ? ` (status ${response.status})` : '';
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || status || 'Gagal memuat data pergerakan barang Mekari.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const payload = body?.warehouse_items_stock_movement_summary ?? body?.data ?? body;
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Respons Mekari Jurnal tidak berisi ringkasan pergerakan barang.');
+  }
+
+  return payload;
+}
+
+async function syncWarehouseMovements({ selection, force = false, showToastOnError = false } = {}) {
+  const normalizedSelection = selection ?? getPeriodSelection();
+  const signature = getPeriodSelectionSignature(normalizedSelection);
+
+  if (!force && signature === warehouseMovementsState.lastSignature && warehouseMovementsState.rows.length) {
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+    return { success: true, cached: true };
+  }
+
+  setWarehouseMovementsLoading(true);
+  renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+
+  try {
+    const range = getProfitLossDateRange({
+      periodKey: normalizedSelection?.key ?? 'all',
+      startDate: normalizedSelection?.start ?? normalizedSelection?.startDate ?? null,
+      endDate: normalizedSelection?.end ?? normalizedSelection?.endDate ?? null
+    });
+
+    const payload = await fetchWarehouseMovements({ start: range.startDate, end: range.endDate });
+    const normalized = normalizeWarehouseMovementsPayload(payload);
+
+    warehouseMovementsState = {
+      ...warehouseMovementsState,
+      rows: normalized.rows,
+      header: normalized.header,
+      totals: normalized.totals,
+      warehouses: normalized.warehouses,
+      lastSignature: signature,
+      loading: false,
+      error: null
+    };
+
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+    return { success: true, data: normalized };
+  } catch (error) {
+    warehouseMovementsState = {
+      ...warehouseMovementsState,
+      loading: false
+    };
+
+    const message = error?.message ? String(error.message) : 'Gagal memuat data pergerakan barang.';
+    setWarehouseMovementsError(message);
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+
+    if (showToastOnError) {
+      toast.show(message);
+    }
+
+    return { success: false, error };
+  }
 }
 
 function maskAccessToken(token) {
@@ -8884,7 +9102,6 @@ function handleIntegrationActions(options = {}) {
 }
 
 async function initReportsPage() {
-  ensureSalesReportsSeeded();
   ensureIntegrationsSeeded();
 
   let supabaseReady = true;
@@ -8892,7 +9109,7 @@ async function initReportsPage() {
     await ensureSeeded();
   } catch (error) {
     supabaseReady = false;
-    console.error('Gagal menyiapkan data laporan penjualan.', error);
+    console.error('Gagal menyiapkan data laporan stok gudang.', error);
     toast.show('Gagal memuat data dari Supabase. Menggunakan data lokal.');
   }
 
@@ -9038,27 +9255,22 @@ async function initReportsPage() {
     }
   };
 
-  const applyFilters = ({ triggerProfitLoss = true } = {}) => {
+  const applyFilters = ({ triggerProfitLoss = true, forceWarehouseSync = false } = {}) => {
     const searchInput = document.getElementById('search-input');
-    const channel = document.getElementById('report-channel-filter')?.value ?? 'all';
-    const sync = document.getElementById('report-sync-filter')?.value ?? 'all';
 
     currentPeriodSelection = getPeriodSelection();
 
-    const state = renderSalesReports({
-      search: searchInput ? searchInput.value : '',
-      channel,
-      period: currentPeriodSelection.key,
-      syncStatus: sync,
-      startDate: currentPeriodSelection.start,
-      endDate: currentPeriodSelection.end
+    renderSalesReports({
+      search: searchInput ? searchInput.value : ''
     });
 
-    if (!state) {
-      return;
-    }
-
-    updateSalesReportMetrics(state.filtered, state.reports);
+    syncWarehouseMovements({
+      selection: currentPeriodSelection,
+      force: forceWarehouseSync,
+      showToastOnError: triggerProfitLoss
+    }).catch(error => {
+      console.error('Gagal memuat data pergerakan barang Mekari.', error);
+    });
 
     if (triggerProfitLoss) {
       const signature = getPeriodSelectionSignature(currentPeriodSelection);
@@ -9115,6 +9327,13 @@ async function initReportsPage() {
           showToastOnError: true,
           force: true
         });
+
+        await syncWarehouseMovements({
+          selection,
+          force: true,
+          showToastOnError: true
+        });
+
         if (result?.success) {
           currentPeriodSelection = selection;
         }

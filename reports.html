@@ -83,7 +83,7 @@
           </button>
           <form class="search-bar" role="search">
             <span class="search-icon" aria-hidden="true">🔍</span>
-            <input type="search" id="search-input" placeholder="Cari data penjualan" aria-label="Pencarian laporan penjualan">
+            <input type="search" id="search-input" placeholder="Cari data pergerakan barang" aria-label="Pencarian laporan pergerakan barang">
           </form>
         </div>
         <div class="topbar-actions">
@@ -111,14 +111,14 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <h1>Laporan Data Penjualan Produk</h1>
-            <div class="title-actions" role="toolbar" aria-label="Aksi laporan penjualan">
+            <h1>Laporan Pergerakan Barang</h1>
+            <div class="title-actions" role="toolbar" aria-label="Aksi laporan stok">
               <button class="btn primary-btn small" type="button" data-report-sync-now data-label-default="Sinkronkan Sekarang" data-label-loading="Menjadwalkan sinkronisasi...">
                 Sinkronkan Sekarang
               </button>
             </div>
           </div>
-          <p>Monitor performa penjualan lintas marketplace, bandingkan margin, dan siapkan data untuk integrasi ke Mekari Jurnal.</p>
+          <p>Pantau ringkasan stok gudang dan profit &amp; loss dari Mekari Jurnal.</p>
         </div>
       </section>
       <section class="card report-overview report-pnl" data-pnl-summary>
@@ -195,24 +195,6 @@
             <input type="hidden" id="report-period-start" name="period_start">
             <input type="hidden" id="report-period-end" name="period_end">
           </div>
-          <div class="report-filter-group">
-            <label for="report-channel-filter">Channel</label>
-            <select id="report-channel-filter" name="channel">
-              <option value="all">Semua channel</option>
-              <option value="Entraverse ID">Entraverse ID</option>
-              <option value="Tokopedia">Tokopedia</option>
-              <option value="Shopee">Shopee</option>
-            </select>
-          </div>
-          <div class="report-filter-group">
-            <label for="report-sync-filter">Status Sinkronisasi</label>
-            <select id="report-sync-filter" name="sync">
-              <option value="all">Semua status</option>
-              <option value="on-track">On Track</option>
-              <option value="manual">Butuh Tindakan Manual</option>
-              <option value="scheduled">Terjadwal</option>
-            </select>
-          </div>
         </form>
         <div class="report-pnl__error" data-pnl-error hidden>
           Gagal sinkronisasi P&amp;L dari Mekari Jurnal.
@@ -272,38 +254,33 @@
       <section class="card">
         <header class="card-header">
           <div>
-            <h2>Detail Penjualan per Produk</h2>
-            <p class="card-subtitle">Gunakan data ini untuk rekonsiliasi dan posting jurnal otomatis ke Mekari Jurnal.</p>
+            <h2>Pergerakan Barang Gudang</h2>
+            <p class="card-subtitle">Pantau arus stok setiap gudang berdasarkan data Mekari Jurnal.</p>
           </div>
-          <span id="report-count" class="count-pill">0 baris</span>
+          <span id="warehouse-movement-count" class="count-pill">0 baris</span>
         </header>
         <div class="table-wrapper">
           <table class="category-table report-table">
             <thead>
               <tr>
+                <th>Gudang</th>
                 <th>Produk</th>
-                <th>SKU</th>
-                <th>Channel</th>
-                <th>Periode</th>
-                <th>Unit</th>
-                <th>Penjualan Bruto</th>
-                <th>Diskon</th>
-                <th>Penjualan Bersih</th>
-                <th>Laba Kotor</th>
-                <th>Margin</th>
-                <th>Status Sinkronisasi</th>
-                <th>Terakhir Sinkron</th>
+                <th>Satuan</th>
+                <th>Saldo Awal</th>
+                <th>Qty Masuk</th>
+                <th>Qty Keluar</th>
+                <th>Saldo Akhir</th>
               </tr>
             </thead>
-            <tbody id="sales-report-table-body">
+            <tbody id="warehouse-movements-table-body">
               <tr class="empty-state">
-                <td colspan="12">Belum ada data penjualan.</td>
+                <td colspan="7">Data pergerakan barang belum dimuat.</td>
               </tr>
             </tbody>
           </table>
         </div>
         <footer class="card-footer">
-          <span class="table-meta" id="report-table-meta">Menampilkan 0 data penjualan</span>
+          <span class="table-meta" id="warehouse-table-meta">Menunggu sinkronisasi data Mekari Jurnal</span>
         </footer>
       </section>
       <section class="card">
