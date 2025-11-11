@@ -1222,6 +1222,60 @@ a.action-icon {
   -moz-appearance: textfield;
 }
 
+.pagination {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pagination__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.pagination__button:hover:not(:disabled),
+.pagination__button:focus-visible:not(:disabled) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.pagination__button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.pagination__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination__button--active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  cursor: default;
+}
+
+.pagination__ellipsis {
+  color: var(--color-muted);
+  font-size: 14px;
+  padding: 0 6px;
+}
+
 .variant-table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1340,6 +1394,7 @@ a.action-icon {
   content: '▼';
 }
 
+.product-table .empty-state td,
 .category-table .empty-state td {
   text-align: center;
   padding: 40px 16px;

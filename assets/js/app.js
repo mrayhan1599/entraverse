@@ -247,6 +247,12 @@ const DEFAULT_CATEGORIES = [
   }
 ];
 
+const PRODUCT_PAGINATION_STATE = {
+  pageSize: 10,
+  currentPage: 1,
+  lastFilter: ''
+};
+
 const DEFAULT_EXCHANGE_RATES = [
   {
     id: 'rate-idr',
@@ -4183,13 +4189,159 @@ function renderCategories(filterText = '') {
   }
 }
 
-function renderProducts(filterText = '') {
+function clampProductPage(page, totalPages) {
+  const maxPage = Math.max(1, Number.isFinite(totalPages) ? Math.floor(totalPages) : Number(totalPages) || 1);
+  const numeric = Number(page);
+  if (!Number.isFinite(numeric)) {
+    return 1;
+  }
+  const floored = Math.floor(numeric);
+  if (!Number.isFinite(floored) || floored < 1) {
+    return 1;
+  }
+  return Math.min(floored, maxPage);
+}
+
+function computeProductPageNumbers(totalPages, currentPage) {
+  const maxPages = Math.max(1, Math.floor(totalPages));
+  const current = clampProductPage(currentPage, maxPages);
+
+  if (maxPages <= 7) {
+    return Array.from({ length: maxPages }, (_, index) => index + 1);
+  }
+
+  const pages = [1];
+  let start = Math.max(2, current - 1);
+  let end = Math.min(maxPages - 1, current + 1);
+
+  if (current <= 3) {
+    start = 2;
+    end = 4;
+  } else if (current >= maxPages - 2) {
+    start = maxPages - 3;
+    end = maxPages - 1;
+  }
+
+  start = Math.max(2, Math.min(start, maxPages - 1));
+  end = Math.max(start, Math.min(end, maxPages - 1));
+
+  if (start > 2) {
+    pages.push('ellipsis');
+  }
+
+  for (let page = start; page <= end; page += 1) {
+    pages.push(page);
+  }
+
+  if (end < maxPages - 1) {
+    pages.push('ellipsis');
+  }
+
+  pages.push(maxPages);
+  return pages;
+}
+
+function goToProductPage(page) {
+  const numeric = Number(page);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+  renderProducts(PRODUCT_PAGINATION_STATE.lastFilter, { forcePage: numeric });
+}
+
+function renderProductPaginationControls(totalFiltered, totalPages) {
+  const container = document.getElementById('product-pagination');
+  if (!container) return;
+
+  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
+  if (!totalFiltered || totalFiltered <= pageSize) {
+    container.innerHTML = '';
+    container.hidden = true;
+    return;
+  }
+
+  const maxPages = Math.max(1, Math.floor(totalPages));
+  const currentPage = clampProductPage(PRODUCT_PAGINATION_STATE.currentPage, maxPages);
+  PRODUCT_PAGINATION_STATE.currentPage = currentPage;
+
+  container.hidden = false;
+  container.innerHTML = '';
+
+  const createButton = (label, page, { disabled = false, active = false, ariaLabel = null } = {}) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pagination__button';
+    if (active) {
+      button.classList.add('pagination__button--active');
+      button.setAttribute('aria-current', 'page');
+    }
+    if (ariaLabel) {
+      button.setAttribute('aria-label', ariaLabel);
+    }
+    if (disabled) {
+      button.disabled = true;
+    } else if (!active) {
+      button.addEventListener('click', () => {
+        goToProductPage(page);
+      });
+    }
+    button.textContent = label;
+    return button;
+  };
+
+  const prevPage = Math.max(1, currentPage - 1);
+  container.appendChild(
+    createButton('‹', prevPage, {
+      disabled: currentPage === 1,
+      ariaLabel: 'Halaman sebelumnya'
+    })
+  );
+
+  const pageEntries = computeProductPageNumbers(maxPages, currentPage);
+  pageEntries.forEach(entry => {
+    if (entry === 'ellipsis') {
+      const span = document.createElement('span');
+      span.className = 'pagination__ellipsis';
+      span.textContent = '…';
+      container.appendChild(span);
+      return;
+    }
+
+    const pageNumber = Number(entry);
+    container.appendChild(
+      createButton(String(pageNumber), pageNumber, {
+        active: pageNumber === currentPage,
+        ariaLabel: `Halaman ${pageNumber}`
+      })
+    );
+  });
+
+  const nextPage = Math.min(maxPages, currentPage + 1);
+  container.appendChild(
+    createButton('›', nextPage, {
+      disabled: currentPage >= maxPages,
+      ariaLabel: 'Halaman berikutnya'
+    })
+  );
+}
+
+function renderProducts(filterText = '', options = {}) {
   const tbody = document.getElementById('product-table-body');
   if (!tbody) return;
+
+  const normalizedOptions = options && typeof options === 'object' ? options : {};
+  const resetPage = Boolean(normalizedOptions.resetPage);
+  const forcePage = normalizedOptions.forcePage ?? null;
 
   const products = getProductsFromCache();
   const canManage = canManageCatalog();
   const normalizedFilter = (filterText ?? '').toString().trim().toLowerCase();
+
+  const filterChanged = normalizedFilter !== PRODUCT_PAGINATION_STATE.lastFilter;
+  if (filterChanged || resetPage) {
+    PRODUCT_PAGINATION_STATE.currentPage = 1;
+  }
+  PRODUCT_PAGINATION_STATE.lastFilter = normalizedFilter;
 
   const filtered = products.filter(product => {
     if (!normalizedFilter) {
@@ -4200,57 +4352,90 @@ function renderProducts(filterText = '') {
     return name.includes(normalizedFilter) || brand.includes(normalizedFilter);
   });
 
+  const totalFiltered = filtered.length;
+  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
+  const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
+
+  if (forcePage !== null && forcePage !== undefined) {
+    PRODUCT_PAGINATION_STATE.currentPage = clampProductPage(forcePage, totalPages);
+  } else if (!totalFiltered) {
+    PRODUCT_PAGINATION_STATE.currentPage = 1;
+  } else {
+    PRODUCT_PAGINATION_STATE.currentPage = clampProductPage(PRODUCT_PAGINATION_STATE.currentPage, totalPages);
+  }
+
+  const currentPage = PRODUCT_PAGINATION_STATE.currentPage;
+  const startIndex = totalFiltered ? (currentPage - 1) * pageSize : 0;
+  const endIndex = startIndex + pageSize;
+  const paginated = filtered.slice(startIndex, endIndex);
+
   tbody.innerHTML = '';
 
-  filtered.forEach(product => {
-    const row = document.createElement('tr');
-    const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
-    const safeName = escapeHtml(product.name ?? '');
-    const safeBrand = product.brand ? escapeHtml(product.brand) : '';
+  if (!paginated.length) {
+    const emptyRow = document.createElement('tr');
+    emptyRow.className = 'empty-state';
+    emptyRow.innerHTML = '<td colspan="4">Tidak ada produk ditemukan.</td>';
+    tbody.appendChild(emptyRow);
+  } else {
+    paginated.forEach(product => {
+      const row = document.createElement('tr');
+      const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
+      const safeName = escapeHtml(product.name ?? '');
+      const safeBrand = product.brand ? escapeHtml(product.brand) : '';
 
-    const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
-    const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
-    const deleteTitle = canManage ? 'Hapus' : 'Login untuk menghapus produk';
+      const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
+      const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
+      const deleteTitle = canManage ? 'Hapus' : 'Login untuk menghapus produk';
 
-    row.innerHTML = `
-      <td>
-        <div class="photo-preview">
-          ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
-        </div>
-      </td>
-      <td>
-        <div class="product-cell">
-          <strong>${safeName}</strong>
-          ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
-        </div>
-      </td>
-      <td>
-        <label class="switch">
-          <input type="checkbox" ${product.tradeIn ? 'checked' : ''} data-action="toggle-trade" data-id="${product.id}" ${canManage ? '' : 'disabled'}>
-          <span class="slider"></span>
-        </label>
-      </td>
-      <td>
-        <div class="table-actions">
-          <button class="icon-btn small" type="button" data-action="edit" data-id="${product.id}" title="${editTitle}" ${manageDisabledAttr}>✏️</button>
-          <button class="icon-btn small" type="button" data-action="view-variants" data-id="${product.id}" title="Lihat varian">👁️</button>
-          <button class="icon-btn danger small" type="button" data-action="delete" data-id="${product.id}" title="${deleteTitle}" ${manageDisabledAttr}>🗑️</button>
-        </div>
-      </td>
-    `;
-    tbody.appendChild(row);
-  });
+      row.innerHTML = `
+        <td>
+          <div class="photo-preview">
+            ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
+          </div>
+        </td>
+        <td>
+          <div class="product-cell">
+            <strong>${safeName}</strong>
+            ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
+          </div>
+        </td>
+        <td>
+          <label class="switch">
+            <input type="checkbox" ${product.tradeIn ? 'checked' : ''} data-action="toggle-trade" data-id="${product.id}" ${canManage ? '' : 'disabled'}>
+            <span class="slider"></span>
+          </label>
+        </td>
+        <td>
+          <div class="table-actions">
+            <button class="icon-btn small" type="button" data-action="edit" data-id="${product.id}" title="${editTitle}" ${manageDisabledAttr}>✏️</button>
+            <button class="icon-btn small" type="button" data-action="view-variants" data-id="${product.id}" title="Lihat varian">👁️</button>
+            <button class="icon-btn danger small" type="button" data-action="delete" data-id="${product.id}" title="${deleteTitle}" ${manageDisabledAttr}>🗑️</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
 
   const countEl = document.getElementById('product-count');
   const metaEl = document.getElementById('table-meta');
   if (countEl) {
-    countEl.textContent = `${filtered.length} produk`;
+    countEl.textContent = `${products.length} produk`;
   }
   if (metaEl) {
-    metaEl.textContent = filtered.length
-      ? `Menampilkan ${filtered.length} dari ${products.length} produk`
-      : 'Tidak ada produk ditemukan';
+    if (!totalFiltered) {
+      metaEl.textContent = normalizedFilter
+        ? 'Tidak ada produk yang cocok dengan pencarian.'
+        : 'Tidak ada produk ditemukan.';
+    } else {
+      const firstItem = startIndex + 1;
+      const lastItem = Math.min(totalFiltered, startIndex + paginated.length);
+      const scopeText = normalizedFilter ? `${totalFiltered} produk cocok` : `${products.length} produk`;
+      metaEl.textContent = `Menampilkan ${firstItem}-${lastItem} dari ${scopeText}`;
+    }
   }
+
+  renderProductPaginationControls(totalFiltered, totalPages);
 }
 
 function handleProductActions() {
@@ -7833,74 +8018,432 @@ async function fetchMekariProducts({ includeArchive = false, integration: integr
     throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
   }
 
-  const params = new URLSearchParams();
-  params.set('include_archive', includeArchive ? 'true' : 'false');
-  const query = params.toString();
-  const url = `${baseUrl}/partner/core/api/v1/products${query ? `?${query}` : ''}`;
+  const baseParams = new URLSearchParams();
+  baseParams.set('include_archive', includeArchive ? 'true' : 'false');
 
-  const headers = new Headers({ Accept: 'application/json' });
-  headers.set('Authorization', token);
+  const toNumber = value => {
+    const parsed = parseNumericValue(value);
+    return parsed !== null ? Number(parsed) : null;
+  };
 
-  let response;
-  try {
-    response = await fetch(url, { method: 'GET', headers });
-  } catch (networkError) {
-    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
-    throw new Error(`[network • -] ${message}`);
-  }
-
-  let bodyText = '';
-  try {
-    bodyText = await response.text();
-  } catch (error) {
-    bodyText = '';
-  }
-
-  if (!bodyText) {
-    const statusText = response?.status ? ` (status ${response.status})` : '';
-    if (!response.ok) {
-      throw new Error(`Gagal memuat data produk dari Mekari Jurnal${statusText}.`);
+  const parseBooleanValue = value => {
+    if (typeof value === 'boolean') {
+      return value;
     }
-    return { products: [], integration };
-  }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      if (value === 0) {
+        return false;
+      }
+      return value > 0;
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) {
+        return null;
+      }
+      if (['true', '1', 'yes', 'y'].includes(normalized)) {
+        return true;
+      }
+      if (['false', '0', 'no', 'n'].includes(normalized)) {
+        return false;
+      }
+    }
+    return null;
+  };
 
-  let body;
-  try {
-    body = JSON.parse(bodyText);
-  } catch (parseError) {
-    const statusText = response?.status ? ` (status ${response.status})` : '';
-    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
-  }
+  const parsePageFromLink = link => {
+    if (!link || (typeof link !== 'string' && typeof link !== 'object')) {
+      return null;
+    }
+    let href = '';
+    if (typeof link === 'string') {
+      href = link.trim();
+    } else if (link && typeof link.href === 'string') {
+      href = link.href.trim();
+    }
+    if (!href) {
+      return null;
+    }
 
-  if (!response.ok) {
-    const status = response?.status ? `status ${response.status}` : '';
-    const message =
-      body?.error || body?.message || body?.response_message || status || 'Gagal memuat data produk Mekari.';
-    const trace = body?.trace_id || body?.request_id || null;
-    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
-  }
+    try {
+      const absolute = new URL(href, baseUrl);
+      const pageParam = absolute.searchParams.get('page');
+      const parsed = toNumber(pageParam);
+      if (parsed !== null) {
+        return parsed;
+      }
+    } catch (error) {
+      // Ignore invalid URLs and fall back to regex parsing.
+    }
 
-  const payloadCandidates = [
-    body?.products,
-    body?.data?.products,
-    body?.data,
-    body?.result?.products,
-    body?.result
-  ];
+    const match = href.match(/[?&]page=(\d+)/i);
+    if (match) {
+      const parsed = toNumber(match[1]);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
 
-  let records = [];
-  for (const candidate of payloadCandidates) {
-    if (Array.isArray(candidate) && candidate.length) {
-      records = candidate.filter(Boolean);
+    return null;
+  };
+
+  const parseHeaderNumber = (response, names) => {
+    if (!response || typeof response.headers?.get !== 'function') {
+      return null;
+    }
+    for (const name of names) {
+      const value = response.headers.get(name);
+      if (value === null || value === undefined) {
+        continue;
+      }
+      const parsed = toNumber(value);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+    return null;
+  };
+
+  const resolvePagination = (body, response, { page, perPage }) => {
+    const pagination = {
+      currentPage: Number.isFinite(page) ? Number(page) : toNumber(page),
+      totalPages: null,
+      nextPage: null,
+      perPage: Number.isFinite(perPage) ? Number(perPage) : toNumber(perPage),
+      hasMore: null
+    };
+
+    const headerCurrent = parseHeaderNumber(response, ['X-Page', 'X-Current-Page', 'X-CurrentPage']);
+    if (headerCurrent !== null) {
+      pagination.currentPage = headerCurrent;
+    }
+
+    const headerTotalPages = parseHeaderNumber(response, [
+      'X-Total-Pages',
+      'X-TotalPages',
+      'X-Pagination-Total-Pages',
+      'X-Total-Page'
+    ]);
+    if (headerTotalPages !== null) {
+      pagination.totalPages = headerTotalPages;
+    }
+
+    const headerNextPage = parseHeaderNumber(response, ['X-Next-Page', 'X-NextPage']);
+    if (headerNextPage !== null) {
+      pagination.nextPage = headerNextPage;
+    }
+
+    const headerPerPage = parseHeaderNumber(response, ['X-Per-Page', 'X-PerPage']);
+    if (headerPerPage !== null) {
+      pagination.perPage = headerPerPage;
+    }
+
+    const headerHasMore = response?.headers?.get('X-Has-More') ?? response?.headers?.get('X-HasMore');
+    const headerHasMoreBool = parseBooleanValue(headerHasMore);
+    if (headerHasMoreBool !== null) {
+      pagination.hasMore = headerHasMoreBool;
+    }
+
+    const candidates = [
+      body?.meta?.pagination,
+      body?.pagination,
+      body?.data?.pagination,
+      body?.meta?.paging,
+      body?.paging,
+      body?.meta
+    ];
+
+    const assignFromCandidate = candidate => {
+      if (!candidate || typeof candidate !== 'object') {
+        return;
+      }
+
+      if (pagination.currentPage === null) {
+        const current = toNumber(
+          candidate.current_page ??
+            candidate.currentPage ??
+            candidate.page ??
+            candidate.page_no ??
+            candidate.pageNo ??
+            candidate.page_number ??
+            candidate.pageNumber
+        );
+        if (current !== null) {
+          pagination.currentPage = current;
+        }
+      }
+
+      if (pagination.totalPages === null) {
+        const total = toNumber(
+          candidate.total_pages ??
+            candidate.totalPages ??
+            candidate.total_page ??
+            candidate.totalPage ??
+            candidate.last_page ??
+            candidate.lastPage ??
+            candidate.pages ??
+            candidate.total
+        );
+        if (total !== null) {
+          pagination.totalPages = total;
+        }
+      }
+
+      if (pagination.nextPage === null) {
+        const next = toNumber(
+          candidate.next_page ??
+            candidate.nextPage ??
+            candidate.next ??
+            candidate.next_page_number ??
+            candidate.nextPageNumber ??
+            candidate.next_page_no ??
+            candidate.nextPageNo
+        );
+        if (next !== null) {
+          pagination.nextPage = next;
+        }
+      }
+
+      const perPageCandidate = toNumber(
+        candidate.per_page ??
+          candidate.perPage ??
+          candidate.page_size ??
+          candidate.pageSize ??
+          candidate.limit
+      );
+      if (perPageCandidate !== null) {
+        pagination.perPage = perPageCandidate;
+      }
+
+      if (pagination.hasMore === null) {
+        const rawHasMore =
+          candidate.has_more ??
+          candidate.hasMore ??
+          candidate.more ??
+          candidate.has_next ??
+          candidate.hasNext;
+        const parsedHasMore = parseBooleanValue(rawHasMore);
+        if (parsedHasMore !== null) {
+          pagination.hasMore = parsedHasMore;
+        }
+      }
+
+      const linkContainer =
+        candidate.links ?? candidate._links ?? candidate.pagination_links ?? candidate.paginationLinks ?? null;
+      if (linkContainer && typeof linkContainer === 'object') {
+        const nextLink = linkContainer.next ?? linkContainer.next_page ?? linkContainer.nextPage ?? null;
+        const parsedNext = parsePageFromLink(nextLink);
+        if (parsedNext !== null) {
+          pagination.nextPage = pagination.nextPage !== null ? Math.max(pagination.nextPage, parsedNext) : parsedNext;
+          if (pagination.currentPage !== null && parsedNext > pagination.currentPage) {
+            pagination.hasMore = true;
+          }
+        }
+      }
+    };
+
+    candidates.forEach(assignFromCandidate);
+
+    const bodyLinks = body?.links ?? body?.meta?.links ?? body?.data?.links ?? null;
+    if (bodyLinks && typeof bodyLinks === 'object') {
+      const nextLink = bodyLinks.next ?? bodyLinks.next_page ?? bodyLinks.nextPage ?? null;
+      const parsedNext = parsePageFromLink(nextLink);
+      if (parsedNext !== null) {
+        pagination.nextPage = pagination.nextPage !== null ? Math.max(pagination.nextPage, parsedNext) : parsedNext;
+        if (pagination.currentPage !== null && parsedNext > pagination.currentPage) {
+          pagination.hasMore = true;
+        }
+      }
+    }
+
+    if (pagination.hasMore === null && pagination.totalPages !== null && pagination.currentPage !== null) {
+      pagination.hasMore = pagination.currentPage < pagination.totalPages;
+    }
+
+    if (pagination.hasMore === null && pagination.nextPage !== null && pagination.currentPage !== null) {
+      pagination.hasMore = pagination.nextPage > pagination.currentPage;
+    }
+
+    if (
+      pagination.hasMore === true &&
+      (pagination.nextPage === null || !Number.isFinite(pagination.nextPage) || pagination.nextPage <= (pagination.currentPage ?? 0))
+    ) {
+      const basePage = Number.isFinite(pagination.currentPage) ? pagination.currentPage : toNumber(pagination.currentPage) || 1;
+      pagination.nextPage = basePage + 1;
+    }
+
+    return pagination;
+  };
+
+  const requestPage = async (page, perPage) => {
+    const params = new URLSearchParams(baseParams);
+    const safePage = Math.max(1, Math.floor(Number(page) || 1));
+    params.set('page', safePage.toString());
+    if (Number.isFinite(perPage) && perPage > 0) {
+      params.set('per_page', Math.floor(perPage).toString());
+    }
+    const query = params.toString();
+    const url = `${baseUrl}/partner/core/api/v1/products${query ? `?${query}` : ''}`;
+
+    const headers = new Headers({ Accept: 'application/json' });
+    headers.set('Authorization', token);
+
+    let response;
+    try {
+      response = await fetch(url, { method: 'GET', headers });
+    } catch (networkError) {
+      const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+      throw new Error(`[network • -] ${message}`);
+    }
+
+    let bodyText = '';
+    try {
+      bodyText = await response.text();
+    } catch (error) {
+      bodyText = '';
+    }
+
+    if (!bodyText) {
+      const pagination = resolvePagination(null, response, { page: safePage, perPage });
+      const statusText = response?.status ? ` (status ${response.status})` : '';
+      if (!response.ok) {
+        throw new Error(`Gagal memuat data produk dari Mekari Jurnal${statusText}.`);
+      }
+      return { records: [], pagination };
+    }
+
+    let body;
+    try {
+      body = JSON.parse(bodyText);
+    } catch (parseError) {
+      const statusText = response?.status ? ` (status ${response.status})` : '';
+      throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+    }
+
+    if (!response.ok) {
+      const status = response?.status ? `status ${response.status}` : '';
+      const message =
+        body?.error || body?.message || body?.response_message || status || 'Gagal memuat data produk Mekari.';
+      const trace = body?.trace_id || body?.request_id || null;
+      throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+    }
+
+    const payloadCandidates = [
+      body?.products,
+      body?.data?.products,
+      body?.data,
+      body?.result?.products,
+      body?.result
+    ];
+
+    let records = [];
+    for (const candidate of payloadCandidates) {
+      if (Array.isArray(candidate) && candidate.length) {
+        records = candidate.filter(Boolean);
+        break;
+      }
+    }
+
+    if (!Array.isArray(records)) {
+      records = [];
+    }
+
+    const pagination = resolvePagination(body, response, { page: safePage, perPage });
+    return { records, pagination };
+  };
+
+  const collected = [];
+  const seenKeys = new Set();
+  const defaultPerPage = 100;
+  let perPage = defaultPerPage;
+  let page = 1;
+  const maxPages = 200;
+  let iterations = 0;
+
+  while (iterations < maxPages) {
+    const { records, pagination } = await requestPage(page, perPage);
+    iterations += 1;
+
+    const pageSize = Number.isFinite(pagination?.perPage) && pagination.perPage > 0 ? pagination.perPage : perPage;
+    perPage = pageSize > 0 ? pageSize : perPage;
+    perPage = Number.isFinite(perPage) && perPage > 0 ? Math.floor(perPage) : defaultPerPage;
+
+    let uniqueAdded = 0;
+    records.forEach(record => {
+      if (!record || typeof record !== 'object') {
+        return;
+      }
+
+      const skuKey = normalizeSku(record.product_code ?? record.productCode ?? record.sku ?? '');
+      let dedupeKey = skuKey ? `sku:${skuKey}` : null;
+      if (!dedupeKey) {
+        const idCandidate = record.id ?? record.ID ?? record.uuid ?? record._id;
+        if (idCandidate !== undefined && idCandidate !== null) {
+          try {
+            const idKey = idCandidate.toString().trim();
+            if (idKey) {
+              dedupeKey = `id:${idKey}`;
+            }
+          } catch (error) {
+            dedupeKey = null;
+          }
+        }
+      }
+
+      if (dedupeKey && seenKeys.has(dedupeKey)) {
+        return;
+      }
+      if (dedupeKey) {
+        seenKeys.add(dedupeKey);
+      }
+      collected.push(record);
+      uniqueAdded += 1;
+    });
+
+    const rawHasMore = pagination?.hasMore;
+    const hasMore = rawHasMore === null || rawHasMore === undefined ? null : Boolean(rawHasMore);
+    const totalPages = Number.isFinite(pagination?.totalPages) ? pagination.totalPages : null;
+    const currentPage = Number.isFinite(pagination?.currentPage) ? pagination.currentPage : page;
+    const nextPageCandidate = Number.isFinite(pagination?.nextPage) ? pagination.nextPage : null;
+
+    if (!records.length) {
+      if (hasMore === true && nextPageCandidate && nextPageCandidate > currentPage) {
+        page = nextPageCandidate;
+        continue;
+      }
       break;
     }
+
+    if (uniqueAdded === 0 && hasMore !== true) {
+      break;
+    }
+
+    if (totalPages && currentPage >= totalPages) {
+      break;
+    }
+
+    let nextPage = null;
+    if (nextPageCandidate && nextPageCandidate > currentPage) {
+      nextPage = nextPageCandidate;
+    } else if (hasMore === true) {
+      nextPage = currentPage + 1;
+    }
+
+    if (!nextPage) {
+      if (hasMore === false && records.length < perPage) {
+        break;
+      }
+      nextPage = currentPage + 1;
+    }
+
+    if (!Number.isFinite(nextPage) || nextPage <= currentPage) {
+      break;
+    }
+
+    page = Math.max(1, Math.floor(nextPage));
   }
 
-  if (!Array.isArray(records)) {
-    records = [];
-  }
-
-  return { products: records, integration };
+  return { products: collected, integration };
 }
 
 function mapMekariProductRecord(record) {
@@ -10720,7 +11263,7 @@ async function initDashboard() {
 
   renderProducts();
   handleProductActions();
-  handleSearch(value => renderProducts(value));
+  handleSearch(value => renderProducts(value, { resetPage: true }));
   handleSync();
 
   const addProductLink = document.querySelector('[data-add-product-link]');
