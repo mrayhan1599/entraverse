@@ -6263,6 +6263,10 @@ async function handleAddProductForm() {
         input.inputMode = 'decimal';
         input.min = '0';
         input.step = '0.01';
+        input.readOnly = true;
+        input.tabIndex = -1;
+        input.setAttribute('aria-readonly', 'true');
+        input.classList.add('readonly-input');
       }
 
       if (AUTO_COMPUTED_PRICING_FIELDS.has(field)) {
