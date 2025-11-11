@@ -253,6 +253,15 @@ const PRODUCT_PAGINATION_STATE = {
   lastFilter: ''
 };
 
+const PRODUCT_SORT_STATE = {
+  field: 'name',
+  direction: 'asc'
+};
+
+const PRODUCT_NAME_COLLATOR = typeof Intl !== 'undefined' && typeof Intl.Collator === 'function'
+  ? new Intl.Collator('id-ID', { sensitivity: 'base', numeric: true })
+  : null;
+
 const DEFAULT_EXCHANGE_RATES = [
   {
     id: 'rate-idr',
@@ -2684,6 +2693,55 @@ function normalizeSku(value) {
   }
 }
 
+function getPrimaryProductSku(product) {
+  if (!product || typeof product !== 'object') {
+    return '';
+  }
+
+  const directCandidates = [
+    product.sku,
+    product.inventory?.sku,
+    product.inventory?.sellerSku,
+    product.inventory?.productSku
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  const variantPricing = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+  for (const row of variantPricing) {
+    if (!row) continue;
+    const sku = typeof row.sellerSku === 'string' && row.sellerSku.trim()
+      ? row.sellerSku
+      : row.sku;
+    if (typeof sku !== 'string') continue;
+    const trimmed = sku.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  for (const variant of variants) {
+    if (!variant) continue;
+    const sku = typeof variant.sellerSku === 'string' && variant.sellerSku.trim()
+      ? variant.sellerSku
+      : variant.sku;
+    if (typeof sku !== 'string') continue;
+    const trimmed = sku.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return '';
+}
+
 function parseDateValue(value) {
   if (!value) {
     return null;
@@ -4325,6 +4383,61 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   );
 }
 
+function compareProductNames(nameA, nameB) {
+  const left = (nameA ?? '').toString().trim();
+  const right = (nameB ?? '').toString().trim();
+
+  if (PRODUCT_NAME_COLLATOR) {
+    return PRODUCT_NAME_COLLATOR.compare(left, right);
+  }
+
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function sortProductsByState(products) {
+  if (!Array.isArray(products)) {
+    return [];
+  }
+
+  const sorted = [...products];
+  if (!sorted.length) {
+    return sorted;
+  }
+
+  if (PRODUCT_SORT_STATE.field === 'name') {
+    sorted.sort((a, b) => {
+      const comparison = compareProductNames(a?.name, b?.name);
+      return PRODUCT_SORT_STATE.direction === 'asc' ? comparison : -comparison;
+    });
+  }
+
+  return sorted;
+}
+
+function getSortDirectionLabel(direction) {
+  return direction === 'desc' ? 'Z-A' : 'A-Z';
+}
+
+function updateProductSortIndicator() {
+  const sortButton = document.querySelector('[data-sort="product-name"]');
+  if (!sortButton) {
+    return;
+  }
+
+  const direction = PRODUCT_SORT_STATE.direction;
+  sortButton.dataset.sortActive = 'true';
+  sortButton.dataset.sortDirection = direction;
+  sortButton.setAttribute('aria-label', `Urutkan Nama Produk (${getSortDirectionLabel(direction)})`);
+  sortButton.setAttribute('aria-pressed', 'true');
+
+  const headerCell = sortButton.closest('th');
+  if (headerCell) {
+    headerCell.setAttribute('aria-sort', direction === 'desc' ? 'descending' : 'ascending');
+  }
+}
+
 function renderProducts(filterText = '', options = {}) {
   const tbody = document.getElementById('product-table-body');
   if (!tbody) return;
@@ -4352,7 +4465,10 @@ function renderProducts(filterText = '', options = {}) {
     return name.includes(normalizedFilter) || brand.includes(normalizedFilter);
   });
 
-  const totalFiltered = filtered.length;
+  const sorted = sortProductsByState(filtered);
+  updateProductSortIndicator();
+
+  const totalFiltered = sorted.length;
   const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
   const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
 
@@ -4367,7 +4483,7 @@ function renderProducts(filterText = '', options = {}) {
   const currentPage = PRODUCT_PAGINATION_STATE.currentPage;
   const startIndex = totalFiltered ? (currentPage - 1) * pageSize : 0;
   const endIndex = startIndex + pageSize;
-  const paginated = filtered.slice(startIndex, endIndex);
+  const paginated = sorted.slice(startIndex, endIndex);
 
   tbody.innerHTML = '';
 
@@ -4382,6 +4498,8 @@ function renderProducts(filterText = '', options = {}) {
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
       const safeName = escapeHtml(product.name ?? '');
       const safeBrand = product.brand ? escapeHtml(product.brand) : '';
+      const skuValue = getPrimaryProductSku(product);
+      const safeSku = skuValue ? escapeHtml(skuValue) : '';
 
       const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
       const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
@@ -4396,6 +4514,7 @@ function renderProducts(filterText = '', options = {}) {
         <td>
           <div class="product-cell">
             <strong>${safeName}</strong>
+            ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
@@ -4446,6 +4565,16 @@ function handleProductActions() {
     const searchInput = document.getElementById('search-input');
     return (searchInput?.value ?? '').toString().trim().toLowerCase();
   };
+
+  const sortButton = document.querySelector('[data-sort="product-name"]');
+  if (sortButton) {
+    sortButton.addEventListener('click', () => {
+      PRODUCT_SORT_STATE.field = 'name';
+      PRODUCT_SORT_STATE.direction = PRODUCT_SORT_STATE.direction === 'asc' ? 'desc' : 'asc';
+      updateProductSortIndicator();
+      renderProducts(getCurrentFilter(), { resetPage: false });
+    });
+  }
 
   tbody.addEventListener('click', async event => {
     const target = event.target.closest('button');

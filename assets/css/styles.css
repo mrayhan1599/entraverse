@@ -2425,6 +2425,13 @@ a.action-icon {
   font-size: 13px;
 }
 
+.product-sku {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-strong, var(--color-muted));
+}
+
 .photo-preview img {
   width: 100%;
   height: 100%;
