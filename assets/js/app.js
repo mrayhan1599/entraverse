@@ -294,7 +294,7 @@ const DEFAULT_API_INTEGRATIONS = Object.freeze([
     capabilities: 'Sinkronisasi penjualan, invoice, dan jurnal ke Mekari Jurnal secara otomatis.',
     apiBaseUrl: 'https://api.jurnal.id',
     authorizationPath: '/oauth/authorize',
-    accessToken: 'JURNAL-PROD-TKN-9F2X45'
+    accessToken: 'gkVa5vJxxmzriunIyOHINHEmnZqew3H6'
   },
   {
     id: 'integration-accurate-online',
@@ -2665,6 +2665,19 @@ function parseNumericValue(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeSku(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  try {
+    return value.toString().trim().toLowerCase();
+  } catch (error) {
+    console.warn('Gagal menormalisasi SKU.', error);
+    return '';
+  }
+}
+
 function parseDateValue(value) {
   if (!value) {
     return null;
@@ -4598,20 +4611,138 @@ function handleSync() {
     button.setAttribute('aria-label', value);
   };
 
+  const getCurrentFilterValue = () => {
+    const input = document.getElementById('search-input');
+    return (input?.value ?? '').toString();
+  };
+
+  const collectExistingSkus = () => {
+    const products = getProductsFromCache();
+    const skus = new Set();
+    products.forEach(product => {
+      if (!product) {
+        return;
+      }
+      const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+      pricingRows.forEach(row => {
+        const normalized = normalizeSku(row?.sellerSku);
+        if (normalized) {
+          skus.add(normalized);
+        }
+      });
+    });
+    return skus;
+  };
+
+  const markIntegrationSynced = async integration => {
+    if (!integration) {
+      return;
+    }
+    try {
+      await markMekariIntegrationSynced(integration, new Date());
+    } catch (syncError) {
+      console.warn('Gagal memperbarui status sinkronisasi Mekari.', syncError);
+    }
+  };
+
   setLabel(defaultLabel);
 
-  button.addEventListener('click', () => {
+  button.addEventListener('click', async () => {
     if (button.disabled) return;
+
+    if (!requireCatalogManager('Silakan login untuk sinkronisasi produk.')) {
+      return;
+    }
 
     button.disabled = true;
     button.classList.add('is-loading');
     setLabel(loadingLabel);
-    setTimeout(() => {
+
+    try {
+      if (!isSupabaseConfigured()) {
+        throw new Error('Supabase belum dikonfigurasi. Sinkronisasi membutuhkan Supabase.');
+      }
+
+      await ensureSupabase();
+
+      try {
+        await refreshProductsFromSupabase();
+      } catch (refreshError) {
+        console.warn('Gagal memuat produk terbaru sebelum sinkronisasi Mekari.', refreshError);
+      }
+
+      const existingSkus = collectExistingSkus();
+      const { products: mekariRecords, integration } = await fetchMekariProducts({ includeArchive: false });
+
+      if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
+        toast.show('Tidak ada produk Mekari yang ditemukan.');
+        await markIntegrationSynced(integration);
+        return;
+      }
+
+      const newProducts = [];
+      mekariRecords.forEach(record => {
+        if (!record) {
+          return;
+        }
+
+        if (record.archive || record.active === false) {
+          return;
+        }
+
+        const normalizedSku = normalizeSku(record.product_code ?? record.productCode ?? record.sku);
+        if (!normalizedSku || existingSkus.has(normalizedSku)) {
+          return;
+        }
+
+        const mapped = mapMekariProductRecord(record);
+        if (!mapped) {
+          return;
+        }
+
+        existingSkus.add(normalizedSku);
+        newProducts.push(mapped);
+      });
+
+      if (!newProducts.length) {
+        toast.show('Tidak ada produk baru dari Mekari Jurnal.');
+        await markIntegrationSynced(integration);
+        return;
+      }
+
+      for (const product of newProducts) {
+        await upsertProductToSupabase(product);
+      }
+
+      try {
+        await refreshProductsFromSupabase();
+      } catch (refreshError) {
+        console.warn('Gagal memperbarui daftar produk setelah sinkronisasi Mekari.', refreshError);
+        const currentProducts = getProductsFromCache();
+        const merged = Array.isArray(currentProducts) ? [...currentProducts] : [];
+        newProducts.forEach(product => {
+          if (!merged.some(existing => existing?.id === product.id)) {
+            merged.push(product);
+          }
+        });
+        setProductCache(merged);
+      }
+
+      renderProducts(getCurrentFilterValue());
+      toast.show(`${newProducts.length} produk berhasil disinkronkan dari Mekari Jurnal.`);
+      await markIntegrationSynced(integration);
+    } catch (error) {
+      console.error('Gagal sinkronisasi produk Mekari.', error);
+      const message =
+        error?.message && typeof error.message === 'string'
+          ? error.message
+          : 'Gagal sinkronisasi produk dari Mekari Jurnal.';
+      toast.show(message);
+    } finally {
       button.disabled = false;
       button.classList.remove('is-loading');
       setLabel(defaultLabel);
-      toast.show('Produk berhasil disinkronkan.');
-    }, 1200);
+    }
   });
 }
 
@@ -7669,6 +7800,278 @@ function formatDateForMekari(value) {
   }
 
   return `${day}/${month}/${year}`;
+}
+
+function resolveMekariApiDetails(integration) {
+  const config = (window.entraverseConfig && window.entraverseConfig.mekari) || {};
+  const rawBaseUrl =
+    (typeof config.baseUrl === 'string' && config.baseUrl) ||
+    (typeof integration?.apiBaseUrl === 'string' && integration.apiBaseUrl) ||
+    'https://api.jurnal.id';
+  const baseUrl = rawBaseUrl ? rawBaseUrl.trim().replace(/\/+$/, '') : 'https://api.jurnal.id';
+
+  const rawToken =
+    (typeof config.accessToken === 'string' && config.accessToken) ||
+    (typeof integration?.accessToken === 'string' && integration.accessToken) ||
+    '';
+  const token = rawToken ? rawToken.trim() : '';
+
+  return {
+    baseUrl: baseUrl || 'https://api.jurnal.id',
+    token
+  };
+}
+
+async function fetchMekariProducts({ includeArchive = false, integration: integrationOverride } = {}) {
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { baseUrl, token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const params = new URLSearchParams();
+  params.set('include_archive', includeArchive ? 'true' : 'false');
+  const query = params.toString();
+  const url = `${baseUrl}/partner/core/api/v1/products${query ? `?${query}` : ''}`;
+
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(`[network • -] ${message}`);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  if (!bodyText) {
+    const statusText = response?.status ? ` (status ${response.status})` : '';
+    if (!response.ok) {
+      throw new Error(`Gagal memuat data produk dari Mekari Jurnal${statusText}.`);
+    }
+    return { products: [], integration };
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    const statusText = response?.status ? ` (status ${response.status})` : '';
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || status || 'Gagal memuat data produk Mekari.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const payloadCandidates = [
+    body?.products,
+    body?.data?.products,
+    body?.data,
+    body?.result?.products,
+    body?.result
+  ];
+
+  let records = [];
+  for (const candidate of payloadCandidates) {
+    if (Array.isArray(candidate) && candidate.length) {
+      records = candidate.filter(Boolean);
+      break;
+    }
+  }
+
+  if (!Array.isArray(records)) {
+    records = [];
+  }
+
+  return { products: records, integration };
+}
+
+function mapMekariProductRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const rawName = record.name ?? '';
+  const name = typeof rawName === 'string' ? rawName.trim() : String(rawName).trim();
+  if (!name) {
+    return null;
+  }
+
+  const rawSku = record.product_code ?? record.productCode ?? record.sku ?? '';
+  const sku = typeof rawSku === 'string' ? rawSku.trim() : String(rawSku).trim();
+  const normalizedSku = normalizeSku(sku);
+  if (!normalizedSku) {
+    return null;
+  }
+
+  const category = (() => {
+    if (Array.isArray(record.product_categories)) {
+      const match = record.product_categories.find(
+        item => item && typeof item.name === 'string' && item.name.trim()
+      );
+      if (match && match.name) {
+        return match.name.trim();
+      }
+    }
+
+    const categoriesString = (record.product_categories_string ?? '').toString().trim();
+    if (categoriesString) {
+      const [first] = categoriesString.split(/[,>/]/);
+      if (first && first.trim()) {
+        return first.trim();
+      }
+    }
+
+    return 'Lainnya';
+  })();
+
+  const description = record.description ? record.description.toString().trim() : '';
+
+  const currencyCandidate = record.company_currency?.code ?? record.currency ?? '';
+  let purchaseCurrency = typeof currencyCandidate === 'string' ? currencyCandidate.trim().toUpperCase() : '';
+  if (!purchaseCurrency) {
+    purchaseCurrency = 'IDR';
+  }
+
+  const priceCandidates = [
+    record.buy_price_per_unit,
+    record.last_buy_price,
+    record.average_price,
+    record.buyPrice,
+    record.purchase_price
+  ];
+  const priceFormatCandidates = [
+    record.buy_price_per_unit_currency_format,
+    record.last_buy_price_currency_format,
+    record.average_price_currency_format,
+    record.purchase_price_currency_format
+  ];
+
+  let buyPriceNumber = null;
+  for (const candidate of priceCandidates) {
+    const parsed = parseNumericValue(candidate);
+    if (parsed !== null && Number.isFinite(parsed)) {
+      buyPriceNumber = parsed;
+      break;
+    }
+  }
+
+  if (buyPriceNumber === null) {
+    for (const candidate of priceFormatCandidates) {
+      if (!candidate && candidate !== 0) {
+        continue;
+      }
+      const parsed = parseNumericValue(candidate);
+      if (parsed !== null && Number.isFinite(parsed)) {
+        buyPriceNumber = parsed;
+        break;
+      }
+    }
+  }
+
+  const purchasePrice = buyPriceNumber !== null ? buyPriceNumber.toString() : '';
+  const purchasePriceIdr = purchaseCurrency === 'IDR' && buyPriceNumber !== null ? buyPriceNumber.toString() : '';
+
+  const stockCandidates = [record.quantity_available, record.quantity, record.init_quantity];
+  let stockNumber = null;
+  for (const candidate of stockCandidates) {
+    const parsed = parseNumericValue(candidate);
+    if (parsed !== null && Number.isFinite(parsed)) {
+      stockNumber = parsed;
+      break;
+    }
+  }
+  const stock = stockNumber !== null ? stockNumber.toString() : '';
+
+  const imageCandidates = [
+    record.image?.url,
+    record.image?.mini_url,
+    record.image?.preview_url,
+    record.image_url
+  ];
+  const photoUrl = imageCandidates
+    .map(candidate => {
+      if (!candidate && candidate !== 0) {
+        return '';
+      }
+      return candidate.toString().trim();
+    })
+    .find(url => Boolean(url));
+  const photos = photoUrl ? [photoUrl] : [];
+
+  const createdAtSource = record.created_at || record.createdAt || record.init_date;
+  const updatedAtSource = record.updated_at || record.updatedAt;
+
+  const createdAt = (() => {
+    if (createdAtSource) {
+      const parsed = new Date(createdAtSource);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.getTime();
+      }
+    }
+    return Date.now();
+  })();
+
+  const updatedAt = (() => {
+    if (updatedAtSource) {
+      const parsed = new Date(updatedAtSource);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.getTime();
+      }
+    }
+    return createdAt;
+  })();
+
+  return {
+    id: createUuid(),
+    name,
+    category,
+    brand: '',
+    description,
+    tradeIn: false,
+    inventory: null,
+    photos,
+    variants: [],
+    variantPricing: [
+      {
+        id: createUuid(),
+        variantLabel: 'Default',
+        purchasePrice,
+        purchaseCurrency,
+        exchangeRate: '1',
+        purchasePriceIdr,
+        shippingMethod: '',
+        arrivalCost: '',
+        offlinePrice: '',
+        entraversePrice: '',
+        tokopediaPrice: '',
+        shopeePrice: '',
+        stock,
+        dailyAverageSales: '',
+        sellerSku: sku,
+        weight: ''
+      }
+    ],
+    createdAt,
+    updatedAt
+  };
 }
 
 async function fetchPnL({ start, end } = {}) {
