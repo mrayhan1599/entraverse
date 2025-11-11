@@ -4904,6 +4904,198 @@ async function handleAddProductForm() {
 
   const getPricingRows = () => Array.from(pricingBody?.querySelectorAll('.pricing-row') ?? []);
 
+  const DAILY_AVERAGE_WINDOW_DAYS = 30;
+  let warehouseAverageCache = null;
+  let warehouseAveragePromise = null;
+
+  const normalizeSku = value => {
+    if (!value && value !== 0) {
+      return '';
+    }
+
+    return value.toString().trim().toLowerCase();
+  };
+
+  const formatDailyAverageValue = value => {
+    if (!Number.isFinite(value) || value < 0) {
+      return null;
+    }
+
+    if (value === 0) {
+      return '0';
+    }
+
+    const rounded = Math.round(value * 100) / 100;
+    const formatted = rounded.toFixed(2).replace(/\.0+$/, '').replace(/\.([0-9])0$/, '.$1');
+    return formatted;
+  };
+
+  const buildWarehouseAverageMap = (rows, days = DAILY_AVERAGE_WINDOW_DAYS) => {
+    const map = new Map();
+    const windowDays = Math.max(1, Number.parseInt(days, 10) || DAILY_AVERAGE_WINDOW_DAYS);
+
+    rows
+      .filter(Boolean)
+      .forEach(entry => {
+        const sku = normalizeSku(entry.productCode);
+        if (!sku) {
+          return;
+        }
+
+        const qtyOut = Number(entry.qtyOut);
+        if (!Number.isFinite(qtyOut)) {
+          return;
+        }
+
+        const previous = map.get(sku) || { totalOut: 0, average: 0 };
+        const totalOut = previous.totalOut + qtyOut;
+        map.set(sku, {
+          totalOut,
+          average: totalOut / windowDays
+        });
+      });
+
+    return map;
+  };
+
+  const getWarehouseAverageSelection = () => {
+    const range = getProfitLossDateRange({ periodKey: 'all' });
+    return {
+      key: 'custom',
+      start: range.startDate ?? null,
+      end: range.endDate ?? null
+    };
+  };
+
+  const applyWarehouseAverageToRow = (row, map) => {
+    if (!row || !map) {
+      return;
+    }
+
+    const skuInput = row.querySelector('[data-field="sellerSku"]');
+    const averageInput = row.querySelector('[data-field="dailyAverageSales"]');
+    if (!skuInput || !averageInput) {
+      return;
+    }
+
+    const normalizedSku = normalizeSku(skuInput.value || skuInput.dataset.value);
+    if (!normalizedSku) {
+      return;
+    }
+
+    const entry = map.get(normalizedSku);
+    let formatted = null;
+
+    if (entry && Number.isFinite(entry.average)) {
+      formatted = formatDailyAverageValue(entry.average);
+    }
+
+    if (formatted === null) {
+      formatted = '0';
+    }
+
+    if (averageInput.value !== formatted) {
+      averageInput.value = formatted;
+      averageInput.dispatchEvent(new Event('input', { bubbles: true }));
+      averageInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+
+  const applyWarehouseAverageToPricingRows = map => {
+    if (!map) {
+      return;
+    }
+
+    getPricingRows().forEach(row => applyWarehouseAverageToRow(row, map));
+  };
+
+  const ensureWarehouseAverageData = async ({ force = false } = {}) => {
+    const selection = getWarehouseAverageSelection();
+    const signature = getPeriodSelectionSignature(selection);
+
+    if (!force && warehouseAverageCache && warehouseAverageCache.signature === signature) {
+      return warehouseAverageCache;
+    }
+
+    if (!force && warehouseAveragePromise) {
+      try {
+        const cached = await warehouseAveragePromise;
+        if (cached && cached.signature === signature) {
+          return cached;
+        }
+      } catch (error) {
+        console.warn('Gagal memuat cache rata-rata penjualan gudang.', error);
+      }
+    }
+
+    warehouseAveragePromise = (async () => {
+      let rows = [];
+
+      if (
+        warehouseMovementsState.lastSignature === signature &&
+        Array.isArray(warehouseMovementsState.rows) &&
+        warehouseMovementsState.rows.length
+      ) {
+        rows = warehouseMovementsState.rows;
+      } else {
+        const cachedSnapshot = getCachedWarehouseMovements(signature);
+        if (cachedSnapshot && Array.isArray(cachedSnapshot.rows) && cachedSnapshot.rows.length) {
+          rows = cachedSnapshot.rows;
+        } else {
+          try {
+            const result = await syncWarehouseMovements({ selection, force: false, showToastOnError: false });
+            if (result?.success && Array.isArray(result.data?.rows)) {
+              rows = result.data.rows;
+            }
+          } catch (error) {
+            console.warn('Gagal menyinkronkan pergerakan barang Mekari untuk estimasi stok.', error);
+          }
+
+          if (!rows.length && cachedSnapshot && Array.isArray(cachedSnapshot.rows)) {
+            rows = cachedSnapshot.rows;
+          }
+        }
+      }
+
+      const map = buildWarehouseAverageMap(rows, DAILY_AVERAGE_WINDOW_DAYS);
+      warehouseAverageCache = { signature, map, selection };
+      return warehouseAverageCache;
+    })();
+
+    try {
+      const resolved = await warehouseAveragePromise;
+      return resolved;
+    } finally {
+      warehouseAveragePromise = null;
+    }
+  };
+
+  const updateRowAverageFromWarehouse = row => {
+    ensureWarehouseAverageData()
+      .then(cache => {
+        if (!cache?.map) {
+          return;
+        }
+        applyWarehouseAverageToRow(row, cache.map);
+      })
+      .catch(error => {
+        console.warn('Gagal memperbarui rata-rata penjualan per hari dari data gudang.', error);
+      });
+  };
+
+  const refreshWarehouseAveragesForPricing = () => {
+    ensureWarehouseAverageData()
+      .then(cache => {
+        if (!cache?.map) {
+          return;
+        }
+        applyWarehouseAverageToPricingRows(cache.map);
+      })
+      .catch(error => {
+        console.warn('Gagal menerapkan rata-rata penjualan gudang ke daftar varian.', error);
+      });
+  };
+
   const RUPIAH_PRICING_FIELDS = new Set([
     'purchasePriceIdr',
     'offlinePrice',
@@ -6221,6 +6413,29 @@ async function handleAddProductForm() {
       });
     }
 
+    const sellerSkuInput = row.querySelector('[data-field="sellerSku"]');
+    if (sellerSkuInput) {
+      const handleSkuUpdate = () => {
+        const skuValue = sellerSkuInput.value?.toString().trim() ?? '';
+        if (!skuValue) {
+          const averageInput = row.querySelector('[data-field="dailyAverageSales"]');
+          if (averageInput && averageInput.value !== '0') {
+            averageInput.value = '0';
+            averageInput.dispatchEvent(new Event('input', { bubbles: true }));
+            averageInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          return;
+        }
+        updateRowAverageFromWarehouse(row);
+      };
+      sellerSkuInput.addEventListener('change', handleSkuUpdate);
+      sellerSkuInput.addEventListener('blur', handleSkuUpdate);
+
+      if (sellerSkuInput.value?.toString().trim()) {
+        updateRowAverageFromWarehouse(row);
+      }
+    }
+
     updateComputedPricingForRow(row);
     updateArrivalCostForRow(row);
     return row;
@@ -6301,6 +6516,7 @@ async function handleAddProductForm() {
         createPricingRow(rowData, variantDefs, { lockVariantSelection: true });
       });
       updateAllArrivalCosts();
+      refreshWarehouseAveragesForPricing();
       return;
     }
 
@@ -6309,6 +6525,7 @@ async function handleAddProductForm() {
       createPricingRow(data, variantDefs);
     });
     updateAllArrivalCosts();
+    refreshWarehouseAveragesForPricing();
   }
 
   const variantRowTemplate = () => `
