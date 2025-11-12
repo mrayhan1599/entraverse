@@ -1279,6 +1279,10 @@ const SUPABASE_TABLES = Object.freeze({
   integrations: 'api_integrations'
 });
 
+const SUPABASE_STORAGE_BUCKETS = Object.freeze({
+  integrationLogos: 'integration-logos'
+});
+
 let supabaseClient = null;
 let supabaseInitializationPromise = null;
 let supabaseInitializationError = null;
@@ -1374,6 +1378,80 @@ async function ensureSupabase() {
   })();
 
   return supabaseInitializationPromise;
+}
+
+function getSupabaseStoragePublicBaseUrl() {
+  const config = getSupabaseConfig();
+  if (!config?.url) {
+    return '';
+  }
+
+  return `${config.url.replace(/\/+$/, '')}/storage/v1/object/public`;
+}
+
+function buildSupabasePublicUrl(bucket, path) {
+  if (!bucket || !path) {
+    return '';
+  }
+
+  const baseUrl = getSupabaseStoragePublicBaseUrl();
+  if (!baseUrl) {
+    return '';
+  }
+
+  const sanitizedPath = path.toString().replace(/^\/+/, '').replace(/\\+/g, '/');
+  return `${baseUrl}/${bucket}/${sanitizedPath}`;
+}
+
+async function uploadIntegrationLogoFile(file, { existingPath } = {}) {
+  if (!file) {
+    throw new Error('File logo tidak ditemukan.');
+  }
+
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase belum dikonfigurasi.');
+  }
+
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const bucket = SUPABASE_STORAGE_BUCKETS.integrationLogos;
+  const storage = client.storage.from(bucket);
+
+  const originalName = file.name ? file.name.toString() : '';
+  const extensionMatch = originalName.match(/\.([a-z0-9]+)$/i);
+  const extension = extensionMatch ? `.${extensionMatch[1].toLowerCase()}` : '';
+  const fileName = `${createUuid()}-${Date.now()}${extension}`;
+  const path = `integrations/${fileName}`;
+
+  const { data, error } = await storage.upload(path, file, {
+    cacheControl: '3600',
+    upsert: true,
+    contentType: file.type || 'application/octet-stream'
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (existingPath && existingPath !== data.path) {
+    await storage.remove([existingPath]).catch(() => {});
+  }
+
+  const publicUrl = buildSupabasePublicUrl(bucket, data.path);
+  return { path: data.path, publicUrl };
+}
+
+async function removeIntegrationLogoFromStorage(path) {
+  if (!path || !isSupabaseConfigured()) {
+    return;
+  }
+
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const bucket = SUPABASE_STORAGE_BUCKETS.integrationLogos;
+  await client.storage.from(bucket).remove([path]).catch(error => {
+    console.error('Gagal menghapus logo integrasi dari Supabase Storage.', error);
+  });
 }
 
 function toIsoTimestamp(value) {
@@ -8291,7 +8369,17 @@ function sanitizeIntegration(integration) {
     return null;
   }
 
-  sanitized.logoUrl = sanitizeIntegrationLogo(raw.logoUrl ?? raw.logo_url);
+  const rawLogoPath = raw.logoPath ?? raw.logo_path;
+  sanitized.logoPath = typeof rawLogoPath === 'string' ? rawLogoPath.trim() : '';
+
+  const providedLogoUrl = sanitizeIntegrationLogo(raw.logoUrl ?? raw.logo_url);
+  const fallbackLogoUrl = sanitized.logoPath
+    ? sanitizeIntegrationLogo(
+        buildSupabasePublicUrl(SUPABASE_STORAGE_BUCKETS.integrationLogos, sanitized.logoPath)
+      )
+    : '';
+
+  sanitized.logoUrl = providedLogoUrl || fallbackLogoUrl;
   sanitized.category = (raw.category ?? 'Lainnya').toString().trim() || 'Lainnya';
 
   const status = (raw.status ?? 'available').toString().trim().toLowerCase();
@@ -8403,6 +8491,7 @@ function mapSupabaseIntegration(record) {
     id: record.id,
     name: record.name,
     logoUrl: record.logo_url,
+    logoPath: record.logo_path,
     category: record.category,
     status: record.status,
     connectedAccount: record.connected_account,
@@ -8428,6 +8517,7 @@ function mapIntegrationToRecord(integration) {
     id: sanitized.id,
     name: sanitized.name,
     logo_url: sanitized.logoUrl || null,
+    logo_path: sanitized.logoPath || null,
     category: sanitized.category || null,
     status: sanitized.status,
     connected_account: sanitized.connectedAccount || null,
@@ -11935,7 +12025,8 @@ async function initIntegrations() {
   const closeButtons = modal ? Array.from(modal.querySelectorAll('[data-close-modal]')) : [];
   const addButton = document.getElementById('add-integration-btn');
   const nameInput = form?.querySelector('#integration-name');
-  const logoInput = form?.querySelector('#integration-logo-url');
+  const logoFileInput = form?.querySelector('#integration-logo-file');
+  const existingLogoInput = form?.querySelector('#integration-logo-existing');
   const logoPreview = form?.querySelector('[data-logo-preview]');
   const logoPreviewImage = form?.querySelector('[data-logo-preview-image]');
   const logoPreviewInitial = form?.querySelector('[data-logo-preview-initial]');
@@ -11964,6 +12055,14 @@ async function initIntegrations() {
     }
   };
 
+  let logoPreviewObjectUrl = null;
+  const revokeLogoPreviewObjectUrl = () => {
+    if (logoPreviewObjectUrl) {
+      URL.revokeObjectURL(logoPreviewObjectUrl);
+      logoPreviewObjectUrl = null;
+    }
+  };
+
   const updateLogoPreview = () => {
     if (!logoPreview) {
       return;
@@ -11981,15 +12080,27 @@ async function initIntegrations() {
       return;
     }
 
-    const sanitized = sanitizeIntegrationLogo(logoInput?.value ?? '');
-    if (sanitized) {
-      logoPreviewImage.src = sanitized;
+    let previewUrl = '';
+    const selectedFile = logoFileInput?.files?.[0] ?? null;
+    if (selectedFile) {
+      revokeLogoPreviewObjectUrl();
+      logoPreviewObjectUrl = URL.createObjectURL(selectedFile);
+      previewUrl = logoPreviewObjectUrl;
+    } else {
+      previewUrl = sanitizeIntegrationLogo(logoPreview?.dataset.persistedUrl ?? '');
+    }
+
+    if (previewUrl) {
+      logoPreviewImage.src = previewUrl;
       logoPreviewImage.alt = `Logo ${nameValue}`;
       logoPreviewImage.hidden = false;
       if (logoPreviewInitial) {
         logoPreviewInitial.hidden = true;
       }
     } else {
+      if (logoPreviewObjectUrl) {
+        revokeLogoPreviewObjectUrl();
+      }
       logoPreviewImage.removeAttribute('src');
       logoPreviewImage.hidden = true;
       if (logoPreviewInitial) {
@@ -12001,10 +12112,15 @@ async function initIntegrations() {
   const populateFormFields = integration => {
     if (!form) return;
     form.reset();
+    revokeLogoPreviewObjectUrl();
+    if (logoFileInput) {
+      logoFileInput.value = '';
+    }
+
     if (integration) {
       form.dataset.editingId = integration.id ?? '';
       setFieldValue('#integration-name', integration.name ?? '');
-      setFieldValue('#integration-logo-url', sanitizeIntegrationLogo(integration.logoUrl));
+      setFieldValue('#integration-logo-existing', integration.logoPath ?? '');
       setFieldValue('#integration-category', integration.category ?? '');
       setFieldValue('#integration-status', integration.status ?? 'available');
       setFieldValue('#integration-connected-account', integration.connectedAccount ?? '');
@@ -12017,8 +12133,13 @@ async function initIntegrations() {
     } else {
       delete form.dataset.editingId;
       setFieldValue('#integration-status', 'available');
-      setFieldValue('#integration-logo-url', '');
+      setFieldValue('#integration-logo-existing', '');
       setFieldValue('#integration-requires-setup', false);
+    }
+
+    const persistedUrl = integration ? sanitizeIntegrationLogo(integration.logoUrl) : '';
+    if (logoPreview) {
+      logoPreview.dataset.persistedUrl = persistedUrl;
     }
 
     updateLogoPreview();
@@ -12040,12 +12161,7 @@ async function initIntegrations() {
   };
 
   nameInput?.addEventListener('input', updateLogoPreview);
-  logoInput?.addEventListener('input', updateLogoPreview);
-  logoInput?.addEventListener('blur', () => {
-    const sanitized = sanitizeIntegrationLogo(logoInput.value);
-    if (logoInput.value !== sanitized) {
-      logoInput.value = sanitized;
-    }
+  logoFileInput?.addEventListener('change', () => {
     updateLogoPreview();
   });
 
@@ -12057,6 +12173,7 @@ async function initIntegrations() {
     document.body.classList.remove('modal-open');
     populateFormFields(null);
     resetSubmitState();
+    revokeLogoPreviewObjectUrl();
   };
 
   const openCreateModal = () => {
@@ -12124,6 +12241,9 @@ async function initIntegrations() {
     if (isSupabaseConfigured()) {
       try {
         await deleteIntegrationFromSupabase(integrationId);
+        if (integration.logoPath) {
+          await removeIntegrationLogoFromStorage(integration.logoPath);
+        }
         await refreshIntegrationsFromSupabase();
         supabaseSynced = true;
       } catch (error) {
@@ -12182,12 +12302,45 @@ async function initIntegrations() {
       };
 
       const status = getValue('status') || 'available';
-        const payload = {
-          id: editingId || createUuid(),
-          name: getValue('name'),
-          logoUrl: sanitizeIntegrationLogo(getValue('logoUrl')),
-          category: getValue('category'),
-          status,
+      const existingLogoPath = getValue('existingLogoPath');
+      let logoPath = existingLogoPath;
+      let logoUrl = sanitizeIntegrationLogo(logoPreview?.dataset.persistedUrl ?? '');
+      const selectedLogoFile = logoFileInput?.files?.[0] ?? null;
+
+      if (selectedLogoFile) {
+        if (!isSupabaseConfigured()) {
+          toast.show('Supabase belum dikonfigurasi sehingga logo tidak dapat diunggah.');
+          resetSubmitState();
+          return;
+        }
+
+        try {
+          const { path, publicUrl } = await uploadIntegrationLogoFile(selectedLogoFile, {
+            existingPath: logoPath || undefined
+          });
+          logoPath = path;
+          logoUrl = sanitizeIntegrationLogo(publicUrl);
+          if (logoPreview) {
+            logoPreview.dataset.persistedUrl = logoUrl;
+          }
+          if (existingLogoInput) {
+            existingLogoInput.value = logoPath;
+          }
+        } catch (error) {
+          console.error('Gagal mengunggah logo integrasi.', error);
+          toast.show('Gagal mengunggah logo. Pastikan Supabase Storage tersedia.');
+          resetSubmitState();
+          return;
+        }
+      }
+
+      const payload = {
+        id: editingId || createUuid(),
+        name: getValue('name'),
+        logoUrl,
+        logoPath,
+        category: getValue('category'),
+        status,
         connectedAccount: getValue('connectedAccount'),
         syncFrequency: getValue('syncFrequency'),
         capabilities: getValue('capabilities'),
