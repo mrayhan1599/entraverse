@@ -1,0 +1,12 @@
+<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Mekari Jurnal Placeholder Logo</title>
+  <desc id="desc">Lingkaran biru dengan inisial MJ</desc>
+  <defs>
+    <linearGradient id="mjGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3a7bd5" />
+      <stop offset="100%" stop-color="#1f53a5" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="72" height="72" rx="20" fill="url(#mjGradient)" />
+  <text x="50%" y="52%" text-anchor="middle" font-family="'Poppins', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">MJ</text>
+</svg>

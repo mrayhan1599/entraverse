@@ -1,0 +1,12 @@
+<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Looker Studio Placeholder Logo</title>
+  <desc id="desc">Persegi panjang ungu dengan inisial LS</desc>
+  <defs>
+    <linearGradient id="lsGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9c6bff" />
+      <stop offset="100%" stop-color="#5e3bc4" />
+    </linearGradient>
+  </defs>
+  <rect x="6" y="10" width="68" height="60" rx="18" fill="url(#lsGradient)" />
+  <text x="50%" y="55%" text-anchor="middle" font-family="'Poppins', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">LS</text>
+</svg>
