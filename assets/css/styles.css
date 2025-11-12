@@ -1105,17 +1105,28 @@ a.action-icon {
 }
 
 .logo-badge {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-  color: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  box-shadow: 0 6px 12px rgba(37, 99, 235, 0.15), 0 0 0 1px rgba(37, 99, 235, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.logo-badge img {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+body[data-theme="dark"] .logo-badge {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.65), 0 0 0 1px rgba(148, 163, 184, 0.2);
 }
 
 .action-icon.is-loading::after {
@@ -1304,7 +1315,7 @@ a.action-icon {
 .product-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 640px;
+  min-width: 760px;
 }
 
 .product-table th:first-child,
@@ -1319,6 +1330,191 @@ a.action-icon {
   border-bottom: 1px solid var(--color-border);
   font-size: 15px;
   vertical-align: middle;
+}
+
+.mekari-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mekari-status__badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.12);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mekari-status__badge img {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.mekari-status__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mekari-status__label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.mekari-status__state {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted);
+  line-height: 1.2;
+}
+
+.mekari-status__meta {
+  font-size: 11px;
+  color: var(--color-muted);
+  line-height: 1.2;
+  max-width: 240px;
+}
+
+.mekari-status[data-state='pending'] .mekari-status__badge {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.22);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.mekari-status[data-state='syncing'] .mekari-status__badge {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.35);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.16);
+}
+
+.mekari-status[data-state='error'] .mekari-status__badge {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 8px 18px rgba(239, 68, 68, 0.2);
+}
+
+.mekari-status[data-state='error'] .mekari-status__state {
+  color: var(--color-danger);
+}
+
+.mekari-status__badge.has-tooltip {
+  cursor: pointer;
+}
+
+.mekari-status__badge.has-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 14px);
+  transform: translate(-50%, 8px);
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  width: max-content;
+  max-width: 240px;
+  text-align: center;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 12;
+}
+
+.mekari-status__badge.has-tooltip::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translate(-50%, 12px);
+  width: 10px;
+  height: 10px;
+  background: #0f172a;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 11;
+}
+
+.mekari-status__badge.has-tooltip:hover::after,
+.mekari-status__badge.has-tooltip:hover::before,
+.mekari-status__badge.has-tooltip:focus-visible::after,
+.mekari-status__badge.has-tooltip:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.mekari-status__badge.has-tooltip:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+body[data-theme='dark'] .mekari-status__badge {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.6);
+}
+
+body[data-theme='dark'] .mekari-status[data-state='pending'] .mekari-status__badge {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
+body[data-theme='dark'] .mekari-status[data-state='syncing'] .mekari-status__badge {
+  background: rgba(14, 165, 233, 0.28);
+  border-color: rgba(125, 211, 252, 0.45);
+}
+
+body[data-theme='dark'] .mekari-status[data-state='error'] .mekari-status__badge {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(248, 113, 113, 0.55);
+  box-shadow: 0 10px 24px rgba(239, 68, 68, 0.4);
+}
+
+body[data-theme='dark'] .mekari-status__label {
+  color: #e2e8f0;
+}
+
+body[data-theme='dark'] .mekari-status__state {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+body[data-theme='dark'] .mekari-status__meta {
+  color: rgba(148, 163, 184, 0.75);
+}
+
+body[data-theme='dark'] .mekari-status__badge.has-tooltip::after {
+  background: #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.55);
+}
+
+body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
+  background: #e2e8f0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mekari-status__badge,
+  .mekari-status__badge::after,
+  .mekari-status__badge::before {
+    transition: none;
+  }
 }
 
 .product-table th {
