@@ -4503,6 +4503,38 @@ function renderProducts(filterText = '', options = {}) {
       const rawStock = product.stock;
       const normalizedStock = rawStock === null || rawStock === undefined ? '' : String(rawStock).trim();
       const safeStock = normalizedStock ? escapeHtml(normalizedStock) : '';
+      const variantStockLines = Array.isArray(product.variantPricing)
+        ? product.variantPricing
+            .map(variant => {
+              const variantStockRaw = variant?.stock;
+              const normalizedVariantStock =
+                variantStockRaw === null || variantStockRaw === undefined ? '' : String(variantStockRaw).trim();
+              if (!normalizedVariantStock) {
+                return null;
+              }
+
+              const variantValues = Array.isArray(variant?.variants)
+                ? variant.variants
+                    .map(option => {
+                      const optionName = (option?.name ?? '').toString().trim();
+                      const optionValue = (option?.value ?? '').toString().trim();
+                      if (optionName && optionValue) {
+                        return `${escapeHtml(optionName)}: ${escapeHtml(optionValue)}`;
+                      }
+                      if (optionValue) {
+                        return escapeHtml(optionValue);
+                      }
+                      return '';
+                    })
+                    .filter(Boolean)
+                : [];
+
+              const variantLabel = variantValues.length ? variantValues.join(' · ') : 'Varian';
+              return `<span class="product-meta product-variant-stock">${variantLabel} — ${escapeHtml(normalizedVariantStock)}</span>`;
+            })
+            .filter(Boolean)
+        : [];
+      const variantStockHtml = variantStockLines.join('');
 
       const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
       const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
@@ -4518,6 +4550,7 @@ function renderProducts(filterText = '', options = {}) {
           <div class="product-cell">
             <strong>${safeName}</strong>
             ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
+            ${variantStockHtml}
             ${safeStock ? `<span class="product-meta product-stock">Stok: ${safeStock}</span>` : ''}
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
