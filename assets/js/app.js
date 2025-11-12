@@ -301,6 +301,7 @@ const DEFAULT_API_INTEGRATIONS = Object.freeze([
   {
     id: 'integration-mekari-jurnal',
     name: 'Mekari Jurnal',
+    logoUrl: 'assets/img/integrations/mekari-jurnal.svg',
     category: 'Keuangan & Akuntansi',
     status: 'connected',
     connectedAccount: 'Finance Ops',
@@ -314,6 +315,7 @@ const DEFAULT_API_INTEGRATIONS = Object.freeze([
   {
     id: 'integration-accurate-online',
     name: 'Accurate Online',
+    logoUrl: 'assets/img/integrations/accurate-online.svg',
     category: 'Keuangan & Akuntansi',
     status: 'pending',
     connectedAccount: '',
@@ -328,6 +330,7 @@ const DEFAULT_API_INTEGRATIONS = Object.freeze([
   {
     id: 'integration-quickbooks',
     name: 'QuickBooks Online',
+    logoUrl: 'assets/img/integrations/quickbooks-online.svg',
     category: 'Finance & Tax',
     status: 'available',
     connectedAccount: '',
@@ -341,6 +344,7 @@ const DEFAULT_API_INTEGRATIONS = Object.freeze([
   {
     id: 'integration-google-data-studio',
     name: 'Looker Studio',
+    logoUrl: 'assets/img/integrations/looker-studio.svg',
     category: 'Business Intelligence',
     status: 'connected',
     connectedAccount: 'Management Dashboard',
@@ -8239,6 +8243,41 @@ async function handleAddProductForm() {
 
 const INTEGRATION_STATUS_SET = new Set(['connected', 'pending', 'available']);
 
+function sanitizeIntegrationLogo(value) {
+  if (!value) {
+    return '';
+  }
+
+  const raw = value.toString().trim();
+  if (!raw) {
+    return '';
+  }
+
+  const lower = raw.toLowerCase();
+
+  if (lower.startsWith('javascript:')) {
+    return '';
+  }
+
+  if (lower.startsWith('data:')) {
+    const dataMatch = lower.match(/^data:image\/(png|jpe?g|gif|svg\+xml|webp);/);
+    return dataMatch ? raw : '';
+  }
+
+  if (
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('/') ||
+    raw.startsWith('./') ||
+    raw.startsWith('../') ||
+    raw.startsWith('assets/')
+  ) {
+    return raw;
+  }
+
+  return raw.includes(':') ? '' : raw;
+}
+
 function sanitizeIntegration(integration) {
   if (!integration || typeof integration !== 'object') {
     return null;
@@ -8252,6 +8291,7 @@ function sanitizeIntegration(integration) {
     return null;
   }
 
+  sanitized.logoUrl = sanitizeIntegrationLogo(raw.logoUrl ?? raw.logo_url);
   sanitized.category = (raw.category ?? 'Lainnya').toString().trim() || 'Lainnya';
 
   const status = (raw.status ?? 'available').toString().trim().toLowerCase();
@@ -8362,6 +8402,7 @@ function mapSupabaseIntegration(record) {
   return sanitizeIntegration({
     id: record.id,
     name: record.name,
+    logoUrl: record.logo_url,
     category: record.category,
     status: record.status,
     connectedAccount: record.connected_account,
@@ -8386,6 +8427,7 @@ function mapIntegrationToRecord(integration) {
   return {
     id: sanitized.id,
     name: sanitized.name,
+    logo_url: sanitized.logoUrl || null,
     category: sanitized.category || null,
     status: sanitized.status,
     connected_account: sanitized.connectedAccount || null,
@@ -11301,6 +11343,28 @@ function updateIntegrationMetrics(integrations = []) {
   setText('[data-integrations-available]', available);
 }
 
+function createIntegrationLogoMarkup(integration) {
+  const name = (integration?.name ?? 'Integrasi API').toString().trim() || 'Integrasi API';
+  const initials = getNameInitials(name).slice(0, 2) || 'API';
+  const logoUrl = sanitizeIntegrationLogo(integration?.logoUrl);
+
+  if (logoUrl) {
+    const escapedUrl = escapeHtml(logoUrl);
+    const alt = escapeHtml(`Logo ${name}`);
+    return `
+      <div class="integration-logo">
+        <img class="integration-logo__image" src="${escapedUrl}" alt="${alt}" loading="lazy">
+      </div>
+    `;
+  }
+
+  return `
+    <div class="integration-logo" aria-hidden="true">
+      <span class="integration-logo__initial">${escapeHtml(initials)}</span>
+    </div>
+  `;
+}
+
 function renderIntegrations(filter = '') {
   const tbody = document.getElementById('integrations-table-body');
   if (!tbody) {
@@ -11370,11 +11434,13 @@ function renderIntegrations(filter = '') {
           actionState = 'complete';
         }
 
+        const logo = createIntegrationLogoMarkup(integration).trim();
+
         return `
           <tr data-integration-id="${escapeHtml(integration.id)}">
             <td>
               <div class="integration-name">
-                <span class="integration-icon" aria-hidden="true">🔌</span>
+                ${logo}
                 <div>
                   <strong>${escapeHtml(integration.name)}</strong>
                   <p class="integration-capabilities">${escapeHtml(integration.capabilities)}</p>
@@ -11869,6 +11935,10 @@ async function initIntegrations() {
   const closeButtons = modal ? Array.from(modal.querySelectorAll('[data-close-modal]')) : [];
   const addButton = document.getElementById('add-integration-btn');
   const nameInput = form?.querySelector('#integration-name');
+  const logoInput = form?.querySelector('#integration-logo-url');
+  const logoPreview = form?.querySelector('[data-logo-preview]');
+  const logoPreviewImage = form?.querySelector('[data-logo-preview-image]');
+  const logoPreviewInitial = form?.querySelector('[data-logo-preview-initial]');
 
   const getFilterValue = () => document.getElementById('search-input')?.value ?? '';
   const refreshTable = () => {
@@ -11894,12 +11964,47 @@ async function initIntegrations() {
     }
   };
 
+  const updateLogoPreview = () => {
+    if (!logoPreview) {
+      return;
+    }
+
+    const nameValue = (nameInput?.value || '').toString().trim() || 'Integrasi API';
+    const initials = getNameInitials(nameValue).slice(0, 2) || 'API';
+
+    if (logoPreviewInitial) {
+      logoPreviewInitial.textContent = initials;
+      logoPreviewInitial.hidden = false;
+    }
+
+    if (!logoPreviewImage) {
+      return;
+    }
+
+    const sanitized = sanitizeIntegrationLogo(logoInput?.value ?? '');
+    if (sanitized) {
+      logoPreviewImage.src = sanitized;
+      logoPreviewImage.alt = `Logo ${nameValue}`;
+      logoPreviewImage.hidden = false;
+      if (logoPreviewInitial) {
+        logoPreviewInitial.hidden = true;
+      }
+    } else {
+      logoPreviewImage.removeAttribute('src');
+      logoPreviewImage.hidden = true;
+      if (logoPreviewInitial) {
+        logoPreviewInitial.hidden = false;
+      }
+    }
+  };
+
   const populateFormFields = integration => {
     if (!form) return;
     form.reset();
     if (integration) {
       form.dataset.editingId = integration.id ?? '';
       setFieldValue('#integration-name', integration.name ?? '');
+      setFieldValue('#integration-logo-url', sanitizeIntegrationLogo(integration.logoUrl));
       setFieldValue('#integration-category', integration.category ?? '');
       setFieldValue('#integration-status', integration.status ?? 'available');
       setFieldValue('#integration-connected-account', integration.connectedAccount ?? '');
@@ -11912,8 +12017,11 @@ async function initIntegrations() {
     } else {
       delete form.dataset.editingId;
       setFieldValue('#integration-status', 'available');
+      setFieldValue('#integration-logo-url', '');
       setFieldValue('#integration-requires-setup', false);
     }
+
+    updateLogoPreview();
   };
 
   const resetSubmitState = () => {
@@ -11930,6 +12038,18 @@ async function initIntegrations() {
       nameInput.select?.();
     });
   };
+
+  nameInput?.addEventListener('input', updateLogoPreview);
+  logoInput?.addEventListener('input', updateLogoPreview);
+  logoInput?.addEventListener('blur', () => {
+    const sanitized = sanitizeIntegrationLogo(logoInput.value);
+    if (logoInput.value !== sanitized) {
+      logoInput.value = sanitized;
+    }
+    updateLogoPreview();
+  });
+
+  updateLogoPreview();
 
   const closeModal = () => {
     if (!modal) return;
@@ -12062,11 +12182,12 @@ async function initIntegrations() {
       };
 
       const status = getValue('status') || 'available';
-      const payload = {
-        id: editingId || createUuid(),
-        name: getValue('name'),
-        category: getValue('category'),
-        status,
+        const payload = {
+          id: editingId || createUuid(),
+          name: getValue('name'),
+          logoUrl: sanitizeIntegrationLogo(getValue('logoUrl')),
+          category: getValue('category'),
+          status,
         connectedAccount: getValue('connectedAccount'),
         syncFrequency: getValue('syncFrequency'),
         capabilities: getValue('capabilities'),
