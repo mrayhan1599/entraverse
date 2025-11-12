@@ -5350,51 +5350,36 @@ function renderProducts(filterText = '', options = {}) {
       const statusState = normalizedMekariStatus.state ?? 'pending';
       const statusLabel = getMekariStatusLabel(statusState);
       const formattedSync = formatDateTimeForDisplay(normalizedMekariStatus.lastSyncedAt);
-      let statusDetail = normalizedMekariStatus.message || '';
+      const mekariIntegration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? mekariIntegrationCache;
+      const mekariLogoUrl =
+        sanitizeIntegrationLogo(mekariIntegration?.logoUrl) || 'assets/img/integrations/mekari-jurnal.svg';
 
-      if (statusState === 'synced') {
-        statusDetail = statusDetail || (formattedSync ? `Terakhir: ${formattedSync}` : 'Terhubung');
-      } else if (statusState === 'pending') {
-        statusDetail = statusDetail || 'Menunggu sinkronisasi';
-      } else if (statusState === 'syncing') {
-        statusDetail = statusDetail || 'Sinkronisasi berjalan';
-      } else if (statusState === 'error') {
-        statusDetail = 'Periksa detail sinkronisasi';
+      const badgeLabelParts = [];
+      if (statusLabel) {
+        badgeLabelParts.push(`Status sinkronisasi Mekari: ${statusLabel}`);
+      }
+      if (statusState === 'synced' && formattedSync) {
+        badgeLabelParts.push(`Terakhir sinkron pada ${formattedSync}`);
+      }
+      const statusMessage = (normalizedMekariStatus.message ?? '').toString().trim();
+      if (statusMessage && statusMessage !== statusLabel) {
+        badgeLabelParts.push(statusMessage);
+      }
+      const statusError = (normalizedMekariStatus.error ?? '').toString().trim();
+      if (statusError) {
+        badgeLabelParts.push(statusError);
       }
 
-      const tooltipMessage = resolveMekariStatusTooltip(normalizedMekariStatus);
-      const badgeLabelParts = [`Status Mekari Jurnal: ${statusLabel}`];
-      if (statusDetail && statusDetail !== statusLabel) {
-        badgeLabelParts.push(statusDetail);
-      }
-      if (tooltipMessage && tooltipMessage !== statusDetail) {
-        badgeLabelParts.push(tooltipMessage);
-      } else if (!tooltipMessage && formattedSync && statusState === 'synced') {
-        badgeLabelParts.push(`Terakhir sinkron pada ${formattedSync}.`);
-      }
-      const badgeAriaLabel = badgeLabelParts.join('. ');
-      const badgeClasses = ['mekari-status__badge'];
-      const hasTooltip = Boolean(tooltipMessage);
-      if (hasTooltip) {
-        badgeClasses.push('has-tooltip');
-      }
-      const tooltipAttributes = hasTooltip
-        ? ` data-tooltip="${escapeHtml(tooltipMessage)}" title="${escapeHtml(tooltipMessage)}" tabindex="0"`
-        : '';
-      const statusMetaHtml =
-        statusDetail && statusDetail !== statusLabel
-          ? `<span class="mekari-status__meta">${escapeHtml(statusDetail)}</span>`
-          : '';
+      const badgeAriaLabel =
+        badgeLabelParts.length > 0
+          ? badgeLabelParts.join('. ')
+          : 'Status sinkronisasi Mekari tidak tersedia';
+
       const mekariStatusHtml = `
         <div class="mekari-status" data-state="${escapeHtml(statusState)}">
-          <span class="${badgeClasses.join(' ')}"${tooltipAttributes} role="img" aria-label="${escapeHtml(badgeAriaLabel)}">
-            <img src="assets/img/integrations/mekari-jurnal.svg" alt="" aria-hidden="true">
+          <span class="mekari-status__badge" role="img" aria-label="${escapeHtml(badgeAriaLabel)}">
+            <img src="${escapeHtml(mekariLogoUrl)}" alt="" aria-hidden="true">
           </span>
-          <div class="mekari-status__content">
-            <span class="mekari-status__label">Mekari Jurnal</span>
-            <span class="mekari-status__state">${escapeHtml(statusLabel)}</span>
-            ${statusMetaHtml}
-          </div>
         </div>
       `;
 
