@@ -812,6 +812,11 @@ body[data-theme="dark"] .profile-dropdown::before {
   color: var(--color-muted);
 }
 
+.sync-meta__time {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
 .title-stack {
   display: flex;
   flex-direction: column;
