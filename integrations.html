@@ -201,15 +201,16 @@
               <input type="text" id="integration-name" name="name" placeholder="Contoh: Mekari Jurnal" required>
             </div>
             <div class="form-group">
-              <label for="integration-logo-url">Logo Perusahaan</label>
+              <label for="integration-logo-file">Logo Perusahaan</label>
               <div class="integration-logo-field">
                 <div class="integration-logo-preview" data-logo-preview>
                   <span class="integration-logo-preview__initial" data-logo-preview-initial>API</span>
                   <img class="integration-logo-preview__image" data-logo-preview-image alt="" hidden>
                 </div>
                 <div class="integration-logo-field__input">
-                  <input type="url" id="integration-logo-url" name="logoUrl" placeholder="https://cdn.perusahaan.com/logo.png" aria-describedby="integration-logo-hint">
-                  <p id="integration-logo-hint" class="field-hint">Gunakan URL gambar (PNG, JPG, SVG) atau path relatif misalnya <code>assets/img/integrations/logo.png</code>.</p>
+                  <input type="file" id="integration-logo-file" name="logoFile" accept="image/png,image/jpeg,image/svg+xml,image/webp" aria-describedby="integration-logo-hint">
+                  <input type="hidden" id="integration-logo-existing" name="existingLogoPath">
+                  <p id="integration-logo-hint" class="field-hint">Unggah file logo (PNG, JPG, SVG, atau WebP). Logo akan disimpan otomatis di Supabase Storage.</p>
                 </div>
               </div>
             </div>

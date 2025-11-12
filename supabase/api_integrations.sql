@@ -3,6 +3,8 @@ create extension if not exists "uuid-ossp";
 create table if not exists public.api_integrations (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
+  logo_url text,
+  logo_path text,
   category text,
   status text not null default 'available' check (status in ('available', 'pending', 'connected')),
   connected_account text,
