@@ -470,6 +470,545 @@ let warehouseMovementsState = {
 const WAREHOUSE_MOVEMENTS_CACHE_KEY = 'entraverse_warehouse_movements_cache';
 const WAREHOUSE_MOVEMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const WAREHOUSE_NUMERIC_SORT_KEYS = new Set(['openingBalance', 'qtyIn', 'qtyOut', 'closingBalance']);
+const DAILY_AVERAGE_WINDOW_DAYS = 30;
+const DAILY_INVENTORY_SYNC_STORAGE_KEY = 'entraverse_daily_inventory_sync_state';
+const DAILY_INVENTORY_SYNC_TRIGGER_MINUTE = 1; // 00:01 WIB
+const WIB_TIMEZONE_OFFSET_MINUTES = 7 * 60;
+let warehouseAverageCache = null;
+let warehouseAveragePromise = null;
+let dailyInventorySyncTimer = null;
+let dailyInventorySyncScheduled = false;
+let dailyInventorySyncPromise = null;
+
+function formatDailyAverageSalesValue(value) {
+  if (!Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  if (value === 0) {
+    return '0';
+  }
+
+  const rounded = Math.round(value * 100) / 100;
+  const formatted = rounded.toFixed(2).replace(/\.0+$/, '').replace(/\.([0-9])0$/, '.$1');
+  return formatted;
+}
+
+function buildWarehouseAverageMap(rows, days = DAILY_AVERAGE_WINDOW_DAYS) {
+  const map = new Map();
+  const windowDays = Math.max(1, Number.parseInt(days, 10) || DAILY_AVERAGE_WINDOW_DAYS);
+
+  (Array.isArray(rows) ? rows : [])
+    .filter(Boolean)
+    .forEach(entry => {
+      const sku = normalizeSku(entry?.productCode ?? entry?.product_code ?? entry?.sku);
+      if (!sku) {
+        return;
+      }
+
+      const qtyOut = Number(entry?.qtyOut ?? entry?.qty_out ?? entry?.qty);
+      if (!Number.isFinite(qtyOut)) {
+        return;
+      }
+
+      const previous = map.get(sku) || { totalOut: 0, average: 0 };
+      const totalOut = previous.totalOut + qtyOut;
+      map.set(sku, {
+        totalOut,
+        average: totalOut / windowDays
+      });
+    });
+
+  return map;
+}
+
+function getWarehouseAverageSelection() {
+  const range = getProfitLossDateRange({ periodKey: 'all' });
+  return {
+    key: 'custom',
+    start: range.startDate ?? null,
+    end: range.endDate ?? null
+  };
+}
+
+async function ensureWarehouseAverageData({ force = false } = {}) {
+  const selection = getWarehouseAverageSelection();
+  const signature = getPeriodSelectionSignature(selection);
+
+  if (!force && warehouseAverageCache && warehouseAverageCache.signature === signature) {
+    return warehouseAverageCache;
+  }
+
+  if (!force && warehouseAveragePromise) {
+    try {
+      const cached = await warehouseAveragePromise;
+      if (cached && cached.signature === signature) {
+        return cached;
+      }
+    } catch (error) {
+      console.warn('Gagal memuat cache rata-rata penjualan gudang.', error);
+    }
+  }
+
+  warehouseAveragePromise = (async () => {
+    let rows = [];
+
+    if (
+      warehouseMovementsState.lastSignature === signature &&
+      Array.isArray(warehouseMovementsState.rows) &&
+      warehouseMovementsState.rows.length
+    ) {
+      rows = warehouseMovementsState.rows;
+    } else {
+      const cachedSnapshot = getCachedWarehouseMovements(signature);
+      if (cachedSnapshot && Array.isArray(cachedSnapshot.rows) && cachedSnapshot.rows.length) {
+        rows = cachedSnapshot.rows;
+      } else {
+        try {
+          const result = await syncWarehouseMovements({ selection, force: false, showToastOnError: false });
+          if (result?.success && Array.isArray(result.data?.rows)) {
+            rows = result.data.rows;
+          }
+        } catch (error) {
+          console.warn('Gagal menyinkronkan pergerakan barang Mekari untuk estimasi stok.', error);
+        }
+
+        if (!rows.length && cachedSnapshot && Array.isArray(cachedSnapshot.rows)) {
+          rows = cachedSnapshot.rows;
+        }
+      }
+    }
+
+    const map = buildWarehouseAverageMap(rows, DAILY_AVERAGE_WINDOW_DAYS);
+    warehouseAverageCache = { signature, map, selection };
+    return warehouseAverageCache;
+  })();
+
+  try {
+    const resolved = await warehouseAveragePromise;
+    return resolved;
+  } finally {
+    warehouseAveragePromise = null;
+  }
+}
+
+function readDailyInventorySyncState() {
+  try {
+    const raw = localStorage.getItem(DAILY_INVENTORY_SYNC_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.warn('Gagal membaca status sinkronisasi harian.', error);
+    return {};
+  }
+}
+
+function writeDailyInventorySyncState(state) {
+  try {
+    localStorage.setItem(DAILY_INVENTORY_SYNC_STORAGE_KEY, JSON.stringify(state ?? {}));
+  } catch (error) {
+    console.warn('Gagal menyimpan status sinkronisasi harian.', error);
+  }
+}
+
+function updateDailyInventorySyncState(updater) {
+  const previous = readDailyInventorySyncState();
+  const next = typeof updater === 'function' ? updater(previous) : { ...previous, ...updater };
+  writeDailyInventorySyncState(next);
+  return next;
+}
+
+function getDailyInventorySyncThreshold(now = new Date()) {
+  const minutesPerDay = 24 * 60;
+  const millisPerMinute = 60 * 1000;
+  const nowMinutes = Math.floor(now.getTime() / millisPerMinute);
+  const wibMinutes = nowMinutes + WIB_TIMEZONE_OFFSET_MINUTES;
+  const dayIndex = Math.floor(wibMinutes / minutesPerDay);
+  const targetWibMinutes = dayIndex * minutesPerDay + DAILY_INVENTORY_SYNC_TRIGGER_MINUTE;
+  const targetUtcMinutes = targetWibMinutes - WIB_TIMEZONE_OFFSET_MINUTES;
+  return new Date(targetUtcMinutes * millisPerMinute);
+}
+
+function hasDailyInventorySyncSuccessForToday(now = new Date()) {
+  const state = readDailyInventorySyncState();
+  const { lastSuccessAt } = state;
+  if (!lastSuccessAt) {
+    return false;
+  }
+
+  const lastSuccess = new Date(lastSuccessAt);
+  if (Number.isNaN(lastSuccess.getTime())) {
+    return false;
+  }
+
+  const threshold = getDailyInventorySyncThreshold(now);
+  return lastSuccess.getTime() >= threshold.getTime();
+}
+
+function getNextDailyInventorySyncTime(now = new Date()) {
+  const minutesPerDay = 24 * 60;
+  const millisPerMinute = 60 * 1000;
+  const nowMinutes = Math.floor(now.getTime() / millisPerMinute);
+  const wibMinutes = nowMinutes + WIB_TIMEZONE_OFFSET_MINUTES;
+  const dayIndex = Math.floor(wibMinutes / minutesPerDay);
+  let targetWibMinutes = dayIndex * minutesPerDay + DAILY_INVENTORY_SYNC_TRIGGER_MINUTE;
+
+  if (wibMinutes >= targetWibMinutes) {
+    targetWibMinutes += minutesPerDay;
+  }
+
+  const targetUtcMinutes = targetWibMinutes - WIB_TIMEZONE_OFFSET_MINUTES;
+  return new Date(targetUtcMinutes * millisPerMinute);
+}
+
+async function runDailyInventorySync({ reason = 'scheduled', now = new Date() } = {}) {
+  if (dailyInventorySyncPromise) {
+    return dailyInventorySyncPromise;
+  }
+
+  dailyInventorySyncPromise = (async () => {
+    const attemptTime = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+    const attemptIso = attemptTime.toISOString();
+
+    updateDailyInventorySyncState(state => ({
+      ...state,
+      lastAttemptAt: attemptIso,
+      lastStatus: 'running',
+      lastError: null,
+      lastReason: reason
+    }));
+
+    if (!isSupabaseConfigured()) {
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'skipped',
+        lastError: 'Supabase belum dikonfigurasi.'
+      }));
+      return { success: false, skipped: true, reason: 'supabase-unconfigured', state };
+    }
+
+    if (!canManageCatalog()) {
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'skipped',
+        lastError: 'Hak akses katalog tidak tersedia.'
+      }));
+      return { success: false, skipped: true, reason: 'unauthorized', state };
+    }
+
+    try {
+      await ensureSupabase();
+    } catch (error) {
+      const message = error?.message ? String(error.message) : 'Gagal menginisialisasi Supabase.';
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'error',
+        lastError: message
+      }));
+      console.error('Gagal menginisialisasi Supabase sebelum sinkronisasi harian.', error);
+      return { success: false, skipped: false, reason: 'supabase-init', state, error };
+    }
+
+    let products = [];
+    try {
+      products = await refreshProductsFromSupabase();
+    } catch (error) {
+      console.warn('Gagal memuat produk terbaru sebelum sinkronisasi harian.', error);
+      products = getProductsFromCache();
+    }
+
+    const currentProducts = Array.isArray(products) ? products : [];
+    if (!currentProducts.length) {
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'success',
+        lastError: null,
+        lastSuccessAt: attemptIso
+      }));
+      return { success: true, updated: 0, state };
+    }
+
+    let mekariRecords = [];
+    let mekariIntegration = null;
+    try {
+      const response = await fetchMekariProducts({ includeArchive: false });
+      mekariRecords = Array.isArray(response?.products) ? response.products : [];
+      mekariIntegration = response?.integration ?? null;
+    } catch (error) {
+      const message = error?.message ? String(error.message) : 'Gagal memuat produk dari Mekari Jurnal.';
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'error',
+        lastError: message
+      }));
+      console.error('Gagal mengambil data produk Mekari untuk sinkronisasi harian.', error);
+      return { success: false, skipped: false, reason: 'mekari-products', state, error };
+    }
+
+    const extractStockFromRecord = record => {
+      const stockCandidates = [record?.quantity_available, record?.quantity, record?.init_quantity];
+      for (const candidate of stockCandidates) {
+        const parsed = parseNumericValue(candidate);
+        if (parsed !== null && Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+      return null;
+    };
+
+    const formatStockValue = value => {
+      if (!Number.isFinite(value)) {
+        return '';
+      }
+
+      if (value === 0) {
+        return '0';
+      }
+
+      const rounded = Math.round(value);
+      return rounded.toString();
+    };
+
+    const stockMap = new Map();
+    mekariRecords.forEach(record => {
+      if (!record || typeof record !== 'object') {
+        return;
+      }
+      const rawSku = record.product_code ?? record.productCode ?? record.sku;
+      const normalizedSku = normalizeSku(rawSku);
+      if (!normalizedSku) {
+        return;
+      }
+      const stockNumber = extractStockFromRecord(record);
+      if (stockNumber === null || !Number.isFinite(stockNumber)) {
+        return;
+      }
+      stockMap.set(normalizedSku, stockNumber);
+    });
+
+    let averageMap = null;
+    try {
+      const averageData = await ensureWarehouseAverageData({ force: true });
+      if (averageData?.map instanceof Map) {
+        averageMap = averageData.map;
+      }
+    } catch (error) {
+      console.warn('Gagal menghitung rata-rata penjualan gudang untuk sinkronisasi harian.', error);
+    }
+
+    const resolveRowSku = row => {
+      if (!row || typeof row !== 'object') {
+        return '';
+      }
+      const candidates = [row.sellerSku, row.sku, row.seller_sku, row.variantSku, row.variant_sku];
+      for (const candidate of candidates) {
+        const normalized = normalizeSku(candidate);
+        if (normalized) {
+          return normalized;
+        }
+      }
+      return '';
+    };
+
+    const nextProducts = [];
+    const changedProducts = [];
+
+    currentProducts.forEach(product => {
+      if (!product || typeof product !== 'object') {
+        return;
+      }
+
+      let productChanged = false;
+      const variantPricing = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+      const nextVariantPricing = [];
+      let totalAverage = 0;
+      let averageCount = 0;
+
+      variantPricing.forEach(row => {
+        const nextRow = { ...row };
+        const normalizedSku = resolveRowSku(nextRow);
+
+        if (normalizedSku && stockMap.has(normalizedSku)) {
+          const stockValue = stockMap.get(normalizedSku);
+          const formattedStock = formatStockValue(stockValue);
+          if (formattedStock && nextRow.stock !== formattedStock) {
+            nextRow.stock = formattedStock;
+            productChanged = true;
+          }
+        }
+
+        if (normalizedSku && averageMap instanceof Map) {
+          let formattedAverage = '0';
+          const entry = averageMap.get(normalizedSku);
+          if (entry && Number.isFinite(entry.average)) {
+            const formatted = formatDailyAverageSalesValue(entry.average);
+            if (formatted !== null) {
+              formattedAverage = formatted;
+            }
+          }
+
+          if (nextRow.dailyAverageSales !== formattedAverage) {
+            nextRow.dailyAverageSales = formattedAverage;
+            productChanged = true;
+          }
+
+          const numericAverage = Number.parseFloat(formattedAverage);
+          if (Number.isFinite(numericAverage)) {
+            totalAverage += numericAverage;
+            averageCount += 1;
+          }
+        }
+
+        nextVariantPricing.push(nextRow);
+      });
+
+      let nextInventory = product.inventory;
+      if (averageMap instanceof Map) {
+        const computedAverage = averageCount ? totalAverage / averageCount : 0;
+        const formattedInventoryAverage = formatDailyAverageSalesValue(computedAverage);
+        const desiredAverage = formattedInventoryAverage ?? '0';
+
+        if (desiredAverage !== null) {
+          const baseInventory = product.inventory && typeof product.inventory === 'object' ? { ...product.inventory } : {};
+          if (baseInventory.dailyAverageSales !== desiredAverage) {
+            baseInventory.dailyAverageSales = desiredAverage;
+            nextInventory = baseInventory;
+            productChanged = true;
+          }
+        }
+      }
+
+      if (productChanged) {
+        const updatedProduct = {
+          ...product,
+          variantPricing: nextVariantPricing,
+          inventory: nextInventory,
+          updatedAt: Date.now()
+        };
+        changedProducts.push(updatedProduct);
+        nextProducts.push(updatedProduct);
+      } else {
+        nextProducts.push(product);
+      }
+    });
+
+    if (!changedProducts.length) {
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'success',
+        lastError: null,
+        lastSuccessAt: attemptIso
+      }));
+      return { success: true, updated: 0, state };
+    }
+
+    try {
+      for (const product of changedProducts) {
+        await upsertProductToSupabase(product);
+      }
+    } catch (error) {
+      const message = error?.message ? String(error.message) : 'Gagal memperbarui produk di Supabase.';
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'error',
+        lastError: message
+      }));
+      console.error('Gagal menyimpan pembaruan stok harian ke Supabase.', error);
+      return { success: false, skipped: false, reason: 'supabase-upsert', state, error };
+    }
+
+    setProductCache(nextProducts);
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      renderProducts(searchInput.value ?? '');
+    } else {
+      renderProducts();
+    }
+
+    if (mekariIntegration) {
+      try {
+        await markMekariIntegrationSynced(mekariIntegration, attemptTime.toISOString());
+      } catch (error) {
+        console.warn('Gagal memperbarui status sinkronisasi Mekari setelah sinkronisasi harian.', error);
+      }
+    }
+
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'success',
+      lastError: null,
+      lastSuccessAt: attemptIso
+    }));
+
+    return { success: true, updated: changedProducts.length, state };
+  })();
+
+  try {
+    const result = await dailyInventorySyncPromise;
+    return result;
+  } finally {
+    dailyInventorySyncPromise = null;
+  }
+}
+
+function scheduleDailyInventorySync() {
+  if (dailyInventorySyncScheduled) {
+    return;
+  }
+
+  if (!isSupabaseConfigured() || !canManageCatalog()) {
+    return;
+  }
+
+  dailyInventorySyncScheduled = true;
+
+  const scheduleNext = delayMs => {
+    const safeDelay = Math.max(0, Number.isFinite(delayMs) ? delayMs : 0);
+    if (dailyInventorySyncTimer) {
+      clearTimeout(dailyInventorySyncTimer);
+    }
+
+    dailyInventorySyncTimer = setTimeout(() => {
+      runDailyInventorySync({ reason: 'scheduled' })
+        .catch(error => {
+          console.error('Gagal menjalankan sinkronisasi harian terjadwal.', error);
+          return { success: false, error };
+        })
+        .then(result => {
+          const nextTarget = getNextDailyInventorySyncTime(new Date());
+          let nextDelay = nextTarget.getTime() - Date.now();
+          if (!result?.success) {
+            nextDelay = Math.min(nextDelay, 60 * 60 * 1000);
+          }
+          scheduleNext(nextDelay);
+        });
+    }, safeDelay);
+  };
+
+  const now = new Date();
+  if (!hasDailyInventorySyncSuccessForToday(now)) {
+    runDailyInventorySync({ reason: 'initial', now })
+      .catch(error => {
+        console.error('Gagal menjalankan sinkronisasi harian awal.', error);
+        return { success: false, error };
+      })
+      .then(result => {
+        const nextTarget = getNextDailyInventorySyncTime(new Date());
+        let delay = nextTarget.getTime() - Date.now();
+        if (!result?.success) {
+          delay = Math.min(delay, 60 * 60 * 1000);
+        }
+        scheduleNext(delay);
+      });
+  } else {
+    const nextTarget = getNextDailyInventorySyncTime(now);
+    const delay = Math.max(0, nextTarget.getTime() - now.getTime());
+    scheduleNext(delay);
+  }
+}
 
 const SALES_REPORT_SYNC_STATUS = new Set(['on-track', 'manual', 'scheduled']);
 
@@ -5386,69 +5925,6 @@ async function handleAddProductForm() {
 
   const getPricingRows = () => Array.from(pricingBody?.querySelectorAll('.pricing-row') ?? []);
 
-  const DAILY_AVERAGE_WINDOW_DAYS = 30;
-  let warehouseAverageCache = null;
-  let warehouseAveragePromise = null;
-
-  const normalizeSku = value => {
-    if (!value && value !== 0) {
-      return '';
-    }
-
-    return value.toString().trim().toLowerCase();
-  };
-
-  const formatDailyAverageValue = value => {
-    if (!Number.isFinite(value) || value < 0) {
-      return null;
-    }
-
-    if (value === 0) {
-      return '0';
-    }
-
-    const rounded = Math.round(value * 100) / 100;
-    const formatted = rounded.toFixed(2).replace(/\.0+$/, '').replace(/\.([0-9])0$/, '.$1');
-    return formatted;
-  };
-
-  const buildWarehouseAverageMap = (rows, days = DAILY_AVERAGE_WINDOW_DAYS) => {
-    const map = new Map();
-    const windowDays = Math.max(1, Number.parseInt(days, 10) || DAILY_AVERAGE_WINDOW_DAYS);
-
-    rows
-      .filter(Boolean)
-      .forEach(entry => {
-        const sku = normalizeSku(entry.productCode);
-        if (!sku) {
-          return;
-        }
-
-        const qtyOut = Number(entry.qtyOut);
-        if (!Number.isFinite(qtyOut)) {
-          return;
-        }
-
-        const previous = map.get(sku) || { totalOut: 0, average: 0 };
-        const totalOut = previous.totalOut + qtyOut;
-        map.set(sku, {
-          totalOut,
-          average: totalOut / windowDays
-        });
-      });
-
-    return map;
-  };
-
-  const getWarehouseAverageSelection = () => {
-    const range = getProfitLossDateRange({ periodKey: 'all' });
-    return {
-      key: 'custom',
-      start: range.startDate ?? null,
-      end: range.endDate ?? null
-    };
-  };
-
   const applyWarehouseAverageToRow = (row, map) => {
     if (!row || !map) {
       return;
@@ -5469,7 +5945,7 @@ async function handleAddProductForm() {
     let formatted = null;
 
     if (entry && Number.isFinite(entry.average)) {
-      formatted = formatDailyAverageValue(entry.average);
+      formatted = formatDailyAverageSalesValue(entry.average);
     }
 
     if (formatted === null) {
@@ -5489,67 +5965,6 @@ async function handleAddProductForm() {
     }
 
     getPricingRows().forEach(row => applyWarehouseAverageToRow(row, map));
-  };
-
-  const ensureWarehouseAverageData = async ({ force = false } = {}) => {
-    const selection = getWarehouseAverageSelection();
-    const signature = getPeriodSelectionSignature(selection);
-
-    if (!force && warehouseAverageCache && warehouseAverageCache.signature === signature) {
-      return warehouseAverageCache;
-    }
-
-    if (!force && warehouseAveragePromise) {
-      try {
-        const cached = await warehouseAveragePromise;
-        if (cached && cached.signature === signature) {
-          return cached;
-        }
-      } catch (error) {
-        console.warn('Gagal memuat cache rata-rata penjualan gudang.', error);
-      }
-    }
-
-    warehouseAveragePromise = (async () => {
-      let rows = [];
-
-      if (
-        warehouseMovementsState.lastSignature === signature &&
-        Array.isArray(warehouseMovementsState.rows) &&
-        warehouseMovementsState.rows.length
-      ) {
-        rows = warehouseMovementsState.rows;
-      } else {
-        const cachedSnapshot = getCachedWarehouseMovements(signature);
-        if (cachedSnapshot && Array.isArray(cachedSnapshot.rows) && cachedSnapshot.rows.length) {
-          rows = cachedSnapshot.rows;
-        } else {
-          try {
-            const result = await syncWarehouseMovements({ selection, force: false, showToastOnError: false });
-            if (result?.success && Array.isArray(result.data?.rows)) {
-              rows = result.data.rows;
-            }
-          } catch (error) {
-            console.warn('Gagal menyinkronkan pergerakan barang Mekari untuk estimasi stok.', error);
-          }
-
-          if (!rows.length && cachedSnapshot && Array.isArray(cachedSnapshot.rows)) {
-            rows = cachedSnapshot.rows;
-          }
-        }
-      }
-
-      const map = buildWarehouseAverageMap(rows, DAILY_AVERAGE_WINDOW_DAYS);
-      warehouseAverageCache = { signature, map, selection };
-      return warehouseAverageCache;
-    })();
-
-    try {
-      const resolved = await warehouseAveragePromise;
-      return resolved;
-    } finally {
-      warehouseAveragePromise = null;
-    }
   };
 
   const updateRowAverageFromWarehouse = row => {
@@ -11431,6 +11846,7 @@ async function initDashboard() {
   handleProductActions();
   handleSearch(value => renderProducts(value, { resetPage: true }));
   handleSync();
+  scheduleDailyInventorySync();
 
   const addProductLink = document.querySelector('[data-add-product-link]');
   const updateAddProductLinkState = () => {
