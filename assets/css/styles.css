@@ -1678,6 +1678,10 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   color: var(--color-warning);
 }
 
+.integrations-table td {
+  vertical-align: top;
+}
+
 .integrations-table td:first-child {
   width: 320px;
 }
@@ -1863,6 +1867,34 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   min-width: 0;
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .integrations-table td {
+    vertical-align: top;
+  }
+
+  .integration-actions {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .integration-actions__primary,
+  .integration-actions__secondary {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .integration-actions__secondary {
+    flex-wrap: wrap;
+  }
+
+  .integration-actions__secondary .btn.small {
+    width: auto;
+  }
 }
 
 .integration-metrics {
