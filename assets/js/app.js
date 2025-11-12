@@ -591,6 +591,7 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 ]);
 
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
+const MEKARI_DEFAULT_LOGO_URL = 'assets/img/integrations/mekari-jurnal.svg';
 let mekariIntegrationCache = null;
 const TARGET_WAREHOUSE_NAME = 'Display';
 
@@ -5352,7 +5353,7 @@ function renderProducts(filterText = '', options = {}) {
       const formattedSync = formatDateTimeForDisplay(normalizedMekariStatus.lastSyncedAt);
       const mekariIntegration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? mekariIntegrationCache;
       const mekariLogoUrl =
-        sanitizeIntegrationLogo(mekariIntegration?.logoUrl) || 'assets/img/integrations/mekari-jurnal.svg';
+        sanitizeIntegrationLogo(mekariIntegration?.logoUrl) || MEKARI_DEFAULT_LOGO_URL;
 
       const badgeLabelParts = [];
       if (statusLabel) {
@@ -5798,6 +5799,40 @@ function handleSearch(callback) {
 function handleSync() {
   const button = document.getElementById('sync-btn');
   if (!button) return;
+
+  const mekariLogoElement = button.querySelector('[data-mekari-logo]');
+  const normalizedMekariName = MEKARI_INTEGRATION_NAME.toLowerCase();
+  const updateMekariLogo = (integrationsList = null) => {
+    if (!mekariLogoElement) {
+      return;
+    }
+
+    let integration = null;
+    if (Array.isArray(integrationsList)) {
+      integration =
+        integrationsList.find(item => (item?.name ?? '').toString().trim().toLowerCase() === normalizedMekariName) ?? null;
+    }
+
+    if (!integration) {
+      integration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? mekariIntegrationCache;
+    }
+
+    const logoUrl = sanitizeIntegrationLogo(integration?.logoUrl) || MEKARI_DEFAULT_LOGO_URL;
+    if (mekariLogoElement.getAttribute('src') !== logoUrl) {
+      mekariLogoElement.setAttribute('src', logoUrl);
+    }
+  };
+
+  updateMekariLogo();
+
+  if (mekariLogoElement && !button.dataset.mekariLogoListenerBound) {
+    const handleIntegrationsChange = event => {
+      updateMekariLogo(event?.detail?.integrations ?? null);
+    };
+
+    document.addEventListener('integrations:changed', handleIntegrationsChange);
+    button.dataset.mekariLogoListenerBound = 'true';
+  }
 
   const hiddenLabel = button.querySelector('[data-label]');
   const defaultLabel = button.dataset.labelDefault || 'Sync ke Mekari Jurnal';
