@@ -1844,14 +1844,14 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .integration-actions__primary,
 .integration-actions__secondary {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
 }
 
@@ -1861,7 +1861,8 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 
 .integration-actions .btn.small {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .integration-metrics {
