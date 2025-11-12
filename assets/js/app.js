@@ -618,6 +618,16 @@ function updateDailyInventorySyncState(updater) {
   const previous = readDailyInventorySyncState();
   const next = typeof updater === 'function' ? updater(previous) : { ...previous, ...updater };
   writeDailyInventorySyncState(next);
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      const event = new CustomEvent('entraverse:daily-sync-state', {
+        detail: { state: next, previous }
+      });
+      window.dispatchEvent(event);
+    } catch (error) {
+      console.warn('Gagal mengirim event status sinkronisasi harian.', error);
+    }
+  }
   return next;
 }
 
@@ -5524,6 +5534,7 @@ function handleSync() {
   const defaultLabel = button.dataset.labelDefault || 'Sync ke Mekari Jurnal';
   const loadingLabel = button.dataset.labelLoading || 'Menyinkronkan...';
   const syncMetaElement = document.querySelector('[data-mekari-sync-text]');
+  const syncErrorElement = document.querySelector('[data-mekari-sync-error]');
 
   const setLabel = value => {
     if (hiddenLabel) {
@@ -5573,6 +5584,82 @@ function handleSync() {
   const setSyncMetaMessage = message => {
     if (!syncMetaElement) return;
     syncMetaElement.textContent = message;
+  };
+
+  const setSyncErrorMessage = (message, { tone = null } = {}) => {
+    if (!syncErrorElement) return;
+    if (!message) {
+      syncErrorElement.hidden = true;
+      syncErrorElement.textContent = '';
+      syncErrorElement.removeAttribute('data-tone');
+      return;
+    }
+    syncErrorElement.hidden = false;
+    syncErrorElement.textContent = message;
+    if (tone) {
+      syncErrorElement.dataset.tone = tone;
+    } else {
+      syncErrorElement.removeAttribute('data-tone');
+    }
+  };
+
+  const formatSyncReason = reason => {
+    switch (reason) {
+      case 'manual':
+        return 'manual';
+      case 'scheduled':
+        return 'terjadwal';
+      case 'initial':
+        return 'awal harian';
+      default:
+        return reason || '';
+    }
+  };
+
+  const applyDailySyncState = state => {
+    if (!state || typeof state !== 'object') {
+      setSyncErrorMessage('');
+      return;
+    }
+
+    const { lastStatus, lastError, lastSuccessAt, lastReason } = state;
+
+    if (lastSuccessAt) {
+      setSyncMetaToDate(lastSuccessAt);
+    }
+
+    if (lastStatus === 'error') {
+      const reasonLabel = formatSyncReason(lastReason);
+      const parts = ['Sinkronisasi Mekari Jurnal terakhir gagal'];
+      if (reasonLabel) {
+        parts[0] += ` (${reasonLabel})`;
+      }
+      if (lastError) {
+        parts.push(`Alasan: ${lastError}`);
+      }
+      setSyncErrorMessage(parts.join('. '));
+      return;
+    }
+
+    if (lastStatus === 'skipped') {
+      const reasonLabel = formatSyncReason(lastReason);
+      const parts = ['Sinkronisasi Mekari Jurnal dilewati'];
+      if (reasonLabel) {
+        parts[0] += ` (${reasonLabel})`;
+      }
+      if (lastError) {
+        parts.push(`Alasan: ${lastError}`);
+      }
+      setSyncErrorMessage(parts.join('. '), { tone: 'warning' });
+      return;
+    }
+
+    if (lastStatus === 'running') {
+      setSyncErrorMessage('Sinkronisasi Mekari Jurnal sedang berjalan...');
+      return;
+    }
+
+    setSyncErrorMessage('');
   };
 
   const collectExistingSkuDetails = products => {
@@ -5627,6 +5714,7 @@ function handleSync() {
         const integration = await resolveMekariIntegration();
         if (!integration) {
           setSyncMetaMessage('Integrasi Mekari Jurnal belum dikonfigurasi.');
+          setSyncErrorMessage('');
           return;
         }
         if (integration.lastSync) {
@@ -5635,8 +5723,18 @@ function handleSync() {
       } catch (error) {
         console.warn('Gagal memuat status sinkronisasi Mekari Jurnal.', error);
         setSyncMetaMessage('Status sinkronisasi Mekari Jurnal tidak tersedia.');
+        setSyncErrorMessage('');
       }
     })();
+  }
+
+  applyDailySyncState(readDailyInventorySyncState());
+
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('entraverse:daily-sync-state', event => {
+      const state = event?.detail?.state;
+      applyDailySyncState(state);
+    });
   }
 
   button.addEventListener('click', async () => {
@@ -5649,6 +5747,16 @@ function handleSync() {
     button.disabled = true;
     button.classList.add('is-loading');
     setLabel(loadingLabel);
+
+    const attemptTime = new Date();
+    const attemptIso = attemptTime.toISOString();
+    updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastAttemptAt: attemptIso,
+      lastStatus: 'running',
+      lastError: null,
+      lastReason: 'manual'
+    }));
 
     try {
       if (!isSupabaseConfigured()) {
@@ -5670,7 +5778,13 @@ function handleSync() {
 
       if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
         toast.show('Tidak ada produk Mekari yang ditemukan.');
-        await updateIntegrationSyncMeta(integration, new Date());
+        await updateIntegrationSyncMeta(integration, attemptTime);
+        updateDailyInventorySyncState(previous => ({
+          ...previous,
+          lastStatus: 'success',
+          lastError: null,
+          lastSuccessAt: attemptIso
+        }));
         return;
       }
 
@@ -5807,7 +5921,13 @@ function handleSync() {
         summaryParts.push('Stok produk Mekari Jurnal sudah sesuai.');
       }
       toast.show(summaryParts.join(' '));
-      await updateIntegrationSyncMeta(integration, new Date());
+      await updateIntegrationSyncMeta(integration, attemptTime);
+      updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'success',
+        lastError: null,
+        lastSuccessAt: attemptIso
+      }));
     } catch (error) {
       console.error('Gagal sinkronisasi produk Mekari.', error);
       const message =
@@ -5815,6 +5935,12 @@ function handleSync() {
           ? error.message
           : 'Gagal sinkronisasi produk dari Mekari Jurnal.';
       toast.show(message);
+      updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'error',
+        lastError: message,
+        lastReason: 'manual'
+      }));
     } finally {
       button.disabled = false;
       button.classList.remove('is-loading');

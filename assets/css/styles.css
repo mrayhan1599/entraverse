@@ -817,6 +817,16 @@ body[data-theme="dark"] .profile-dropdown::before {
   font-weight: 600;
 }
 
+.sync-meta--error {
+  color: var(--color-danger, #d14343);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body[data-theme="dark"] .sync-meta--error {
+  color: var(--color-danger, #f97066);
+}
+
 .title-stack {
   display: flex;
   flex-direction: column;
