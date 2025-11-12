@@ -60,6 +60,134 @@ function createUuid() {
   );
 }
 
+const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error']);
+
+const DEFAULT_MEKARI_STATUS = Object.freeze({
+  state: 'pending',
+  lastSyncedAt: null,
+  message: '',
+  error: ''
+});
+
+function normalizeMekariStatus(status) {
+  if (!status || typeof status !== 'object') {
+    return { ...DEFAULT_MEKARI_STATUS };
+  }
+
+  const normalized = { ...DEFAULT_MEKARI_STATUS };
+
+  const stateCandidate = (status.state ?? status.status ?? '').toString().trim().toLowerCase();
+  if (MEKARI_STATUS_STATES.has(stateCandidate)) {
+    normalized.state = stateCandidate;
+  }
+
+  const syncCandidate =
+    status.lastSyncedAt ?? status.lastSync ?? status.syncedAt ?? status.updatedAt ?? null;
+  if (syncCandidate) {
+    let dateValue = null;
+    if (syncCandidate instanceof Date) {
+      dateValue = syncCandidate;
+    } else if (typeof syncCandidate === 'number' && Number.isFinite(syncCandidate)) {
+      dateValue = new Date(syncCandidate);
+    } else if (typeof syncCandidate === 'string') {
+      dateValue = new Date(syncCandidate);
+    }
+    if (dateValue instanceof Date && !Number.isNaN(dateValue.getTime())) {
+      normalized.lastSyncedAt = dateValue.toISOString();
+    }
+  }
+
+  const messageCandidates = [status.message, status.detail, status.note, status.description];
+  for (const candidate of messageCandidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        normalized.message = trimmed;
+        break;
+      }
+    } else if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      normalized.message = candidate.toString();
+      break;
+    }
+  }
+
+  const errorCandidates = [status.error, status.errorMessage, status.reason];
+  for (const candidate of errorCandidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        normalized.error = trimmed;
+        normalized.state = 'error';
+        break;
+      }
+    } else if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      normalized.error = candidate.toString();
+      normalized.state = 'error';
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+function getMekariStatusLabel(state) {
+  switch (state) {
+    case 'synced':
+      return 'Sinkron';
+    case 'syncing':
+      return 'Menyinkronkan';
+    case 'error':
+      return 'Gagal Sinkron';
+    case 'pending':
+    default:
+      return 'Belum Sinkron';
+  }
+}
+
+function formatDateTimeForDisplay(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+function resolveMekariStatusTooltip(status) {
+  if (!status || typeof status !== 'object') {
+    return '';
+  }
+
+  if (status.error) {
+    return status.error;
+  }
+
+  if (status.message) {
+    return status.message;
+  }
+
+  if (status.lastSyncedAt) {
+    const formatted = formatDateTimeForDisplay(status.lastSyncedAt);
+    if (formatted) {
+      return `Sinkron terakhir pada ${formatted}.`;
+    }
+  }
+
+  return '';
+}
+
 const DEFAULT_PRODUCTS = [
   {
     id: crypto.randomUUID(),
@@ -118,6 +246,11 @@ const DEFAULT_PRODUCTS = [
         weight: '2050'
       }
     ],
+    mekariStatus: normalizeMekariStatus({
+      state: 'synced',
+      lastSyncedAt: Date.now() - 45 * 60 * 1000,
+      message: 'Sinkron stok & harga pada Mekari Jurnal'
+    }),
     createdAt: Date.now()
   },
   {
@@ -177,6 +310,11 @@ const DEFAULT_PRODUCTS = [
         weight: '2100'
       }
     ],
+    mekariStatus: normalizeMekariStatus({
+      state: 'error',
+      lastSyncedAt: Date.now() - 3 * 60 * 60 * 1000,
+      error: 'SKU tidak ditemukan di Mekari Jurnal. Periksa kembali mapping produk.'
+    }),
     createdAt: Date.now()
   }
 ];
@@ -1770,6 +1908,17 @@ function mapSupabaseProduct(record) {
     photos,
     variants,
     variantPricing,
+    mekariStatus: normalizeMekariStatus(
+      typeof record.mekari_status === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(record.mekari_status);
+            } catch (error) {
+              return null;
+            }
+          })()
+        : record.mekari_status ?? record.mekariStatus ?? null
+    ),
     createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
     updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
   };
@@ -5151,7 +5300,7 @@ function renderProducts(filterText = '', options = {}) {
   if (!paginated.length) {
     const emptyRow = document.createElement('tr');
     emptyRow.className = 'empty-state';
-    emptyRow.innerHTML = '<td colspan="4">Tidak ada produk ditemukan.</td>';
+    emptyRow.innerHTML = '<td colspan="5">Tidak ada produk ditemukan.</td>';
     tbody.appendChild(emptyRow);
   } else {
     paginated.forEach(product => {
@@ -5197,6 +5346,58 @@ function renderProducts(filterText = '', options = {}) {
         : [];
       const variantStockHtml = variantStockLines.join('');
 
+      const normalizedMekariStatus = normalizeMekariStatus(product.mekariStatus);
+      const statusState = normalizedMekariStatus.state ?? 'pending';
+      const statusLabel = getMekariStatusLabel(statusState);
+      const formattedSync = formatDateTimeForDisplay(normalizedMekariStatus.lastSyncedAt);
+      let statusDetail = normalizedMekariStatus.message || '';
+
+      if (statusState === 'synced') {
+        statusDetail = statusDetail || (formattedSync ? `Terakhir: ${formattedSync}` : 'Terhubung');
+      } else if (statusState === 'pending') {
+        statusDetail = statusDetail || 'Menunggu sinkronisasi';
+      } else if (statusState === 'syncing') {
+        statusDetail = statusDetail || 'Sinkronisasi berjalan';
+      } else if (statusState === 'error') {
+        statusDetail = 'Periksa detail sinkronisasi';
+      }
+
+      const tooltipMessage = resolveMekariStatusTooltip(normalizedMekariStatus);
+      const badgeLabelParts = [`Status Mekari Jurnal: ${statusLabel}`];
+      if (statusDetail && statusDetail !== statusLabel) {
+        badgeLabelParts.push(statusDetail);
+      }
+      if (tooltipMessage && tooltipMessage !== statusDetail) {
+        badgeLabelParts.push(tooltipMessage);
+      } else if (!tooltipMessage && formattedSync && statusState === 'synced') {
+        badgeLabelParts.push(`Terakhir sinkron pada ${formattedSync}.`);
+      }
+      const badgeAriaLabel = badgeLabelParts.join('. ');
+      const badgeClasses = ['mekari-status__badge'];
+      const hasTooltip = Boolean(tooltipMessage);
+      if (hasTooltip) {
+        badgeClasses.push('has-tooltip');
+      }
+      const tooltipAttributes = hasTooltip
+        ? ` data-tooltip="${escapeHtml(tooltipMessage)}" title="${escapeHtml(tooltipMessage)}" tabindex="0"`
+        : '';
+      const statusMetaHtml =
+        statusDetail && statusDetail !== statusLabel
+          ? `<span class="mekari-status__meta">${escapeHtml(statusDetail)}</span>`
+          : '';
+      const mekariStatusHtml = `
+        <div class="mekari-status" data-state="${escapeHtml(statusState)}">
+          <span class="${badgeClasses.join(' ')}"${tooltipAttributes} role="img" aria-label="${escapeHtml(badgeAriaLabel)}">
+            <img src="assets/img/integrations/mekari-jurnal.svg" alt="" aria-hidden="true">
+          </span>
+          <div class="mekari-status__content">
+            <span class="mekari-status__label">Mekari Jurnal</span>
+            <span class="mekari-status__state">${escapeHtml(statusLabel)}</span>
+            ${statusMetaHtml}
+          </div>
+        </div>
+      `;
+
       const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
       const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
       const deleteTitle = canManage ? 'Hapus' : 'Login untuk menghapus produk';
@@ -5216,6 +5417,7 @@ function renderProducts(filterText = '', options = {}) {
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
+        <td>${mekariStatusHtml}</td>
         <td>
           <label class="switch">
             <input type="checkbox" ${product.tradeIn ? 'checked' : ''} data-action="toggle-trade" data-id="${product.id}" ${canManage ? '' : 'disabled'}>
@@ -9660,6 +9862,11 @@ function mapMekariProductRecord(record) {
       }
     ],
     stock,
+    mekariStatus: normalizeMekariStatus({
+      state: 'synced',
+      lastSyncedAt: Date.now(),
+      message: 'Diimpor dari Mekari Jurnal'
+    }),
     createdAt,
     updatedAt
   };
