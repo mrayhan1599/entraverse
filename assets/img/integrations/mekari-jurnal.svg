@@ -1,12 +1,22 @@
 <svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Mekari Jurnal Placeholder Logo</title>
-  <desc id="desc">Lingkaran biru dengan inisial MJ</desc>
+  <title id="title">Logo Mekari Jurnal</title>
+  <desc id="desc">Lambang Mekari Jurnal berbentuk huruf A bergaya dengan gradien biru dan latar transparan.</desc>
   <defs>
-    <linearGradient id="mjGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3a7bd5" />
-      <stop offset="100%" stop-color="#1f53a5" />
+    <linearGradient id="mjPrimary" x1="20%" y1="5%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#2fa3ff" />
+      <stop offset="100%" stop-color="#1b5ed6" />
+    </linearGradient>
+    <linearGradient id="mjHighlight" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%" stop-color="#5cc5ff" />
+      <stop offset="100%" stop-color="#2a7fe8" />
     </linearGradient>
   </defs>
-  <rect x="4" y="4" width="72" height="72" rx="20" fill="url(#mjGradient)" />
-  <text x="50%" y="52%" text-anchor="middle" font-family="'Poppins', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">MJ</text>
+  <path
+    d="M33.63 9.5c1.57-4.3 6.72-4.3 8.29 0l22.4 59.7c1.17 3.11-0.76 6.8-4.22 6.8h-9.38c-1.78 0-3.36-1.15-3.9-2.83L40.2 50.5c-0.53-1.65-2.71-1.65-3.24 0l-6.62 22.67c-0.54 1.68-2.12 2.83-3.9 2.83h-9.38c-3.46 0-5.39-3.69-4.22-6.8l20.79-55.7z"
+    fill="url(#mjPrimary)"
+  />
+  <path
+    d="M31.45 42.6c-0.77 0-1.3 0.78-1.04 1.5l5.65 15.32c0.47 1.26 2.24 1.26 2.71 0l5.65-15.32c0.26-0.72-0.27-1.5-1.04-1.5H31.45z"
+    fill="url(#mjHighlight)"
+  />
 </svg>
