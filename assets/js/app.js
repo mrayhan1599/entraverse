@@ -11791,12 +11791,14 @@ function renderIntegrations(filter = '') {
               </dl>
             </td>
             <td class="integration-actions">
-              <div class="integration-actions__primary">
-                <button class="${actionClass}" type="button" data-integration-action="toggle" data-action-state="${actionState}">${actionLabel}</button>
-              </div>
-              <div class="integration-actions__secondary">
-                <button class="btn ghost-btn small" type="button" data-integration-action="edit">Edit</button>
-                <button class="btn danger-btn small" type="button" data-integration-action="delete">Hapus</button>
+              <div class="integration-actions__layout">
+                <div class="integration-actions__primary">
+                  <button class="${actionClass}" type="button" data-integration-action="toggle" data-action-state="${actionState}">${actionLabel}</button>
+                </div>
+                <div class="integration-actions__secondary">
+                  <button class="btn ghost-btn small" type="button" data-integration-action="edit">Edit</button>
+                  <button class="btn danger-btn small" type="button" data-integration-action="delete">Hapus</button>
+                </div>
               </div>
             </td>
           </tr>
