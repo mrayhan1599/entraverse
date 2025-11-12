@@ -4500,6 +4500,9 @@ function renderProducts(filterText = '', options = {}) {
       const safeBrand = product.brand ? escapeHtml(product.brand) : '';
       const skuValue = getPrimaryProductSku(product);
       const safeSku = skuValue ? escapeHtml(skuValue) : '';
+      const rawStock = product.stock;
+      const normalizedStock = rawStock === null || rawStock === undefined ? '' : String(rawStock).trim();
+      const safeStock = normalizedStock ? escapeHtml(normalizedStock) : '';
 
       const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
       const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
@@ -4515,6 +4518,7 @@ function renderProducts(filterText = '', options = {}) {
           <div class="product-cell">
             <strong>${safeName}</strong>
             ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
+            ${safeStock ? `<span class="product-meta product-stock">Stok: ${safeStock}</span>` : ''}
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
