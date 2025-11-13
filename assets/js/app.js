@@ -8359,7 +8359,37 @@ async function handleAddProductForm() {
     try {
       await upsertProductToSupabase(productPayload);
       await refreshProductsFromSupabase();
-      toast.show(isEditing ? 'Produk berhasil diperbarui.' : 'Produk berhasil disimpan.');
+
+      let mekariResult = null;
+      if (!isEditing) {
+        try {
+          mekariResult = await syncProductVariantsToMekari({
+            baseName: productPayload.name,
+            variantPricing: filteredPricing
+          });
+        } catch (mekariError) {
+          console.error('Gagal mengirim produk ke Mekari Jurnal.', mekariError);
+          mekariResult = {
+            success: false,
+            skipped: false,
+            attempted: 0,
+            createdCount: 0,
+            errors: [{ message: mekariError?.message || 'Permintaan ke Mekari gagal.' }]
+          };
+        }
+      }
+
+      const messageParts = [isEditing ? 'Produk berhasil diperbarui.' : 'Produk berhasil disimpan.'];
+
+      if (mekariResult && !mekariResult.skipped) {
+        if (Array.isArray(mekariResult.errors) && mekariResult.errors.length) {
+          messageParts.push('Namun sinkronisasi ke Mekari Jurnal gagal.');
+        } else if (mekariResult.createdCount > 0) {
+          messageParts.push('Produk juga dikirim ke Mekari Jurnal.');
+        }
+      }
+
+      toast.show(messageParts.join(' '));
       setTimeout(() => {
         window.location.href = 'dashboard.html';
       }, 800);
@@ -9087,6 +9117,202 @@ function resolveMekariApiDetails(integration) {
     baseUrl: baseUrl || 'https://api.jurnal.id',
     token
   };
+}
+
+async function syncProductVariantsToMekari({ baseName, variantPricing }) {
+  const sanitizedName = (baseName ?? '').toString().trim();
+  if (!sanitizedName) {
+    return { success: false, skipped: true, attempted: 0, createdCount: 0, errors: [] };
+  }
+
+  const pricingRows = Array.isArray(variantPricing) ? variantPricing : [];
+  const rowsWithSku = pricingRows.filter(row => (row?.sellerSku ?? '').toString().trim());
+  if (!rowsWithSku.length) {
+    return { success: false, skipped: true, attempted: 0, createdCount: 0, errors: [] };
+  }
+
+  let integration;
+  try {
+    integration = await resolveMekariIntegration();
+  } catch (error) {
+    console.warn('Gagal mendapatkan konfigurasi integrasi Mekari Jurnal.', error);
+    return { success: false, skipped: true, attempted: 0, createdCount: 0, errors: [] };
+  }
+
+  if (!integration) {
+    console.warn('Integrasi Mekari Jurnal belum tersedia.');
+    return { success: false, skipped: true, attempted: 0, createdCount: 0, errors: [] };
+  }
+
+  const { baseUrl, token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    console.warn('Token API Mekari Jurnal tidak ditemukan.');
+    return { success: false, skipped: true, attempted: 0, createdCount: 0, errors: [] };
+  }
+
+  const endpointBase = baseUrl ? baseUrl.replace(/\/+$/, '') : 'https://api.jurnal.id';
+  const endpoint = `${endpointBase}/partner/core/api/v1/products`;
+
+  const result = {
+    success: true,
+    skipped: false,
+    attempted: 0,
+    createdCount: 0,
+    errors: []
+  };
+
+  const seenSkus = new Set();
+
+  const resolveVariantSuffix = row => {
+    const values = Array.isArray(row?.variants)
+      ? row.variants
+          .map(variant => (variant?.value ?? '').toString().trim())
+          .filter(Boolean)
+      : [];
+
+    if (!values.length) {
+      const label = (row?.variantLabel ?? '').toString().trim();
+      if (label) {
+        values.push(label);
+      }
+    }
+
+    return values.join(' ').trim();
+  };
+
+  const extractErrorMessage = async response => {
+    let message = `HTTP ${response.status}`;
+    const contentType = response.headers?.get('Content-Type') || '';
+
+    if (contentType.includes('application/json')) {
+      try {
+        const body = await response.json();
+        const candidates = [body?.message, body?.error];
+        for (const candidate of candidates) {
+          if (typeof candidate === 'string' && candidate.trim()) {
+            return candidate.trim();
+          }
+        }
+        const errors = body?.errors;
+        if (Array.isArray(errors) && errors.length) {
+          const joined = errors
+            .map(item => {
+              if (!item) return '';
+              if (typeof item === 'string') return item.trim();
+              if (typeof item === 'object') {
+                const detail = item.message ?? item.error ?? item.detail ?? item.description;
+                return typeof detail === 'string' ? detail.trim() : '';
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join(', ');
+          if (joined) {
+            return joined;
+          }
+        }
+        if (errors && typeof errors === 'object') {
+          const values = Object.values(errors)
+            .flat()
+            .map(item => (typeof item === 'string' ? item.trim() : ''))
+            .filter(Boolean);
+          if (values.length) {
+            return values.join(', ');
+          }
+        }
+      } catch (error) {
+        console.warn('Gagal membaca respons error Mekari.', error);
+      }
+    } else {
+      try {
+        const text = await response.text();
+        if (text) {
+          return text.trim();
+        }
+      } catch (error) {
+        console.warn('Gagal membaca respons teks Mekari.', error);
+      }
+    }
+
+    return message;
+  };
+
+  for (const row of rowsWithSku) {
+    const rawSku = (row?.sellerSku ?? '').toString().trim();
+    if (!rawSku) {
+      continue;
+    }
+
+    const normalizedSku = rawSku.toLowerCase();
+    if (seenSkus.has(normalizedSku)) {
+      continue;
+    }
+    seenSkus.add(normalizedSku);
+
+    result.attempted += 1;
+
+    const variantSuffix = resolveVariantSuffix(row);
+    const mekariName = variantSuffix ? `${sanitizedName} ${variantSuffix}` : sanitizedName;
+
+    const buyPriceNumeric = parseNumericValue(row?.purchasePriceIdr);
+    const sellPriceNumeric = parseNumericValue(row?.offlinePrice);
+
+    const payload = {
+      product: {
+        name: mekariName,
+        custom_id: rawSku,
+        product_code: rawSku,
+        buy_price_per_unit: Number.isFinite(buyPriceNumeric)
+          ? Math.max(0, Math.round(buyPriceNumeric)).toString()
+          : '0',
+        sell_price_per_unit: Number.isFinite(sellPriceNumeric)
+          ? Math.max(0, Math.round(sellPriceNumeric)).toString()
+          : '0',
+        taxable_buy: false,
+        taxable_sell: false,
+        unit_name: 'Unit',
+        track_inventory: 'true',
+        is_bought: true,
+        buy_account_number: '5-50000',
+        buy_account_name: 'Beban Pokok Pendapatan',
+        is_sold: true,
+        sell_account_number: '4-40000',
+        sell_account_name: 'Pendapatan',
+        inventory_asset_account_name: 'Persediaan Barang'
+      }
+    };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: token
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const message = await extractErrorMessage(response);
+        result.errors.push({ sku: rawSku, message });
+        result.success = false;
+        continue;
+      }
+
+      result.createdCount += 1;
+    } catch (error) {
+      result.success = false;
+      result.errors.push({ sku: rawSku, message: error?.message || 'Permintaan ke Mekari gagal.' });
+    }
+  }
+
+  if (!result.attempted) {
+    result.skipped = true;
+    result.success = false;
+  }
+
+  return result;
 }
 
 async function fetchMekariProducts({ includeArchive = false, integration: integrationOverride } = {}) {
