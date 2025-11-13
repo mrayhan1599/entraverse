@@ -79,6 +79,8 @@ function normalizeMekariStatus(status) {
   const stateCandidate = (status.state ?? status.status ?? '').toString().trim().toLowerCase();
   if (MEKARI_STATUS_STATES.has(stateCandidate)) {
     normalized.state = stateCandidate;
+  } else if (stateCandidate && ['not_found', 'missing', 'archived', 'suspended'].includes(stateCandidate)) {
+    normalized.state = 'inactive';
   }
 
   const activityCandidate =
@@ -91,14 +93,20 @@ function normalizeMekariStatus(status) {
   const activityString =
     typeof activityCandidate === 'string' ? activityCandidate.toString().trim().toLowerCase() : '';
   const activityBoolean = typeof activityCandidate === 'boolean' ? activityCandidate : null;
+  const activityNumber =
+    typeof activityCandidate === 'number' && Number.isFinite(activityCandidate)
+      ? activityCandidate
+      : null;
   const isInactiveState =
     activityBoolean === false ||
+    activityNumber === 0 ||
+    activityString === '0' ||
     activityString === 'inactive' ||
     activityString === 'nonaktif' ||
     activityString === 'disabled' ||
     activityString === 'off';
 
-  if (isInactiveState && normalized.state !== 'synced' && normalized.state !== 'syncing') {
+  if (isInactiveState) {
     normalized.state = 'inactive';
   }
 
