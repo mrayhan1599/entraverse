@@ -1494,38 +1494,6 @@ function isTableMissingError(error) {
   );
 }
 
-function isSupabaseUnavailableError(error) {
-  if (!error) {
-    return false;
-  }
-
-  if (isTableMissingError(error)) {
-    return true;
-  }
-
-  const messageParts = [error.message, error.details, error.hint, error.toString?.()]
-    .filter(Boolean)
-    .map(part => part.toString().toLowerCase());
-
-  if (!messageParts.length) {
-    return false;
-  }
-
-  return messageParts.some(part =>
-    part.includes('failed to fetch') ||
-    part.includes('fetch failed') ||
-    part.includes('network error') ||
-    part.includes('network request') ||
-    part.includes('timeout') ||
-    part.includes('timed out') ||
-    part.includes('connection refused') ||
-    part.includes('konfigurasi supabase belum diatur') ||
-    part.includes('library supabase belum dimuat') ||
-    part.includes('supabase belum dikonfigurasi') ||
-    part.includes('supabase client')
-  );
-}
-
 const remoteCache = {
   [STORAGE_KEYS.users]: [],
   [STORAGE_KEYS.products]: [],
@@ -2024,77 +1992,21 @@ function getProductsFromCache() {
   return getRemoteCache(STORAGE_KEYS.products, []);
 }
 
-function upsertProductInCache(product) {
-  if (!product || typeof product !== 'object') {
-    return;
-  }
-
-  const normalized = { ...product };
-  normalized.id = normalized.id || crypto.randomUUID();
-  const now = Date.now();
-  if (normalized.createdAt === null || normalized.createdAt === undefined) {
-    normalized.createdAt = now;
-  }
-  if (normalized.updatedAt === null || normalized.updatedAt === undefined) {
-    normalized.updatedAt = now;
-  }
-
-  const products = getProductsFromCache();
-  const list = Array.isArray(products) ? products : [];
-  const index = list.findIndex(item => item && item.id === normalized.id);
-
-  if (index >= 0) {
-    list[index] = clone(normalized);
-  } else {
-    list.push(clone(normalized));
-  }
-
-  setProductCache(list);
-}
-
 async function refreshProductsFromSupabase() {
-  const fallbackProducts = getProductsFromCache();
-
-  if (!isSupabaseConfigured()) {
-    return fallbackProducts;
-  }
-
-  try {
-    await ensureSupabase();
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Supabase belum siap. Menggunakan cache produk lokal.', error);
-      return fallbackProducts;
-    }
-    throw error;
-  }
-
+  await ensureSupabase();
   const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(SUPABASE_TABLES.products)
+    .select('*')
+    .order('created_at', { ascending: true });
 
-  try {
-    const { data, error } = await client
-      .from(SUPABASE_TABLES.products)
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      if (isSupabaseUnavailableError(error)) {
-        console.warn('Gagal memuat produk dari Supabase. Menggunakan cache lokal.', error);
-        return fallbackProducts;
-      }
-      throw error;
-    }
-
-    const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
-    setProductCache(products);
-    return products;
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Gagal memuat produk dari Supabase. Menggunakan cache lokal.', error);
-      return fallbackProducts;
-    }
+  if (error) {
     throw error;
   }
+
+  const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
+  setProductCache(products);
+  return products;
 }
 
 async function deleteProductFromSupabase(id) {
@@ -2111,67 +2023,24 @@ async function deleteProductFromSupabase(id) {
 }
 
 async function upsertProductToSupabase(product) {
-  if (!product || typeof product !== 'object') {
-    return null;
-  }
-
-  const normalizedProduct = { ...product };
-  normalizedProduct.id = normalizedProduct.id || crypto.randomUUID();
-  const now = Date.now();
-  if (normalizedProduct.createdAt === null || normalizedProduct.createdAt === undefined) {
-    normalizedProduct.createdAt = now;
-  }
-  if (normalizedProduct.updatedAt === null || normalizedProduct.updatedAt === undefined) {
-    normalizedProduct.updatedAt = now;
-  }
-
-  upsertProductInCache(normalizedProduct);
-
-  if (!isSupabaseConfigured()) {
-    return { cached: true, skipped: true };
-  }
-
-  try {
-    await ensureSupabase();
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Supabase belum siap. Produk disimpan secara lokal.', error);
-      return { cached: true, skipped: true };
-    }
-    throw error;
-  }
-
+  await ensureSupabase();
   const client = getSupabaseClient();
-  const payload = mapProductToRecord(normalizedProduct);
+  const payload = mapProductToRecord(product);
   if (!payload.id) {
-    payload.id = normalizedProduct.id;
+    payload.id = crypto.randomUUID();
   }
   if (!payload.updated_at) {
     payload.updated_at = new Date().toISOString();
   }
 
-  try {
-    const { error } = await client
-      .from(SUPABASE_TABLES.products)
-      .upsert(payload, { onConflict: 'id' })
-      .select();
+  const { error } = await client
+    .from(SUPABASE_TABLES.products)
+    .upsert(payload, { onConflict: 'id' })
+    .select();
 
-    if (error) {
-      if (isSupabaseUnavailableError(error)) {
-        console.warn('Gagal menyimpan produk ke Supabase. Mengandalkan cache lokal.', error);
-        return { cached: true, skipped: true };
-      }
-      throw error;
-    }
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Gagal menyimpan produk ke Supabase. Mengandalkan cache lokal.', error);
-      return { cached: true, skipped: true };
-    }
+  if (error) {
     throw error;
   }
-
-  return { cached: false, skipped: false };
 }
 
 function mapSupabaseShippingVendor(record) {
@@ -9342,36 +9211,20 @@ function buildMekariProductPayload(product, row, { seenSkus, index }) {
   seenSkus.add(normalizedSku);
 
   const baseName = (product?.name ?? '').toString().trim() || 'Produk Tanpa Nama';
-  const variantParts = (() => {
-    const parts = [];
-
+  const variantLabel = (() => {
     if (Array.isArray(row.variants) && row.variants.length) {
-      row.variants.forEach(item => {
-        if (!item) {
-          return;
-        }
-        const name = (item.name ?? '').toString().trim();
-        const value = (item.value ?? '').toString().trim();
-
-        if (name && value) {
-          parts.push(`${name} ${value}`);
-        } else if (value) {
-          parts.push(value);
-        } else if (name) {
-          parts.push(name);
-        }
-      });
+      const values = row.variants
+        .map(item => (item?.value ?? '').toString().trim())
+        .filter(Boolean);
+      if (values.length) {
+        return values.join(' / ');
+      }
     }
-
     const manual = (row.variantLabel ?? '').toString().trim();
-    if (manual) {
-      parts.push(manual);
-    }
-
-    return parts.filter(Boolean);
+    return manual || '';
   })();
 
-  const productName = variantParts.length ? `${baseName} ${variantParts.join(' ')}`.trim() : baseName;
+  const productName = variantLabel ? `${baseName} - ${variantLabel}` : baseName;
   const buyPrice = normalizeMekariPriceValue(row.purchasePriceIdr ?? row.purchasePrice);
   const sellPrice = normalizeMekariPriceValue(
     row.offlinePrice ?? row.entraversePrice ?? row.tokopediaPrice ?? row.shopeePrice ?? row.purchasePriceIdr
