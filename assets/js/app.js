@@ -1494,150 +1494,6 @@ function isTableMissingError(error) {
   );
 }
 
-function getSupabaseErrorMessageParts(error) {
-  if (!error) {
-    return [];
-  }
-
-  const visited = new Set();
-  const parts = [];
-
-  const append = value => {
-    if (value === null || value === undefined) {
-      return;
-    }
-
-    if (Array.isArray(value)) {
-      value.forEach(item => append(item));
-      return;
-    }
-
-    if (typeof value === 'object') {
-      if (visited.has(value)) {
-        return;
-      }
-
-      visited.add(value);
-
-      append(value.message);
-      append(value.details);
-      append(value.detail);
-      append(value.hint);
-      append(value.info);
-      append(value.code);
-      append(value.status);
-      append(value.statusText);
-      append(value.error);
-      append(value.error_description);
-      append(value.errorDescription);
-      append(value.body);
-
-      if (value.response) {
-        append(value.response);
-      }
-
-      if (value.cause) {
-        append(value.cause);
-      }
-
-      if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
-        append(value.toString());
-      }
-
-      return;
-    }
-
-    const stringValue = value.toString?.() ?? String(value);
-    if (typeof stringValue !== 'string') {
-      return;
-    }
-
-    const normalized = stringValue.trim();
-    if (!normalized) {
-      return;
-    }
-
-    parts.push(normalized.toLowerCase());
-  };
-
-  append(error);
-
-  return parts.filter(Boolean);
-}
-
-function isSupabaseQuotaExceededError(error) {
-  if (!error) {
-    return false;
-  }
-
-  const statusCode = Number(error.status ?? error.statusCode ?? error.code);
-  if (Number.isFinite(statusCode) && (statusCode === 429 || statusCode === 507)) {
-    return true;
-  }
-
-  const messageParts = getSupabaseErrorMessageParts(error);
-  if (!messageParts.length) {
-    return false;
-  }
-
-  return messageParts.some(part =>
-    part.includes('quota exceeded') ||
-    part.includes('quota has been exceeded') ||
-    (part.includes('quota') && part.includes('exceed')) ||
-    part.includes('storage limit') ||
-    part.includes('storage full') ||
-    part.includes('database size exceeds') ||
-    part.includes('database is full') ||
-    part.includes('insufficient storage') ||
-    part.includes('insufficient space') ||
-    part.includes('no space left on device') ||
-    part.includes('out of storage') ||
-    part.includes('out of disk') ||
-    part.includes('disk full') ||
-    part.includes('limit reached') ||
-    (part.includes('limit') && part.includes('exceed')) ||
-    part.includes('resource limit') ||
-    part.includes('usage limits exceeded') ||
-    part.includes('upgrade your plan') ||
-    (part.includes('free plan') && part.includes('limit')) ||
-    part.includes('project has reached')
-  );
-}
-
-function isSupabaseUnavailableError(error) {
-  if (!error) {
-    return false;
-  }
-
-  if (isTableMissingError(error)) {
-    return true;
-  }
-
-  if (isSupabaseQuotaExceededError(error)) {
-    return true;
-  }
-
-  const messageParts = getSupabaseErrorMessageParts(error);
-
-  if (!messageParts.length) {
-    return false;
-  }
-
-  return messageParts.some(part =>
-    part.includes('failed to fetch') ||
-    part.includes('fetch failed') ||
-    part.includes('network error') ||
-    part.includes('network request') ||
-    part.includes('timeout') ||
-    part.includes('timed out') ||
-    part.includes('connection refused') ||
-    part.includes('konfigurasi supabase belum diatur') ||
-    part.includes('library supabase belum dimuat') ||
-    part.includes('supabase belum dikonfigurasi') ||
-    part.includes('supabase client')
-  );
-}
-
 const remoteCache = {
   [STORAGE_KEYS.users]: [],
   [STORAGE_KEYS.products]: [],
@@ -2136,77 +1992,21 @@ function getProductsFromCache() {
   return getRemoteCache(STORAGE_KEYS.products, []);
 }
 
-function upsertProductInCache(product) {
-  if (!product || typeof product !== 'object') {
-    return;
-  }
-
-  const normalized = { ...product };
-  normalized.id = normalized.id || crypto.randomUUID();
-  const now = Date.now();
-  if (normalized.createdAt === null || normalized.createdAt === undefined) {
-    normalized.createdAt = now;
-  }
-  if (normalized.updatedAt === null || normalized.updatedAt === undefined) {
-    normalized.updatedAt = now;
-  }
-
-  const products = getProductsFromCache();
-  const list = Array.isArray(products) ? products : [];
-  const index = list.findIndex(item => item && item.id === normalized.id);
-
-  if (index >= 0) {
-    list[index] = clone(normalized);
-  } else {
-    list.push(clone(normalized));
-  }
-
-  setProductCache(list);
-}
-
 async function refreshProductsFromSupabase() {
-  const fallbackProducts = getProductsFromCache();
-
-  if (!isSupabaseConfigured()) {
-    return fallbackProducts;
-  }
-
-  try {
-    await ensureSupabase();
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Supabase belum siap. Menggunakan cache produk lokal.', error);
-      return fallbackProducts;
-    }
-    throw error;
-  }
-
+  await ensureSupabase();
   const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(SUPABASE_TABLES.products)
+    .select('*')
+    .order('created_at', { ascending: true });
 
-  try {
-    const { data, error } = await client
-      .from(SUPABASE_TABLES.products)
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      if (isSupabaseUnavailableError(error)) {
-        console.warn('Gagal memuat produk dari Supabase. Menggunakan cache lokal.', error);
-        return fallbackProducts;
-      }
-      throw error;
-    }
-
-    const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
-    setProductCache(products);
-    return products;
-  } catch (error) {
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Gagal memuat produk dari Supabase. Menggunakan cache lokal.', error);
-      return fallbackProducts;
-    }
+  if (error) {
     throw error;
   }
+
+  const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
+  setProductCache(products);
+  return products;
 }
 
 async function deleteProductFromSupabase(id) {
@@ -2223,94 +2023,24 @@ async function deleteProductFromSupabase(id) {
 }
 
 async function upsertProductToSupabase(product) {
-  if (!product || typeof product !== 'object') {
-    return null;
-  }
-
-  const normalizedProduct = { ...product };
-  normalizedProduct.id = normalizedProduct.id || crypto.randomUUID();
-  const now = Date.now();
-  if (normalizedProduct.createdAt === null || normalizedProduct.createdAt === undefined) {
-    normalizedProduct.createdAt = now;
-  }
-  if (normalizedProduct.updatedAt === null || normalizedProduct.updatedAt === undefined) {
-    normalizedProduct.updatedAt = now;
-  }
-
-  upsertProductInCache(normalizedProduct);
-
-  if (!isSupabaseConfigured()) {
-    return { cached: true, skipped: true, reason: 'not-configured' };
-  }
-
-  try {
-    await ensureSupabase();
-  } catch (error) {
-    if (isSupabaseQuotaExceededError(error)) {
-      console.warn('Kuota Supabase sudah penuh. Produk disimpan secara lokal.', error);
-      return {
-        cached: true,
-        skipped: true,
-        reason: 'quota-exceeded',
-        message: error?.message ?? 'Kuota Supabase penuh.'
-      };
-    }
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Supabase belum siap. Produk disimpan secara lokal.', error);
-      return { cached: true, skipped: true, reason: 'unavailable' };
-    }
-    throw error;
-  }
-
+  await ensureSupabase();
   const client = getSupabaseClient();
-  const payload = mapProductToRecord(normalizedProduct);
+  const payload = mapProductToRecord(product);
   if (!payload.id) {
-    payload.id = normalizedProduct.id;
+    payload.id = crypto.randomUUID();
   }
   if (!payload.updated_at) {
     payload.updated_at = new Date().toISOString();
   }
 
-  try {
-    const { error } = await client
-      .from(SUPABASE_TABLES.products)
-      .upsert(payload, { onConflict: 'id' })
-      .select();
+  const { error } = await client
+    .from(SUPABASE_TABLES.products)
+    .upsert(payload, { onConflict: 'id' })
+    .select();
 
-    if (error) {
-      if (isSupabaseQuotaExceededError(error)) {
-        console.warn('Kuota Supabase sudah penuh. Produk disimpan secara lokal.', error);
-        return {
-          cached: true,
-          skipped: true,
-          reason: 'quota-exceeded',
-          message: error?.message ?? 'Kuota Supabase penuh.'
-        };
-      }
-      if (isSupabaseUnavailableError(error)) {
-        console.warn('Gagal menyimpan produk ke Supabase. Mengandalkan cache lokal.', error);
-        return { cached: true, skipped: true, reason: 'unavailable' };
-      }
-      throw error;
-    }
-  } catch (error) {
-    if (isSupabaseQuotaExceededError(error)) {
-      console.warn('Kuota Supabase sudah penuh. Produk disimpan secara lokal.', error);
-      return {
-        cached: true,
-        skipped: true,
-        reason: 'quota-exceeded',
-        message: error?.message ?? 'Kuota Supabase penuh.'
-      };
-    }
-    if (isSupabaseUnavailableError(error)) {
-      console.warn('Gagal menyimpan produk ke Supabase. Mengandalkan cache lokal.', error);
-      return { cached: true, skipped: true, reason: 'unavailable' };
-    }
+  if (error) {
     throw error;
   }
-
-  return { cached: false, skipped: false, reason: 'stored' };
 }
 
 function mapSupabaseShippingVendor(record) {
@@ -8643,12 +8373,9 @@ async function handleAddProductForm() {
 
     let mekariSyncError = null;
     let mekariSyncedCount = 0;
-    let persistenceResult = null;
 
     try {
-      persistenceResult = await upsertProductToSupabase(productPayload);
-      const quotaExceeded = persistenceResult?.reason === 'quota-exceeded';
-      const quotaNote = (persistenceResult?.message ?? '').toString().trim();
+      await upsertProductToSupabase(productPayload);
 
       if (!isEditing) {
         try {
@@ -8675,36 +8402,16 @@ async function handleAddProductForm() {
           console.error('Gagal sinkronisasi produk ke Mekari Jurnal.', syncError);
         }
 
-        if (quotaExceeded) {
-          upsertProductInCache(productPayload);
-        } else {
-          try {
-            await upsertProductToSupabase(productPayload);
-          } catch (syncStatusError) {
-            console.warn('Gagal memperbarui status Mekari produk di Supabase.', syncStatusError);
-          }
+        try {
+          await upsertProductToSupabase(productPayload);
+        } catch (syncStatusError) {
+          console.warn('Gagal memperbarui status Mekari produk di Supabase.', syncStatusError);
         }
       }
 
       await refreshProductsFromSupabase();
 
       const successMessage = (() => {
-        const quotaInfo = quotaNote ? ` (${quotaNote})` : '';
-        if (quotaExceeded) {
-          if (isEditing) {
-            return `Produk diperbarui secara lokal karena kuota Supabase penuh${quotaInfo}. Kosongkan penyimpanan Supabase agar perubahan tersinkron.`;
-          }
-          if (mekariSyncError) {
-            return `Produk tersimpan secara lokal, tetapi Supabase penuh${quotaInfo} dan sinkronisasi Mekari gagal: ${mekariSyncError}`;
-          }
-          if (mekariSyncedCount > 1) {
-            return `Produk tersimpan secara lokal & ${mekariSyncedCount} SKU dikirim ke Mekari Jurnal. Kuota Supabase penuh${quotaInfo}. Kosongkan penyimpanan Supabase agar katalog tersinkron.`;
-          }
-          if (mekariSyncedCount === 1) {
-            return `Produk tersimpan secara lokal & tersinkron ke Mekari Jurnal. Kuota Supabase penuh${quotaInfo}. Kosongkan penyimpanan Supabase agar katalog tersinkron.`;
-          }
-          return `Produk tersimpan secara lokal karena kuota Supabase penuh${quotaInfo}. Kosongkan penyimpanan Supabase agar katalog tersinkron.`;
-        }
         if (isEditing) {
           return 'Produk berhasil diperbarui.';
         }
@@ -8722,18 +8429,14 @@ async function handleAddProductForm() {
 
       toast.show(successMessage);
 
-      if (!mekariSyncError && !quotaExceeded) {
+      if (!mekariSyncError) {
         setTimeout(() => {
           window.location.href = 'dashboard.html';
         }, 800);
       }
     } catch (error) {
       console.error('Gagal menyimpan produk.', error);
-      if (isSupabaseQuotaExceededError(error)) {
-        toast.show('Kuota Supabase penuh. Produk tidak dapat disimpan ke cloud. Kosongkan penyimpanan Supabase lalu coba lagi.');
-      } else {
-        toast.show('Gagal menyimpan produk. Coba lagi.');
-      }
+      toast.show('Gagal menyimpan produk. Coba lagi.');
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -9508,36 +9211,20 @@ function buildMekariProductPayload(product, row, { seenSkus, index }) {
   seenSkus.add(normalizedSku);
 
   const baseName = (product?.name ?? '').toString().trim() || 'Produk Tanpa Nama';
-  const variantParts = (() => {
-    const parts = [];
-
+  const variantLabel = (() => {
     if (Array.isArray(row.variants) && row.variants.length) {
-      row.variants.forEach(item => {
-        if (!item) {
-          return;
-        }
-        const name = (item.name ?? '').toString().trim();
-        const value = (item.value ?? '').toString().trim();
-
-        if (name && value) {
-          parts.push(`${name} ${value}`);
-        } else if (value) {
-          parts.push(value);
-        } else if (name) {
-          parts.push(name);
-        }
-      });
+      const values = row.variants
+        .map(item => (item?.value ?? '').toString().trim())
+        .filter(Boolean);
+      if (values.length) {
+        return values.join(' / ');
+      }
     }
-
     const manual = (row.variantLabel ?? '').toString().trim();
-    if (manual) {
-      parts.push(manual);
-    }
-
-    return parts.filter(Boolean);
+    return manual || '';
   })();
 
-  const productName = variantParts.length ? `${baseName} ${variantParts.join(' ')}`.trim() : baseName;
+  const productName = variantLabel ? `${baseName} - ${variantLabel}` : baseName;
   const buyPrice = normalizeMekariPriceValue(row.purchasePriceIdr ?? row.purchasePrice);
   const sellPrice = normalizeMekariPriceValue(
     row.offlinePrice ?? row.entraversePrice ?? row.tokopediaPrice ?? row.shopeePrice ?? row.purchasePriceIdr
