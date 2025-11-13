@@ -623,6 +623,287 @@ let dailyInventorySyncTimer = null;
 let dailyInventorySyncScheduled = false;
 let dailyInventorySyncPromise = null;
 
+async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'manual' } = {}) {
+  const attempt = attemptTime instanceof Date && !Number.isNaN(attemptTime.getTime()) ? attemptTime : new Date();
+  const attemptIso = attempt.toISOString();
+
+  updateDailyInventorySyncState(previous => ({
+    ...previous,
+    lastAttemptAt: attemptIso,
+    lastStatus: 'running',
+    lastError: null,
+    lastReason: reason
+  }));
+
+  if (!isSupabaseConfigured()) {
+    const message = 'Supabase belum dikonfigurasi.';
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'skipped',
+      lastError: message,
+      lastReason: reason
+    }));
+    return { success: false, skipped: true, reason: 'supabase-unconfigured', message, state, attempt, attemptIso };
+  }
+
+  if (!canManageCatalog()) {
+    const message = 'Hak akses katalog tidak tersedia.';
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'skipped',
+      lastError: message,
+      lastReason: reason
+    }));
+    return { success: false, skipped: true, reason: 'unauthorized', message, state, attempt, attemptIso };
+  }
+
+  try {
+    await ensureSupabase();
+  } catch (error) {
+    const message = error?.message ? String(error.message) : 'Gagal menginisialisasi Supabase.';
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'error',
+      lastError: message,
+      lastReason: reason
+    }));
+    console.error('Gagal menginisialisasi Supabase sebelum sinkronisasi Mekari.', error);
+    return { success: false, skipped: false, reason: 'supabase-init', message, state, error, attempt, attemptIso };
+  }
+
+  try {
+    await refreshProductsFromSupabase();
+  } catch (error) {
+    console.warn('Gagal memuat produk terbaru sebelum sinkronisasi Mekari.', error);
+  }
+
+  let cachedProducts = getProductsFromCache();
+  cachedProducts = Array.isArray(cachedProducts) ? [...cachedProducts] : [];
+  const { map: existingSkuMap, set: existingSkus } = collectExistingSkuDetails(cachedProducts);
+
+  let mekariRecords = [];
+  let integration = null;
+  try {
+    const response = await fetchMekariProducts({ includeArchive: false });
+    mekariRecords = Array.isArray(response?.products) ? response.products : [];
+    integration = response?.integration ?? null;
+  } catch (error) {
+    const message = error?.message ? String(error.message) : 'Gagal memuat produk dari Mekari Jurnal.';
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'error',
+      lastError: message,
+      lastReason: reason
+    }));
+    console.error('Gagal mengambil data produk Mekari.', error);
+    return { success: false, skipped: false, reason: 'mekari-products', message, state, error, attempt, attemptIso };
+  }
+
+  let syncedIntegration = integration;
+
+  if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
+    if (integration) {
+      try {
+        syncedIntegration = await markMekariIntegrationSynced(integration, attemptIso);
+      } catch (error) {
+        console.warn('Gagal memperbarui status sinkronisasi Mekari.', error);
+      }
+    }
+
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'success',
+      lastError: null,
+      lastSuccessAt: attemptIso
+    }));
+
+    return {
+      success: true,
+      empty: true,
+      message: 'Tidak ada produk Mekari yang ditemukan.',
+      integration: syncedIntegration,
+      state,
+      attempt,
+      attemptIso,
+      updatedSkuCount: 0,
+      newProductsCount: 0,
+      summaryParts: []
+    };
+  }
+
+  const updatedProductsMap = new Map();
+  const updatedSkuSet = new Set();
+  const newProducts = [];
+
+  const updateVariantStock = (productIndex, variantIndex, nextStock) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return false;
+    }
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+    const pricingRows = Array.isArray(product.variantPricing) ? [...product.variantPricing] : [];
+    const currentRow = pricingRows?.[variantIndex];
+    if (!currentRow) {
+      return false;
+    }
+
+    const nextStockValue = nextStock === null || nextStock === undefined ? '' : nextStock.toString().trim();
+    const currentStockRaw = currentRow.stock === null || currentRow.stock === undefined ? '' : currentRow.stock.toString().trim();
+    if (currentStockRaw === nextStockValue) {
+      return false;
+    }
+
+    const updatedVariant = { ...currentRow, stock: nextStockValue };
+    pricingRows[variantIndex] = updatedVariant;
+    const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
+    const aggregatedStock = calculateProductTotalStock(updatedProduct);
+    if (aggregatedStock !== null) {
+      updatedProduct.stock = aggregatedStock;
+    } else {
+      delete updatedProduct.stock;
+    }
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
+  mekariRecords.forEach(record => {
+    if (!record) {
+      return;
+    }
+
+    if (record.archive || record.active === false) {
+      return;
+    }
+
+    const normalizedSku = normalizeSku(record.product_code ?? record.productCode ?? record.sku);
+    if (!normalizedSku) {
+      return;
+    }
+
+    const stockValue = extractMekariStock(record);
+    const existingMatches = existingSkuMap.get(normalizedSku);
+    if (existingMatches && existingMatches.length) {
+      if (stockValue !== null) {
+        let skuChanged = false;
+        existingMatches.forEach(({ productIndex, variantIndex }) => {
+          if (!Number.isInteger(variantIndex)) {
+            return;
+          }
+          const changed = updateVariantStock(productIndex, variantIndex, stockValue);
+          if (changed) {
+            skuChanged = true;
+          }
+        });
+        if (skuChanged) {
+          updatedSkuSet.add(normalizedSku);
+        }
+      }
+      existingSkus.add(normalizedSku);
+      return;
+    }
+
+    if (existingSkus.has(normalizedSku)) {
+      return;
+    }
+
+    const mapped = mapMekariProductRecord(record);
+    if (!mapped) {
+      return;
+    }
+
+    const aggregatedStock = calculateProductTotalStock(mapped);
+    if (aggregatedStock !== null) {
+      mapped.stock = aggregatedStock;
+    }
+    existingSkus.add(normalizedSku);
+    newProducts.push(mapped);
+  });
+
+  const updatedProducts = Array.from(updatedProductsMap.values());
+
+  try {
+    for (const product of updatedProducts) {
+      await upsertProductToSupabase(product);
+    }
+
+    for (const product of newProducts) {
+      await upsertProductToSupabase(product);
+    }
+  } catch (error) {
+    const message = error?.message ? String(error.message) : 'Gagal memperbarui produk di Supabase.';
+    const state = updateDailyInventorySyncState(previous => ({
+      ...previous,
+      lastStatus: 'error',
+      lastError: message,
+      lastReason: reason
+    }));
+    console.error('Gagal menyimpan pembaruan stok Mekari ke Supabase.', error);
+    return { success: false, skipped: false, reason: 'supabase-upsert', message, state, error, attempt, attemptIso };
+  }
+
+  try {
+    await refreshProductsFromSupabase();
+  } catch (refreshError) {
+    console.warn('Gagal memperbarui daftar produk setelah sinkronisasi Mekari.', refreshError);
+    const currentProducts = getProductsFromCache();
+    const baseProducts = Array.isArray(currentProducts) ? currentProducts : [];
+    const mergedMap = new Map(baseProducts.map(product => [product.id, product]));
+    updatedProducts.forEach(product => {
+      if (product?.id) {
+        mergedMap.set(product.id, product);
+      }
+    });
+    newProducts.forEach(product => {
+      if (product?.id) {
+        mergedMap.set(product.id, product);
+      }
+    });
+    setProductCache(Array.from(mergedMap.values()));
+  }
+
+  renderProducts(getCurrentProductFilterValue());
+
+  if (integration) {
+    try {
+      syncedIntegration = await markMekariIntegrationSynced(integration, attemptIso);
+    } catch (error) {
+      console.warn('Gagal memperbarui status sinkronisasi Mekari.', error);
+    }
+  }
+
+  const summaryParts = [];
+  if (updatedSkuSet.size) {
+    summaryParts.push(`Stok ${updatedSkuSet.size} SKU diperbarui.`);
+  }
+  if (newProducts.length) {
+    summaryParts.push(`${newProducts.length} produk baru ditambahkan.`);
+  }
+  if (!summaryParts.length) {
+    summaryParts.push('Stok produk Mekari Jurnal sudah sesuai.');
+  }
+
+  const state = updateDailyInventorySyncState(previous => ({
+    ...previous,
+    lastStatus: 'success',
+    lastError: null,
+    lastSuccessAt: attemptIso
+  }));
+
+  return {
+    success: true,
+    summaryParts,
+    integration: syncedIntegration,
+    state,
+    attempt,
+    attemptIso,
+    updatedSkuCount: updatedSkuSet.size,
+    newProductsCount: newProducts.length
+  };
+}
+
 function formatDailyAverageSalesValue(value) {
   if (!Number.isFinite(value) || value < 0) {
     return null;
@@ -774,6 +1055,39 @@ function updateDailyInventorySyncState(updater) {
   return next;
 }
 
+function getCurrentProductFilterValue() {
+  const input = document.getElementById('search-input');
+  return (input?.value ?? '').toString();
+}
+
+function collectExistingSkuDetails(products) {
+  const map = new Map();
+  const set = new Set();
+
+  if (!Array.isArray(products)) {
+    return { map, set };
+  }
+
+  products.forEach((product, productIndex) => {
+    if (!product) return;
+    const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+    pricingRows.forEach((row, variantIndex) => {
+      if (!row) return;
+      const normalized = normalizeSku(row.sellerSku ?? row.sku);
+      if (!normalized) return;
+      set.add(normalized);
+      const existing = map.get(normalized);
+      if (existing) {
+        existing.push({ productIndex, variantIndex });
+      } else {
+        map.set(normalized, [{ productIndex, variantIndex }]);
+      }
+    });
+  });
+
+  return { map, set };
+}
+
 function getDailyInventorySyncThreshold(now = new Date()) {
   const minutesPerDay = 24 * 60;
   const millisPerMinute = 60 * 1000;
@@ -824,284 +1138,11 @@ async function runDailyInventorySync({ reason = 'scheduled', now = new Date() } 
 
   dailyInventorySyncPromise = (async () => {
     const attemptTime = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
-    const attemptIso = attemptTime.toISOString();
-
-    updateDailyInventorySyncState(state => ({
-      ...state,
-      lastAttemptAt: attemptIso,
-      lastStatus: 'running',
-      lastError: null,
-      lastReason: reason
-    }));
-
-    if (!isSupabaseConfigured()) {
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'skipped',
-        lastError: 'Supabase belum dikonfigurasi.'
-      }));
-      return { success: false, skipped: true, reason: 'supabase-unconfigured', state };
-    }
-
-    if (!canManageCatalog()) {
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'skipped',
-        lastError: 'Hak akses katalog tidak tersedia.'
-      }));
-      return { success: false, skipped: true, reason: 'unauthorized', state };
-    }
-
-    try {
-      await ensureSupabase();
-    } catch (error) {
-      const message = error?.message ? String(error.message) : 'Gagal menginisialisasi Supabase.';
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'error',
-        lastError: message
-      }));
-      console.error('Gagal menginisialisasi Supabase sebelum sinkronisasi harian.', error);
-      return { success: false, skipped: false, reason: 'supabase-init', state, error };
-    }
-
-    let products = [];
-    try {
-      products = await refreshProductsFromSupabase();
-    } catch (error) {
-      console.warn('Gagal memuat produk terbaru sebelum sinkronisasi harian.', error);
-      products = getProductsFromCache();
-    }
-
-    const currentProducts = Array.isArray(products) ? products : [];
-    if (!currentProducts.length) {
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'success',
-        lastError: null,
-        lastSuccessAt: attemptIso
-      }));
-      return { success: true, updated: 0, state };
-    }
-
-    let mekariRecords = [];
-    let mekariIntegration = null;
-    try {
-      const response = await fetchMekariProducts({ includeArchive: false });
-      mekariRecords = Array.isArray(response?.products) ? response.products : [];
-      mekariIntegration = response?.integration ?? null;
-    } catch (error) {
-      const message = error?.message ? String(error.message) : 'Gagal memuat produk dari Mekari Jurnal.';
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'error',
-        lastError: message
-      }));
-      console.error('Gagal mengambil data produk Mekari untuk sinkronisasi harian.', error);
-      return { success: false, skipped: false, reason: 'mekari-products', state, error };
-    }
-
-    const extractStockFromRecord = record => {
-      const stockCandidates = [record?.quantity_available, record?.quantity, record?.init_quantity];
-      for (const candidate of stockCandidates) {
-        const parsed = parseNumericValue(candidate);
-        if (parsed !== null && Number.isFinite(parsed)) {
-          return parsed;
-        }
-      }
-      return null;
-    };
-
-    const formatStockValue = value => {
-      if (!Number.isFinite(value)) {
-        return '';
-      }
-
-      if (value === 0) {
-        return '0';
-      }
-
-      const rounded = Math.round(value);
-      return rounded.toString();
-    };
-
-    const stockMap = new Map();
-    mekariRecords.forEach(record => {
-      if (!record || typeof record !== 'object') {
-        return;
-      }
-      const rawSku = record.product_code ?? record.productCode ?? record.sku;
-      const normalizedSku = normalizeSku(rawSku);
-      if (!normalizedSku) {
-        return;
-      }
-      const stockNumber = extractStockFromRecord(record);
-      if (stockNumber === null || !Number.isFinite(stockNumber)) {
-        return;
-      }
-      stockMap.set(normalizedSku, stockNumber);
-    });
-
-    let averageMap = null;
-    try {
-      const averageData = await ensureWarehouseAverageData({ force: true });
-      if (averageData?.map instanceof Map) {
-        averageMap = averageData.map;
-      }
-    } catch (error) {
-      console.warn('Gagal menghitung rata-rata penjualan gudang untuk sinkronisasi harian.', error);
-    }
-
-    const resolveRowSku = row => {
-      if (!row || typeof row !== 'object') {
-        return '';
-      }
-      const candidates = [row.sellerSku, row.sku, row.seller_sku, row.variantSku, row.variant_sku];
-      for (const candidate of candidates) {
-        const normalized = normalizeSku(candidate);
-        if (normalized) {
-          return normalized;
-        }
-      }
-      return '';
-    };
-
-    const nextProducts = [];
-    const changedProducts = [];
-
-    currentProducts.forEach(product => {
-      if (!product || typeof product !== 'object') {
-        return;
-      }
-
-      let productChanged = false;
-      const variantPricing = Array.isArray(product.variantPricing) ? product.variantPricing : [];
-      const nextVariantPricing = [];
-      let totalAverage = 0;
-      let averageCount = 0;
-
-      variantPricing.forEach(row => {
-        const nextRow = { ...row };
-        const normalizedSku = resolveRowSku(nextRow);
-
-        if (normalizedSku && stockMap.has(normalizedSku)) {
-          const stockValue = stockMap.get(normalizedSku);
-          const formattedStock = formatStockValue(stockValue);
-          if (formattedStock && nextRow.stock !== formattedStock) {
-            nextRow.stock = formattedStock;
-            productChanged = true;
-          }
-        }
-
-        if (normalizedSku && averageMap instanceof Map) {
-          let formattedAverage = '0';
-          const entry = averageMap.get(normalizedSku);
-          if (entry && Number.isFinite(entry.average)) {
-            const formatted = formatDailyAverageSalesValue(entry.average);
-            if (formatted !== null) {
-              formattedAverage = formatted;
-            }
-          }
-
-          if (nextRow.dailyAverageSales !== formattedAverage) {
-            nextRow.dailyAverageSales = formattedAverage;
-            productChanged = true;
-          }
-
-          const numericAverage = Number.parseFloat(formattedAverage);
-          if (Number.isFinite(numericAverage)) {
-            totalAverage += numericAverage;
-            averageCount += 1;
-          }
-        }
-
-        nextVariantPricing.push(nextRow);
-      });
-
-      let nextInventory = product.inventory;
-      if (averageMap instanceof Map) {
-        const computedAverage = averageCount ? totalAverage / averageCount : 0;
-        const formattedInventoryAverage = formatDailyAverageSalesValue(computedAverage);
-        const desiredAverage = formattedInventoryAverage ?? '0';
-
-        if (desiredAverage !== null) {
-          const baseInventory = product.inventory && typeof product.inventory === 'object' ? { ...product.inventory } : {};
-          if (baseInventory.dailyAverageSales !== desiredAverage) {
-            baseInventory.dailyAverageSales = desiredAverage;
-            nextInventory = baseInventory;
-            productChanged = true;
-          }
-        }
-      }
-
-      if (productChanged) {
-        const updatedProduct = {
-          ...product,
-          variantPricing: nextVariantPricing,
-          inventory: nextInventory,
-          updatedAt: Date.now()
-        };
-        changedProducts.push(updatedProduct);
-        nextProducts.push(updatedProduct);
-      } else {
-        nextProducts.push(product);
-      }
-    });
-
-    if (!changedProducts.length) {
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'success',
-        lastError: null,
-        lastSuccessAt: attemptIso
-      }));
-      return { success: true, updated: 0, state };
-    }
-
-    try {
-      for (const product of changedProducts) {
-        await upsertProductToSupabase(product);
-      }
-    } catch (error) {
-      const message = error?.message ? String(error.message) : 'Gagal memperbarui produk di Supabase.';
-      const state = updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'error',
-        lastError: message
-      }));
-      console.error('Gagal menyimpan pembaruan stok harian ke Supabase.', error);
-      return { success: false, skipped: false, reason: 'supabase-upsert', state, error };
-    }
-
-    setProductCache(nextProducts);
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-      renderProducts(searchInput.value ?? '');
-    } else {
-      renderProducts();
-    }
-
-    if (mekariIntegration) {
-      try {
-        await markMekariIntegrationSynced(mekariIntegration, attemptTime.toISOString());
-      } catch (error) {
-        console.warn('Gagal memperbarui status sinkronisasi Mekari setelah sinkronisasi harian.', error);
-      }
-    }
-
-    const state = updateDailyInventorySyncState(previous => ({
-      ...previous,
-      lastStatus: 'success',
-      lastError: null,
-      lastSuccessAt: attemptIso
-    }));
-
-    return { success: true, updated: changedProducts.length, state };
+    return synchronizeMekariProducts({ attemptTime, reason });
   })();
 
   try {
-    const result = await dailyInventorySyncPromise;
-    return result;
+    return await dailyInventorySyncPromise;
   } finally {
     dailyInventorySyncPromise = null;
   }
@@ -5966,49 +6007,6 @@ function handleSync() {
     setSyncErrorMessage('');
   };
 
-  const collectExistingSkuDetails = products => {
-    const map = new Map();
-    const set = new Set();
-
-    if (!Array.isArray(products)) {
-      return { map, set };
-    }
-
-    products.forEach((product, productIndex) => {
-      if (!product) return;
-      const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
-      pricingRows.forEach((row, variantIndex) => {
-        if (!row) return;
-        const normalized = normalizeSku(row.sellerSku ?? row.sku);
-        if (!normalized) return;
-        set.add(normalized);
-        const existing = map.get(normalized);
-        if (existing) {
-          existing.push({ productIndex, variantIndex });
-        } else {
-          map.set(normalized, [{ productIndex, variantIndex }]);
-        }
-      });
-    });
-
-    return { map, set };
-  };
-
-  const updateIntegrationSyncMeta = async (integration, syncedAt = new Date()) => {
-    if (!integration && !syncMetaElement) {
-      return;
-    }
-    try {
-      const updatedIntegration = integration
-        ? await markMekariIntegrationSynced(integration, syncedAt)
-        : null;
-      setSyncMetaToDate(updatedIntegration?.lastSync ?? syncedAt);
-    } catch (syncError) {
-      console.warn('Gagal memperbarui status sinkronisasi Mekari.', syncError);
-      setSyncMetaToDate(syncedAt);
-    }
-  };
-
   setLabel(defaultLabel);
 
   if (syncMetaElement) {
@@ -6053,185 +6051,27 @@ function handleSync() {
     setLabel(loadingLabel);
 
     const attemptTime = new Date();
-    const attemptIso = attemptTime.toISOString();
-    updateDailyInventorySyncState(previous => ({
-      ...previous,
-      lastAttemptAt: attemptIso,
-      lastStatus: 'running',
-      lastError: null,
-      lastReason: 'manual'
-    }));
 
     try {
-      if (!isSupabaseConfigured()) {
-        throw new Error('Supabase belum dikonfigurasi. Sinkronisasi membutuhkan Supabase.');
-      }
+      const result = await synchronizeMekariProducts({ attemptTime, reason: 'manual' });
 
-      await ensureSupabase();
-
-      try {
-        await refreshProductsFromSupabase();
-      } catch (refreshError) {
-        console.warn('Gagal memuat produk terbaru sebelum sinkronisasi Mekari.', refreshError);
-      }
-
-      let cachedProducts = getProductsFromCache();
-      const { map: existingSkuMap, set: existingSkus } = collectExistingSkuDetails(cachedProducts);
-      cachedProducts = Array.isArray(cachedProducts) ? [...cachedProducts] : [];
-      const { products: mekariRecords, integration } = await fetchMekariProducts({ includeArchive: false });
-
-      if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
-        toast.show('Tidak ada produk Mekari yang ditemukan.');
-        await updateIntegrationSyncMeta(integration, attemptTime);
-        updateDailyInventorySyncState(previous => ({
-          ...previous,
-          lastStatus: 'success',
-          lastError: null,
-          lastSuccessAt: attemptIso
-        }));
+      if (!result?.success) {
+        const message = result?.message || 'Gagal sinkronisasi produk dari Mekari Jurnal.';
+        toast.show(message);
         return;
       }
 
-      const newProducts = [];
-      const updatedProductsMap = new Map();
-      const updatedSkuSet = new Set();
-
-      const updateVariantStock = (productIndex, variantIndex, nextStock) => {
-        if (!Number.isInteger(productIndex) || productIndex < 0) {
-          return false;
-        }
-        const product = cachedProducts?.[productIndex];
-        if (!product) {
-          return false;
-        }
-        const pricingRows = Array.isArray(product.variantPricing) ? [...product.variantPricing] : [];
-        const currentRow = pricingRows?.[variantIndex];
-        if (!currentRow) {
-          return false;
-        }
-
-        const nextStockValue = nextStock === null || nextStock === undefined ? '' : nextStock.toString().trim();
-        const currentStockRaw = currentRow.stock === null || currentRow.stock === undefined ? '' : currentRow.stock.toString().trim();
-        if (currentStockRaw === nextStockValue) {
-          return false;
-        }
-
-        const updatedVariant = { ...currentRow, stock: nextStockValue };
-        pricingRows[variantIndex] = updatedVariant;
-        const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
-        const aggregatedStock = calculateProductTotalStock(updatedProduct);
-        if (aggregatedStock !== null) {
-          updatedProduct.stock = aggregatedStock;
-        } else {
-          delete updatedProduct.stock;
-        }
-        cachedProducts[productIndex] = updatedProduct;
-        updatedProductsMap.set(updatedProduct.id, updatedProduct);
-        return true;
-      };
-
-      mekariRecords.forEach(record => {
-        if (!record) {
-          return;
-        }
-
-        if (record.archive || record.active === false) {
-          return;
-        }
-
-        const normalizedSku = normalizeSku(record.product_code ?? record.productCode ?? record.sku);
-        if (!normalizedSku) {
-          return;
-        }
-
-        const stockValue = extractMekariStock(record);
-        const existingMatches = existingSkuMap.get(normalizedSku);
-        if (existingMatches && existingMatches.length) {
-          if (stockValue !== null) {
-            let skuChanged = false;
-            existingMatches.forEach(({ productIndex, variantIndex }) => {
-              if (!Number.isInteger(variantIndex)) {
-                return;
-              }
-              const changed = updateVariantStock(productIndex, variantIndex, stockValue);
-              if (changed) {
-                skuChanged = true;
-              }
-            });
-            if (skuChanged) {
-              updatedSkuSet.add(normalizedSku);
-            }
-          }
-          existingSkus.add(normalizedSku);
-          return;
-        }
-
-        if (existingSkus.has(normalizedSku)) {
-          return;
-        }
-
-        const mapped = mapMekariProductRecord(record);
-        if (!mapped) {
-          return;
-        }
-
-        const aggregatedStock = calculateProductTotalStock(mapped);
-        if (aggregatedStock !== null) {
-          mapped.stock = aggregatedStock;
-        }
-        existingSkus.add(normalizedSku);
-        newProducts.push(mapped);
-      });
-
-      const updatedProducts = Array.from(updatedProductsMap.values());
-
-      for (const product of updatedProducts) {
-        await upsertProductToSupabase(product);
+      if (result.empty) {
+        toast.show(result.message || 'Tidak ada produk Mekari yang ditemukan.');
+      } else {
+        const summary = Array.isArray(result.summaryParts) && result.summaryParts.length
+          ? result.summaryParts.join(' ')
+          : 'Sinkronisasi produk Mekari berhasil.';
+        toast.show(summary);
       }
 
-      for (const product of newProducts) {
-        await upsertProductToSupabase(product);
-      }
-
-      try {
-        await refreshProductsFromSupabase();
-      } catch (refreshError) {
-        console.warn('Gagal memperbarui daftar produk setelah sinkronisasi Mekari.', refreshError);
-        const currentProducts = getProductsFromCache();
-        const baseProducts = Array.isArray(currentProducts) ? currentProducts : [];
-        const mergedMap = new Map(baseProducts.map(product => [product.id, product]));
-        updatedProducts.forEach(product => {
-          if (product?.id) {
-            mergedMap.set(product.id, product);
-          }
-        });
-        newProducts.forEach(product => {
-          if (product?.id) {
-            mergedMap.set(product.id, product);
-          }
-        });
-        setProductCache(Array.from(mergedMap.values()));
-      }
-
-      renderProducts(getCurrentFilterValue());
-      const summaryParts = [];
-      if (updatedSkuSet.size) {
-        summaryParts.push(`Stok ${updatedSkuSet.size} SKU diperbarui.`);
-      }
-      if (newProducts.length) {
-        summaryParts.push(`${newProducts.length} produk baru ditambahkan.`);
-      }
-      if (!summaryParts.length) {
-        summaryParts.push('Stok produk Mekari Jurnal sudah sesuai.');
-      }
-      toast.show(summaryParts.join(' '));
-      await updateIntegrationSyncMeta(integration, attemptTime);
-      updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'success',
-        lastError: null,
-        lastSuccessAt: attemptIso
-      }));
+      const syncedAt = result.integration?.lastSync || result.state?.lastSuccessAt || result.attemptIso || attemptTime.toISOString();
+      setSyncMetaToDate(syncedAt);
     } catch (error) {
       console.error('Gagal sinkronisasi produk Mekari.', error);
       const message =
@@ -6239,12 +6079,6 @@ function handleSync() {
           ? error.message
           : 'Gagal sinkronisasi produk dari Mekari Jurnal.';
       toast.show(message);
-      updateDailyInventorySyncState(previous => ({
-        ...previous,
-        lastStatus: 'error',
-        lastError: message,
-        lastReason: 'manual'
-      }));
     } finally {
       button.disabled = false;
       button.classList.remove('is-loading');
