@@ -1389,14 +1389,9 @@ body[data-theme="dark"] .logo-badge {
 }
 
 .mekari-status[data-state='pending'] .mekari-status__badge {
-  background: rgba(148, 163, 184, 0.18);
-  border-color: rgba(148, 163, 184, 0.5);
-  box-shadow: 0 4px 12px rgba(148, 163, 184, 0.18);
-}
-
-.mekari-status[data-state='pending'] .mekari-status__badge img {
-  filter: grayscale(1) brightness(1.05);
-  opacity: 0.7;
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.22);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
 }
 
 .mekari-status[data-state='syncing'] .mekari-status__badge {
@@ -1477,14 +1472,8 @@ body[data-theme='dark'] .mekari-status__badge {
 }
 
 body[data-theme='dark'] .mekari-status[data-state='pending'] .mekari-status__badge {
-  background: rgba(148, 163, 184, 0.32);
-  border-color: rgba(148, 163, 184, 0.6);
-  box-shadow: 0 6px 14px rgba(148, 163, 184, 0.25);
-}
-
-body[data-theme='dark'] .mekari-status[data-state='pending'] .mekari-status__badge img {
-  filter: grayscale(1) brightness(1.1);
-  opacity: 0.75;
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(148, 163, 184, 0.38);
 }
 
 body[data-theme='dark'] .mekari-status[data-state='syncing'] .mekari-status__badge {
