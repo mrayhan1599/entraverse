@@ -60,7 +60,7 @@ function createUuid() {
   );
 }
 
-const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error']);
+const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error', 'draft']);
 
 const DEFAULT_MEKARI_STATUS = Object.freeze({
   state: 'pending',
@@ -138,6 +138,8 @@ function getMekariStatusLabel(state) {
       return 'Menyinkronkan';
     case 'error':
       return 'Gagal Sinkron';
+    case 'draft':
+      return 'Draft';
     case 'pending':
     default:
       return 'Belum Sinkron';
@@ -1309,7 +1311,8 @@ const REPORT_PERIOD_PRESETS = Object.freeze([
 
 const LOCAL_STORAGE_KEYS = Object.freeze({
   shippingVendorsSnapshot: 'entraverse_shipping_vendors_snapshot',
-  shippingVendorsLocal: 'entraverse_shipping_vendors_local'
+  shippingVendorsLocal: 'entraverse_shipping_vendors_local',
+  products: 'entraverse_products_cache'
 });
 
 function sanitizeShippingVendor(vendor, { localOnly = false } = {}) {
@@ -2129,11 +2132,48 @@ function mapProductToRecord(product) {
 }
 
 function setProductCache(products) {
-  setRemoteCache(STORAGE_KEYS.products, Array.isArray(products) ? products : []);
+  const sanitized = Array.isArray(products) ? products.map(item => clone(item)) : [];
+  setRemoteCache(STORAGE_KEYS.products, sanitized);
+
+  if (typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function') {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEYS.products, JSON.stringify(sanitized));
+    } catch (error) {
+      console.error('Gagal menyimpan draft produk ke localStorage.', error);
+    }
+  }
 }
 
 function getProductsFromCache() {
-  return getRemoteCache(STORAGE_KEYS.products, []);
+  const cached = getRemoteCache(STORAGE_KEYS.products, []);
+  if (Array.isArray(cached) && cached.length) {
+    return cached;
+  }
+
+  if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
+    return cached;
+  }
+
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEYS.products);
+    if (!raw) {
+      return cached;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return cached;
+    }
+
+    const sanitized = parsed
+      .map(item => (item && typeof item === 'object' ? clone(item) : null))
+      .filter(Boolean);
+    setRemoteCache(STORAGE_KEYS.products, sanitized);
+    return sanitized;
+  } catch (error) {
+    console.error('Gagal membaca draft produk dari localStorage.', error);
+    return cached;
+  }
 }
 
 function upsertProductInCache(product) {
@@ -8320,6 +8360,7 @@ async function handleAddProductForm() {
     }
     if (submitBtn) {
       submitBtn.textContent = 'Simpan Perubahan';
+      submitBtn.dataset.action = 'update';
     }
 
     const nameInput = form.querySelector('#product-name');
@@ -8433,6 +8474,9 @@ async function handleAddProductForm() {
   form.addEventListener('submit', async event => {
     event.preventDefault();
     updatePackageVolume();
+    const submitter = event.submitter || submitBtn;
+    const submitAction = submitter?.dataset?.action || (form.dataset.editingId ? 'update' : 'draft');
+    const isDraftAction = submitAction === 'draft';
     if (categorySelect && categorySelect.disabled) {
       toast.show('Tambahkan kategori terlebih dahulu di halaman Kategori.');
       categorySelect.focus();
@@ -8614,22 +8658,32 @@ async function handleAddProductForm() {
       variantPricing: filteredPricing
     };
 
+    const getDraftMekariStatus = () =>
+      normalizeMekariStatus({
+        state: 'draft',
+        message: 'Produk disimpan sebagai draft. Belum tersinkron ke Mekari Jurnal.'
+      });
+
     if (isEditing) {
       productPayload.createdAt = existingProduct?.createdAt ?? timestamp;
       productPayload.updatedAt = timestamp;
-      productPayload.mekariStatus = existingProduct?.mekariStatus
-        ? normalizeMekariStatus(existingProduct.mekariStatus)
-        : null;
+      productPayload.mekariStatus = isDraftAction
+        ? getDraftMekariStatus()
+        : existingProduct?.mekariStatus
+          ? normalizeMekariStatus(existingProduct.mekariStatus)
+          : null;
     } else {
       productPayload.createdAt = timestamp;
       productPayload.updatedAt = timestamp;
-      productPayload.mekariStatus = normalizeMekariStatus({
-        state: 'pending',
-        message: 'Menunggu sinkronisasi ke Mekari Jurnal'
-      });
+      productPayload.mekariStatus = isDraftAction
+        ? getDraftMekariStatus()
+        : normalizeMekariStatus({
+            state: 'pending',
+            message: 'Menunggu sinkronisasi ke Mekari Jurnal'
+          });
     }
 
-    if (!isEditing) {
+    if (!isEditing && !isDraftAction) {
       productPayload.mekariStatus = normalizeMekariStatus({
         state: 'syncing',
         message: 'Mengirim produk ke Mekari Jurnal...'
@@ -8639,6 +8693,25 @@ async function handleAddProductForm() {
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.classList.add('is-loading');
+    }
+
+    if (isDraftAction) {
+      try {
+        upsertProductInCache(productPayload);
+        toast.show('Draft produk berhasil disimpan.');
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 800);
+      } catch (draftError) {
+        console.error('Gagal menyimpan draft produk.', draftError);
+        toast.show('Gagal menyimpan draft produk. Coba lagi.');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove('is-loading');
+        }
+      }
+      return;
     }
 
     let mekariSyncError = null;
