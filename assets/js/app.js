@@ -60,7 +60,7 @@ function createUuid() {
   );
 }
 
-const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error']);
+const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error', 'missing']);
 
 const DEFAULT_MEKARI_STATUS = Object.freeze({
   state: 'pending',
@@ -134,6 +134,8 @@ function getMekariStatusLabel(state) {
   switch (state) {
     case 'synced':
       return 'Sinkron';
+    case 'missing':
+      return 'Tidak Ditemukan';
     case 'syncing':
       return 'Menyinkronkan';
     case 'error':
@@ -680,6 +682,21 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
   let cachedProducts = getProductsFromCache();
   cachedProducts = Array.isArray(cachedProducts) ? [...cachedProducts] : [];
   const { map: existingSkuMap, set: existingSkus } = collectExistingSkuDetails(cachedProducts);
+  const productIndicesWithSku = new Set();
+  const productSkuStats = new Map();
+  existingSkuMap.forEach(matches => {
+    if (!Array.isArray(matches)) {
+      return;
+    }
+    matches.forEach(entry => {
+      if (entry && Number.isInteger(entry.productIndex) && entry.productIndex >= 0) {
+        productIndicesWithSku.add(entry.productIndex);
+        const stats = productSkuStats.get(entry.productIndex) ?? { total: 0, matched: 0 };
+        stats.total += 1;
+        productSkuStats.set(entry.productIndex, stats);
+      }
+    });
+  });
 
   let mekariRecords = [];
   let integration = null;
@@ -701,7 +718,80 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
 
   let syncedIntegration = integration;
 
+  const updatedProductsMap = new Map();
+  const updatedSkuSet = new Set();
+  const newProducts = [];
+  const matchedVariantKeys = new Set();
+
+  const missingStatusMessage = 'SKU produk tidak ditemukan di Mekari Jurnal.';
+  const syncedStatusMessage = 'SKU ditemukan di Mekari Jurnal.';
+
+  const applyProductMekariStatus = (productIndex, statusOverride = {}) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return;
+    }
+
+    const product = cachedProducts[productIndex];
+    if (!product || !product.id) {
+      return;
+    }
+
+    const normalizedStatus = normalizeMekariStatus({
+      ...statusOverride,
+      lastSyncedAt: statusOverride?.lastSyncedAt ?? attemptIso
+    });
+
+    const currentStatus = normalizeMekariStatus(product.mekariStatus);
+    const hasMeaningfulChange =
+      currentStatus.state !== normalizedStatus.state ||
+      currentStatus.lastSyncedAt !== normalizedStatus.lastSyncedAt ||
+      currentStatus.message !== normalizedStatus.message ||
+      currentStatus.error !== normalizedStatus.error;
+
+    if (!hasMeaningfulChange) {
+      return;
+    }
+
+    const baseProduct = updatedProductsMap.get(product.id) ?? product;
+    const updatedProduct = {
+      ...baseProduct,
+      mekariStatus: normalizedStatus,
+      updatedAt: Date.now()
+    };
+
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+  };
+
   if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
+    productIndicesWithSku.forEach(productIndex => {
+      applyProductMekariStatus(productIndex, {
+        state: 'missing',
+        lastSyncedAt: attemptIso,
+        message: missingStatusMessage
+      });
+    });
+
+    const productsNeedingUpdate = Array.from(updatedProductsMap.values());
+
+    if (productsNeedingUpdate.length) {
+      try {
+        for (const product of productsNeedingUpdate) {
+          await upsertProductToSupabase(product);
+        }
+      } catch (error) {
+        const message = error?.message ? String(error.message) : 'Gagal memperbarui status SKU di Supabase.';
+        const state = updateDailyInventorySyncState(previous => ({
+          ...previous,
+          lastStatus: 'error',
+          lastError: message,
+          lastReason: reason
+        }));
+        console.error('Gagal menyimpan status SKU hilang ke Supabase.', error);
+        return { success: false, skipped: false, reason: 'supabase-upsert', message, state, error, attempt, attemptIso };
+      }
+    }
+
     if (integration) {
       try {
         syncedIntegration = await markMekariIntegrationSynced(integration, attemptIso);
@@ -730,10 +820,6 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       summaryParts: []
     };
   }
-
-  const updatedProductsMap = new Map();
-  const updatedSkuSet = new Set();
-  const newProducts = [];
 
   const updateVariantStock = (productIndex, variantIndex, nextStock) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
@@ -786,6 +872,20 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     const stockValue = extractMekariStock(record);
     const existingMatches = existingSkuMap.get(normalizedSku);
     if (existingMatches && existingMatches.length) {
+      existingMatches.forEach(({ productIndex, variantIndex }) => {
+        if (Number.isInteger(productIndex) && Number.isInteger(variantIndex)) {
+          const key = `${productIndex}:${variantIndex}`;
+          if (!matchedVariantKeys.has(key)) {
+            matchedVariantKeys.add(key);
+            const stats = productSkuStats.get(productIndex);
+            if (stats) {
+              stats.matched += 1;
+              productSkuStats.set(productIndex, stats);
+            }
+          }
+        }
+      });
+
       if (stockValue !== null) {
         let skuChanged = false;
         existingMatches.forEach(({ productIndex, variantIndex }) => {
@@ -820,6 +920,28 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     }
     existingSkus.add(normalizedSku);
     newProducts.push(mapped);
+  });
+
+  let missingProductsCount = 0;
+
+  productIndicesWithSku.forEach(productIndex => {
+    const stats = productSkuStats.get(productIndex);
+    const hasMissingSku = !stats || stats.matched < stats.total;
+
+    if (!hasMissingSku) {
+      applyProductMekariStatus(productIndex, {
+        state: 'synced',
+        lastSyncedAt: attemptIso,
+        message: syncedStatusMessage
+      });
+    } else {
+      missingProductsCount += 1;
+      applyProductMekariStatus(productIndex, {
+        state: 'missing',
+        lastSyncedAt: attemptIso,
+        message: missingStatusMessage
+      });
+    }
   });
 
   const updatedProducts = Array.from(updatedProductsMap.values());
@@ -880,6 +1002,9 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
   }
   if (newProducts.length) {
     summaryParts.push(`${newProducts.length} produk baru ditambahkan.`);
+  }
+  if (missingProductsCount > 0) {
+    summaryParts.push(`${missingProductsCount} produk belum terdaftar di Mekari Jurnal.`);
   }
   if (!summaryParts.length) {
     summaryParts.push('Stok produk Mekari Jurnal sudah sesuai.');
@@ -1978,6 +2103,7 @@ function mapProductToRecord(product) {
     photos: Array.isArray(product.photos) ? product.photos : [],
     variants: Array.isArray(product.variants) ? product.variants : [],
     variant_pricing: Array.isArray(product.variantPricing) ? product.variantPricing : [],
+    mekari_status: product.mekariStatus ? normalizeMekariStatus(product.mekariStatus) : null,
     created_at: toIsoTimestamp(product.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(product.updatedAt)
   };
