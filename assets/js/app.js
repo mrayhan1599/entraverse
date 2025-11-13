@@ -163,6 +163,26 @@ function normalizeMekariStatus(status) {
   return normalized;
 }
 
+function areNormalizedMekariStatusesEqual(first, second) {
+  if (first === second) {
+    return true;
+  }
+
+  if (!first || !second) {
+    return !first && !second;
+  }
+
+  const firstLastSynced = first.lastSyncedAt ?? null;
+  const secondLastSynced = second.lastSyncedAt ?? null;
+
+  return (
+    first.state === second.state &&
+    firstLastSynced === secondLastSynced &&
+    (first.message ?? '') === (second.message ?? '') &&
+    (first.error ?? '') === (second.error ?? '')
+  );
+}
+
 function getMekariStatusLabel(state) {
   switch (state) {
     case 'synced':
@@ -216,7 +236,7 @@ function resolveMekariStatusTooltip(status) {
   }
 
   if (normalizedState === 'inactive') {
-    return 'Produk tidak aktif di Mekari Jurnal.';
+    return 'Produk tidak aktif di Mekari Jurnal';
   }
 
   if (status.lastSyncedAt) {
@@ -775,6 +795,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
   const updatedProductsMap = new Map();
   const updatedSkuSet = new Set();
   const newProducts = [];
+  const matchedProductIndices = new Set();
 
   const updateVariantStock = (productIndex, variantIndex, nextStock) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
@@ -810,6 +831,29 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     return true;
   };
 
+  const setProductMekariStatus = (productIndex, statusPayload) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return false;
+    }
+
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const currentStatus = normalizeMekariStatus(product.mekariStatus);
+    const nextStatus = normalizeMekariStatus(statusPayload);
+
+    if (areNormalizedMekariStatusesEqual(currentStatus, nextStatus)) {
+      return false;
+    }
+
+    const updatedProduct = { ...product, mekariStatus: nextStatus, updatedAt: Date.now() };
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
   mekariRecords.forEach(record => {
     if (!record) {
       return;
@@ -827,20 +871,21 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     const stockValue = extractMekariStock(record);
     const existingMatches = existingSkuMap.get(normalizedSku);
     if (existingMatches && existingMatches.length) {
-      if (stockValue !== null) {
-        let skuChanged = false;
-        existingMatches.forEach(({ productIndex, variantIndex }) => {
-          if (!Number.isInteger(variantIndex)) {
-            return;
-          }
-          const changed = updateVariantStock(productIndex, variantIndex, stockValue);
-          if (changed) {
-            skuChanged = true;
-          }
-        });
-        if (skuChanged) {
-          updatedSkuSet.add(normalizedSku);
+      let skuChanged = false;
+      existingMatches.forEach(({ productIndex, variantIndex }) => {
+        if (Number.isInteger(productIndex)) {
+          matchedProductIndices.add(productIndex);
         }
+        if (stockValue === null || !Number.isInteger(variantIndex)) {
+          return;
+        }
+        const changed = updateVariantStock(productIndex, variantIndex, stockValue);
+        if (changed) {
+          skuChanged = true;
+        }
+      });
+      if (stockValue !== null && skuChanged) {
+        updatedSkuSet.add(normalizedSku);
       }
       existingSkus.add(normalizedSku);
       return;
@@ -861,6 +906,28 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     }
     existingSkus.add(normalizedSku);
     newProducts.push(mapped);
+  });
+
+  const syncedStatusPayload = {
+    state: 'synced',
+    lastSyncedAt: attemptIso,
+    message: 'Sinkron dengan Mekari Jurnal'
+  };
+  const inactiveStatusPayload = {
+    state: 'inactive',
+    message: 'Produk tidak aktif di Mekari Jurnal'
+  };
+
+  cachedProducts.forEach((product, productIndex) => {
+    if (!product || !product.id) {
+      return;
+    }
+
+    if (matchedProductIndices.has(productIndex)) {
+      setProductMekariStatus(productIndex, syncedStatusPayload);
+    } else {
+      setProductMekariStatus(productIndex, inactiveStatusPayload);
+    }
   });
 
   const updatedProducts = Array.from(updatedProductsMap.values());
@@ -2019,6 +2086,7 @@ function mapProductToRecord(product) {
     photos: Array.isArray(product.photos) ? product.photos : [],
     variants: Array.isArray(product.variants) ? product.variants : [],
     variant_pricing: Array.isArray(product.variantPricing) ? product.variantPricing : [],
+    mekari_status: normalizeMekariStatus(product.mekariStatus),
     created_at: toIsoTimestamp(product.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(product.updatedAt)
   };
