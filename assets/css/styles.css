@@ -1400,17 +1400,6 @@ body[data-theme="dark"] .logo-badge {
   box-shadow: 0 8px 18px rgba(14, 165, 233, 0.16);
 }
 
-.mekari-status[data-state='inactive'] .mekari-status__badge {
-  background: rgba(100, 116, 139, 0.1);
-  border-color: rgba(100, 116, 139, 0.4);
-  box-shadow: 0 6px 16px rgba(100, 116, 139, 0.18);
-}
-
-.mekari-status[data-state='inactive'] .mekari-status__badge img {
-  filter: grayscale(1);
-  opacity: 0.7;
-}
-
 .mekari-status[data-state='error'] .mekari-status__badge {
   background: rgba(239, 68, 68, 0.15);
   border-color: rgba(239, 68, 68, 0.45);
@@ -1490,17 +1479,6 @@ body[data-theme='dark'] .mekari-status[data-state='pending'] .mekari-status__bad
 body[data-theme='dark'] .mekari-status[data-state='syncing'] .mekari-status__badge {
   background: rgba(14, 165, 233, 0.28);
   border-color: rgba(125, 211, 252, 0.45);
-}
-
-body[data-theme='dark'] .mekari-status[data-state='inactive'] .mekari-status__badge {
-  background: rgba(148, 163, 184, 0.26);
-  border-color: rgba(148, 163, 184, 0.45);
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.55);
-}
-
-body[data-theme='dark'] .mekari-status[data-state='inactive'] .mekari-status__badge img {
-  filter: grayscale(1);
-  opacity: 0.75;
 }
 
 body[data-theme='dark'] .mekari-status[data-state='error'] .mekari-status__badge {

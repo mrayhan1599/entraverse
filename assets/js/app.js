@@ -60,7 +60,7 @@ function createUuid() {
   );
 }
 
-const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error', 'inactive']);
+const MEKARI_STATUS_STATES = new Set(['synced', 'syncing', 'pending', 'error']);
 
 const DEFAULT_MEKARI_STATUS = Object.freeze({
   state: 'pending',
@@ -79,27 +79,6 @@ function normalizeMekariStatus(status) {
   const stateCandidate = (status.state ?? status.status ?? '').toString().trim().toLowerCase();
   if (MEKARI_STATUS_STATES.has(stateCandidate)) {
     normalized.state = stateCandidate;
-  }
-
-  const activityCandidate =
-    status.active ??
-    status.isActive ??
-    status.activeState ??
-    status.enabled ??
-    status.isEnabled ??
-    null;
-  const activityString =
-    typeof activityCandidate === 'string' ? activityCandidate.toString().trim().toLowerCase() : '';
-  const activityBoolean = typeof activityCandidate === 'boolean' ? activityCandidate : null;
-  const isInactiveState =
-    activityBoolean === false ||
-    activityString === 'inactive' ||
-    activityString === 'nonaktif' ||
-    activityString === 'disabled' ||
-    activityString === 'off';
-
-  if (isInactiveState && normalized.state !== 'synced' && normalized.state !== 'syncing') {
-    normalized.state = 'inactive';
   }
 
   const syncCandidate =
@@ -138,16 +117,12 @@ function normalizeMekariStatus(status) {
       const trimmed = candidate.trim();
       if (trimmed) {
         normalized.error = trimmed;
-        if (normalized.state !== 'inactive') {
-          normalized.state = 'error';
-        }
+        normalized.state = 'error';
         break;
       }
     } else if (typeof candidate === 'number' && Number.isFinite(candidate)) {
       normalized.error = candidate.toString();
-      if (normalized.state !== 'inactive') {
-        normalized.state = 'error';
-      }
+      normalized.state = 'error';
       break;
     }
   }
@@ -161,8 +136,6 @@ function getMekariStatusLabel(state) {
       return 'Sinkron';
     case 'syncing':
       return 'Menyinkronkan';
-    case 'inactive':
-      return 'Tidak Aktif';
     case 'error':
       return 'Gagal Sinkron';
     case 'pending':
@@ -197,18 +170,12 @@ function resolveMekariStatusTooltip(status) {
     return '';
   }
 
-  const normalizedState = (status.state ?? status.status ?? '').toString().trim().toLowerCase();
-
   if (status.error) {
     return status.error;
   }
 
   if (status.message) {
     return status.message;
-  }
-
-  if (normalizedState === 'inactive') {
-    return 'Produk tidak aktif di Mekari Jurnal.';
   }
 
   if (status.lastSyncedAt) {
@@ -5445,35 +5412,14 @@ function renderProducts(filterText = '', options = {}) {
         badgeLabelParts.push(statusError);
       }
 
-      const badgeTooltipRaw = resolveMekariStatusTooltip(normalizedMekariStatus);
-      const badgeTooltip = badgeTooltipRaw ? badgeTooltipRaw.toString().trim() : '';
-      if (badgeTooltip && !badgeLabelParts.includes(badgeTooltip)) {
-        badgeLabelParts.push(badgeTooltip);
-      }
-
       const badgeAriaLabel =
         badgeLabelParts.length > 0
           ? badgeLabelParts.join('. ')
           : 'Status sinkronisasi Mekari tidak tersedia';
 
-      const badgeClassNames = ['mekari-status__badge'];
-      if (badgeTooltip) {
-        badgeClassNames.push('has-tooltip');
-      }
-
-      const badgeAttributes = [
-        `class="${badgeClassNames.join(' ')}"`,
-        `role="img"`,
-        `aria-label="${escapeHtml(badgeAriaLabel)}"`
-      ];
-
-      if (badgeTooltip) {
-        badgeAttributes.push(`data-tooltip="${escapeHtml(badgeTooltip)}"`, 'tabindex="0"');
-      }
-
       const mekariStatusHtml = `
         <div class="mekari-status" data-state="${escapeHtml(statusState)}">
-          <span ${badgeAttributes.join(' ')}>
+          <span class="mekari-status__badge" role="img" aria-label="${escapeHtml(badgeAriaLabel)}">
             <img src="${escapeHtml(mekariLogoUrl)}" alt="" aria-hidden="true">
           </span>
         </div>
