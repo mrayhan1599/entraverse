@@ -1978,6 +1978,7 @@ function mapProductToRecord(product) {
     photos: Array.isArray(product.photos) ? product.photos : [],
     variants: Array.isArray(product.variants) ? product.variants : [],
     variant_pricing: Array.isArray(product.variantPricing) ? product.variantPricing : [],
+    mekari_status: product.mekariStatus ? normalizeMekariStatus(product.mekariStatus) : null,
     created_at: toIsoTimestamp(product.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(product.updatedAt)
   };
@@ -8346,9 +8347,23 @@ async function handleAddProductForm() {
     if (isEditing) {
       productPayload.createdAt = existingProduct?.createdAt ?? timestamp;
       productPayload.updatedAt = timestamp;
+      productPayload.mekariStatus = existingProduct?.mekariStatus
+        ? normalizeMekariStatus(existingProduct.mekariStatus)
+        : null;
     } else {
       productPayload.createdAt = timestamp;
       productPayload.updatedAt = timestamp;
+      productPayload.mekariStatus = normalizeMekariStatus({
+        state: 'pending',
+        message: 'Menunggu sinkronisasi ke Mekari Jurnal'
+      });
+    }
+
+    if (!isEditing) {
+      productPayload.mekariStatus = normalizeMekariStatus({
+        state: 'syncing',
+        message: 'Mengirim produk ke Mekari Jurnal...'
+      });
     }
 
     if (submitBtn) {
@@ -8356,13 +8371,69 @@ async function handleAddProductForm() {
       submitBtn.classList.add('is-loading');
     }
 
+    let mekariSyncError = null;
+    let mekariSyncedCount = 0;
+
     try {
       await upsertProductToSupabase(productPayload);
+
+      if (!isEditing) {
+        try {
+          const result = await createMekariProductsForProduct(productPayload, filteredPricing);
+          mekariSyncedCount = Number.isFinite(result?.synced) ? result.synced : mekariSyncedCount;
+          productPayload.mekariStatus = normalizeMekariStatus({
+            state: 'synced',
+            lastSyncedAt: Date.now(),
+            message:
+              mekariSyncedCount > 1
+                ? `${mekariSyncedCount} SKU baru dikirim ke Mekari Jurnal.`
+                : 'Produk dikirim ke Mekari Jurnal.'
+          });
+        } catch (syncError) {
+          const errorMessage = syncError?.message
+            ? String(syncError.message)
+            : 'Gagal sinkron ke Mekari Jurnal.';
+          productPayload.mekariStatus = normalizeMekariStatus({
+            state: 'error',
+            lastSyncedAt: Date.now(),
+            error: errorMessage
+          });
+          mekariSyncError = errorMessage;
+          console.error('Gagal sinkronisasi produk ke Mekari Jurnal.', syncError);
+        }
+
+        try {
+          await upsertProductToSupabase(productPayload);
+        } catch (syncStatusError) {
+          console.warn('Gagal memperbarui status Mekari produk di Supabase.', syncStatusError);
+        }
+      }
+
       await refreshProductsFromSupabase();
-      toast.show(isEditing ? 'Produk berhasil diperbarui.' : 'Produk berhasil disimpan.');
-      setTimeout(() => {
-        window.location.href = 'dashboard.html';
-      }, 800);
+
+      const successMessage = (() => {
+        if (isEditing) {
+          return 'Produk berhasil diperbarui.';
+        }
+        if (mekariSyncError) {
+          return `Produk tersimpan, tetapi sinkronisasi Mekari gagal: ${mekariSyncError}`;
+        }
+        if (mekariSyncedCount > 1) {
+          return `Produk berhasil disimpan & ${mekariSyncedCount} SKU tersinkron ke Mekari Jurnal.`;
+        }
+        if (mekariSyncedCount === 1) {
+          return 'Produk berhasil disimpan & tersinkron ke Mekari Jurnal.';
+        }
+        return 'Produk berhasil disimpan.';
+      })();
+
+      toast.show(successMessage);
+
+      if (!mekariSyncError) {
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 800);
+      }
     } catch (error) {
       console.error('Gagal menyimpan produk.', error);
       toast.show('Gagal menyimpan produk. Coba lagi.');
@@ -9087,6 +9158,172 @@ function resolveMekariApiDetails(integration) {
     baseUrl: baseUrl || 'https://api.jurnal.id',
     token
   };
+}
+
+function normalizeMekariPriceValue(value) {
+  const numeric = parseNumericValue(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '0';
+  }
+  return Math.round(numeric).toString();
+}
+
+function resolveMekariUnitName(product) {
+  if (!product || typeof product !== 'object') {
+    return 'Unit';
+  }
+
+  const inventory = product.inventory ?? {};
+  const candidates = [
+    inventory.unit,
+    inventory.unitName,
+    inventory.unit_name,
+    inventory.uom,
+    inventory.UOM
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const text = candidate.toString().trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return 'Unit';
+}
+
+function buildMekariProductPayload(product, row, { seenSkus, index }) {
+  if (!row) {
+    return null;
+  }
+
+  const rawSku = (row.sellerSku ?? '').toString().trim();
+  if (!rawSku) {
+    return null;
+  }
+
+  const normalizedSku = normalizeSku(rawSku);
+  if (!normalizedSku || seenSkus.has(normalizedSku)) {
+    return null;
+  }
+
+  seenSkus.add(normalizedSku);
+
+  const baseName = (product?.name ?? '').toString().trim() || 'Produk Tanpa Nama';
+  const variantLabel = (() => {
+    if (Array.isArray(row.variants) && row.variants.length) {
+      const values = row.variants
+        .map(item => (item?.value ?? '').toString().trim())
+        .filter(Boolean);
+      if (values.length) {
+        return values.join(' / ');
+      }
+    }
+    const manual = (row.variantLabel ?? '').toString().trim();
+    return manual || '';
+  })();
+
+  const productName = variantLabel ? `${baseName} - ${variantLabel}` : baseName;
+  const buyPrice = normalizeMekariPriceValue(row.purchasePriceIdr ?? row.purchasePrice);
+  const sellPrice = normalizeMekariPriceValue(
+    row.offlinePrice ?? row.entraversePrice ?? row.tokopediaPrice ?? row.shopeePrice ?? row.purchasePriceIdr
+  );
+
+  const unitName = resolveMekariUnitName(product);
+  const customId = `${product?.id ?? 'prd'}-${normalizedSku || index}`;
+
+  return {
+    name: productName,
+    taxable_buy: false,
+    taxable_sell: false,
+    unit_name: unitName,
+    sell_price_per_unit: sellPrice,
+    buy_price_per_unit: buyPrice,
+    custom_id: customId,
+    product_code: rawSku,
+    track_inventory: true,
+    description: '',
+    is_bought: true,
+    buy_account_number: '5-50000',
+    buy_account_name: 'Beban Pokok Pendapatan',
+    is_sold: true,
+    sell_account_number: '4-40000',
+    sell_account_name: 'Pendapatan',
+    inventory_asset_account_name: 'Persediaan Barang'
+  };
+}
+
+async function createMekariProductsForProduct(product, variantPricing = []) {
+  const integration = await resolveMekariIntegration();
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { baseUrl, token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia.');
+  }
+
+  const endpoint = `${baseUrl.replace(/\/+$/, '')}/partner/core/api/v1/products`;
+  const seenSkus = new Set();
+  const payloads = [];
+
+  variantPricing.forEach((row, index) => {
+    const payload = buildMekariProductPayload(product, row, { seenSkus, index });
+    if (payload) {
+      payloads.push(payload);
+    }
+  });
+
+  if (!payloads.length) {
+    throw new Error('Tidak ada SKU valid untuk disinkronkan ke Mekari Jurnal.');
+  }
+
+  for (const payload of payloads) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: token
+        },
+        body: JSON.stringify({ product: payload }),
+        signal: controller.signal
+      });
+
+      const responseText = await response.text();
+      let body = null;
+      if (responseText) {
+        try {
+          body = JSON.parse(responseText);
+        } catch (parseError) {
+          console.warn('Gagal mengurai respons Mekari Jurnal.', parseError);
+        }
+      }
+
+      if (!response.ok) {
+        const message =
+          (body && (body.error || body.message || body.detail || body.response_message)) ||
+          response.statusText ||
+          'Gagal membuat produk di Mekari Jurnal.';
+        throw new Error(message);
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error('Permintaan ke Mekari Jurnal melebihi batas waktu.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return { synced: payloads.length };
 }
 
 async function fetchMekariProducts({ includeArchive = false, integration: integrationOverride } = {}) {
