@@ -1589,6 +1589,152 @@ const SUPABASE_STORAGE_BUCKETS = Object.freeze({
   integrationLogos: 'integration-logos'
 });
 
+const SUPABASE_UNSUPPORTED_COLUMNS = new Map();
+
+function normalizeSupabaseIdentifier(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function getUnsupportedSupabaseColumns(table) {
+  const tableKey = normalizeSupabaseIdentifier(table);
+  if (!tableKey) {
+    return new Set();
+  }
+
+  if (!SUPABASE_UNSUPPORTED_COLUMNS.has(tableKey)) {
+    SUPABASE_UNSUPPORTED_COLUMNS.set(tableKey, new Set());
+  }
+
+  return SUPABASE_UNSUPPORTED_COLUMNS.get(tableKey);
+}
+
+function sanitizeSupabaseRecord(table, record) {
+  if (!record || typeof record !== 'object') {
+    return record;
+  }
+
+  const unsupported = getUnsupportedSupabaseColumns(table);
+  if (!unsupported.size) {
+    return { ...record };
+  }
+
+  const sanitized = {};
+  Object.entries(record).forEach(([key, value]) => {
+    if (!unsupported.has(normalizeSupabaseIdentifier(key))) {
+      sanitized[key] = value;
+    }
+  });
+
+  return sanitized;
+}
+
+function sanitizeSupabasePayload(table, payload) {
+  if (Array.isArray(payload)) {
+    return payload.map(item => sanitizeSupabaseRecord(table, item));
+  }
+
+  if (payload && typeof payload === 'object') {
+    return sanitizeSupabaseRecord(table, payload);
+  }
+
+  return payload;
+}
+
+function registerUnsupportedSupabaseColumn(table, column) {
+  const tableKey = normalizeSupabaseIdentifier(table);
+  const columnKey = normalizeSupabaseIdentifier(column);
+  if (!tableKey || !columnKey) {
+    return false;
+  }
+
+  const unsupported = getUnsupportedSupabaseColumns(tableKey);
+  if (unsupported.has(columnKey)) {
+    return false;
+  }
+
+  unsupported.add(columnKey);
+  console.warn(
+    `Kolom Supabase "${column}" tidak ditemukan pada tabel "${table}". Nilai kolom tersebut akan diabaikan saat sinkronisasi.`
+  );
+  return true;
+}
+
+function extractMissingSupabaseColumn(error) {
+  if (!error) {
+    return null;
+  }
+
+  const candidates = [error.message, error.details, error.hint];
+  const regex = /column\s+"?([a-zA-Z0-9_]+)"?\s+of\s+relation\s+"?([a-zA-Z0-9_]+)"?\s+does\s+not\s+exist/i;
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+
+    const match = candidate.match(regex);
+    if (match) {
+      return { column: match[1], table: match[2] };
+    }
+  }
+
+  if (error.code === '42703') {
+    const fallback = candidates.find(candidate => typeof candidate === 'string' && candidate.includes('column'));
+    if (fallback) {
+      const columnMatch = fallback.match(/"([a-zA-Z0-9_]+)"/);
+      if (columnMatch) {
+        return { column: columnMatch[1], table: error.table ?? '' };
+      }
+    }
+  }
+
+  return null;
+}
+
+async function executeSupabaseMutation({ client, table, method, payload, options = {}, transform }) {
+  if (!client) {
+    throw new Error('Supabase client tidak tersedia.');
+  }
+
+  const tableKey = table;
+  if (!tableKey || typeof tableKey !== 'string') {
+    throw new Error('Nama tabel Supabase tidak valid.');
+  }
+
+  const normalizedTable = normalizeSupabaseIdentifier(tableKey);
+  if (typeof client.from(tableKey)?.[method] !== 'function') {
+    throw new Error(`Metode Supabase ${method} tidak didukung untuk tabel ${tableKey}.`);
+  }
+
+  let attemptPayload = sanitizeSupabasePayload(tableKey, payload);
+
+  while (true) {
+    let builder = client.from(tableKey)[method](attemptPayload, options);
+    if (typeof transform === 'function') {
+      builder = transform(builder);
+    }
+
+    const { data, error } = await builder;
+    if (!error) {
+      return { data };
+    }
+
+    const missing = extractMissingSupabaseColumn(error);
+    if (missing) {
+      const missingTable = normalizeSupabaseIdentifier(missing.table);
+      if (!missingTable || missingTable === normalizedTable) {
+        const registered = registerUnsupportedSupabaseColumn(tableKey, missing.column);
+        if (registered) {
+          attemptPayload = sanitizeSupabasePayload(tableKey, attemptPayload);
+          continue;
+        }
+      }
+    }
+
+    throw error;
+  }
+}
+
 let supabaseClient = null;
 let supabaseInitializationPromise = null;
 let supabaseInitializationError = null;
@@ -2028,7 +2174,6 @@ function mapCategoryToRecord(category) {
       value: margin.value ?? '',
       note: margin.note ?? ''
     },
-    bonus: null,
     created_at: toIsoTimestamp(category.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(category.updatedAt)
   };
@@ -2223,14 +2368,14 @@ async function upsertCategoryToSupabase(category) {
     payload.updated_at = new Date().toISOString();
   }
 
-  const { error } = await client
-    .from(SUPABASE_TABLES.categories)
-    .upsert(payload, { onConflict: 'id' })
-    .select();
-
-  if (error) {
-    throw error;
-  }
+  await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.categories,
+    method: 'upsert',
+    payload,
+    options: { onConflict: 'id' },
+    transform: builder => builder.select()
+  });
 }
 
 function mapSupabaseProduct(record) {
@@ -2354,14 +2499,14 @@ async function upsertProductToSupabase(product) {
     payload.updated_at = new Date().toISOString();
   }
 
-  const { error } = await client
-    .from(SUPABASE_TABLES.products)
-    .upsert(payload, { onConflict: 'id' })
-    .select();
-
-  if (error) {
-    throw error;
-  }
+  await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.products,
+    method: 'upsert',
+    payload,
+    options: { onConflict: 'id' },
+    transform: builder => builder.select()
+  });
 }
 
 async function bulkUpsertProductsToSupabase(products, { chunkSize = 50 } = {}) {
@@ -2397,14 +2542,14 @@ async function bulkUpsertProductsToSupabase(products, { chunkSize = 50 } = {}) {
 
   for (let index = 0; index < normalized.length; index += safeChunkSize) {
     const slice = normalized.slice(index, index + safeChunkSize);
-    const { error } = await client
-      .from(SUPABASE_TABLES.products)
-      .upsert(slice, { onConflict: 'id' })
-      .select();
-
-    if (error) {
-      throw error;
-    }
+    await executeSupabaseMutation({
+      client,
+      table: SUPABASE_TABLES.products,
+      method: 'upsert',
+      payload: slice,
+      options: { onConflict: 'id' },
+      transform: builder => builder.select()
+    });
   }
 }
 
@@ -2535,17 +2680,16 @@ async function upsertShippingVendorToSupabase(vendor) {
   payload.created_at = payload.created_at ?? now;
   payload.updated_at = payload.updated_at ?? now;
 
-  const { data, error } = await client
-    .from(SUPABASE_TABLES.shippingVendors)
-    .upsert(payload, { onConflict: 'id' })
-    .select()
-    .maybeSingle();
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.shippingVendors,
+    method: 'upsert',
+    payload,
+    options: { onConflict: 'id' },
+    transform: builder => builder.select().maybeSingle()
+  });
 
-  if (error) {
-    throw error;
-  }
-
-  return mapSupabaseShippingVendor(data);
+  return mapSupabaseShippingVendor(data ?? payload);
 }
 
 function sanitizeSessionUser(user) {
@@ -2637,17 +2781,15 @@ async function insertUserToSupabase(user) {
   await ensureSupabase();
   const client = getSupabaseClient();
   const payload = mapUserToRecord(user);
-  const { data, error } = await client
-    .from(SUPABASE_TABLES.users)
-    .insert(payload)
-    .select()
-    .maybeSingle();
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.users,
+    method: 'insert',
+    payload,
+    transform: builder => builder.select().maybeSingle()
+  });
 
-  if (error) {
-    throw error;
-  }
-
-  return mapSupabaseUser(data);
+  return mapSupabaseUser(data ?? payload);
 }
 
 async function ensureSeeded() {
@@ -2678,18 +2820,23 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          await client.from(SUPABASE_TABLES.categories).insert(
-            DEFAULT_CATEGORIES.map(category => {
-              const mapped = mapCategoryToRecord({
-                ...category,
-                createdAt: now,
-                updatedAt: now
-              });
-              mapped.created_at = now;
-              mapped.updated_at = now;
-              return mapped;
-            })
-          );
+          const payload = DEFAULT_CATEGORIES.map(category => {
+            const mapped = mapCategoryToRecord({
+              ...category,
+              createdAt: now,
+              updatedAt: now
+            });
+            mapped.created_at = now;
+            mapped.updated_at = now;
+            return mapped;
+          });
+
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.categories,
+            method: 'insert',
+            payload
+          });
         }
       } catch (error) {
         if (isTableMissingError(error)) {
@@ -2713,18 +2860,23 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          await client.from(SUPABASE_TABLES.products).insert(
-            DEFAULT_PRODUCTS.map(product => {
-              const mapped = mapProductToRecord({
-                ...product,
-                createdAt: now,
-                updatedAt: now
-              });
-              mapped.created_at = now;
-              mapped.updated_at = now;
-              return mapped;
-            })
-          );
+          const payload = DEFAULT_PRODUCTS.map(product => {
+            const mapped = mapProductToRecord({
+              ...product,
+              createdAt: now,
+              updatedAt: now
+            });
+            mapped.created_at = now;
+            mapped.updated_at = now;
+            return mapped;
+          });
+
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.products,
+            method: 'insert',
+            payload
+          });
         }
       } catch (error) {
         if (isTableMissingError(error)) {
@@ -2748,13 +2900,18 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          await client.from(SUPABASE_TABLES.exchangeRates).insert(
-            DEFAULT_EXCHANGE_RATES.map(rate => ({
-              ...rate,
-              created_at: now,
-              updated_at: now
-            }))
-          );
+          const payload = DEFAULT_EXCHANGE_RATES.map(rate => ({
+            ...rate,
+            created_at: now,
+            updated_at: now
+          }));
+
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.exchangeRates,
+            method: 'insert',
+            payload
+          });
         }
       } catch (error) {
         if (isTableMissingError(error)) {
@@ -2778,21 +2935,26 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          await client.from(SUPABASE_TABLES.shippingVendors).insert(
-            DEFAULT_SHIPPING_VENDORS.map(vendor => {
-              const mapped = mapShippingVendorToRecord({
-                ...vendor,
-                createdAt: now,
-                updatedAt: now
-              });
-              if (!mapped) {
-                return null;
-              }
-              mapped.created_at = now;
-              mapped.updated_at = now;
-              return mapped;
-            }).filter(Boolean)
-          );
+          const payload = DEFAULT_SHIPPING_VENDORS.map(vendor => {
+            const mapped = mapShippingVendorToRecord({
+              ...vendor,
+              createdAt: now,
+              updatedAt: now
+            });
+            if (!mapped) {
+              return null;
+            }
+            mapped.created_at = now;
+            mapped.updated_at = now;
+            return mapped;
+          }).filter(Boolean);
+
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.shippingVendors,
+            method: 'insert',
+            payload
+          });
         }
       } catch (error) {
         if (isTableMissingError(error)) {
@@ -2816,21 +2978,26 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          await client.from(SUPABASE_TABLES.integrations).insert(
-            DEFAULT_API_INTEGRATIONS.map(integration => {
-              const mapped = mapIntegrationToRecord({
-                ...integration,
-                createdAt: now,
-                updatedAt: now
-              });
-              if (!mapped) {
-                return null;
-              }
-              mapped.created_at = mapped.created_at ?? now;
-              mapped.updated_at = mapped.updated_at ?? now;
-              return mapped;
-            }).filter(Boolean)
-          );
+          const payload = DEFAULT_API_INTEGRATIONS.map(integration => {
+            const mapped = mapIntegrationToRecord({
+              ...integration,
+              createdAt: now,
+              updatedAt: now
+            });
+            if (!mapped) {
+              return null;
+            }
+            mapped.created_at = mapped.created_at ?? now;
+            mapped.updated_at = mapped.updated_at ?? now;
+            return mapped;
+          }).filter(Boolean);
+
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.integrations,
+            method: 'insert',
+            payload
+          });
         }
       } catch (error) {
         if (isTableMissingError(error)) {
@@ -9186,15 +9353,14 @@ async function upsertIntegrationToSupabase(integration) {
   payload.created_at = payload.created_at ?? nowIso;
   payload.updated_at = nowIso;
 
-  const { data, error } = await client
-    .from(SUPABASE_TABLES.integrations)
-    .upsert(payload, { onConflict: 'id' })
-    .select()
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.integrations,
+    method: 'upsert',
+    payload,
+    options: { onConflict: 'id' },
+    transform: builder => builder.select().maybeSingle()
+  });
 
   return mapSupabaseIntegration(data ?? payload);
 }
