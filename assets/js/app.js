@@ -776,9 +776,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
 
     if (productsNeedingUpdate.length) {
       try {
-        for (const product of productsNeedingUpdate) {
-          await upsertProductToSupabase(product);
-        }
+        await bulkUpsertProductsToSupabase(productsNeedingUpdate);
       } catch (error) {
         const message = error?.message ? String(error.message) : 'Gagal memperbarui status SKU di Supabase.';
         const state = updateDailyInventorySyncState(previous => ({
@@ -946,24 +944,21 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
 
   const updatedProducts = Array.from(updatedProductsMap.values());
 
-  try {
-    for (const product of updatedProducts) {
-      await upsertProductToSupabase(product);
+  const productsToPersist = [...updatedProducts, ...newProducts];
+  if (productsToPersist.length) {
+    try {
+      await bulkUpsertProductsToSupabase(productsToPersist);
+    } catch (error) {
+      const message = error?.message ? String(error.message) : 'Gagal memperbarui produk di Supabase.';
+      const state = updateDailyInventorySyncState(previous => ({
+        ...previous,
+        lastStatus: 'error',
+        lastError: message,
+        lastReason: reason
+      }));
+      console.error('Gagal menyimpan pembaruan stok Mekari ke Supabase.', error);
+      return { success: false, skipped: false, reason: 'supabase-upsert', message, state, error, attempt, attemptIso };
     }
-
-    for (const product of newProducts) {
-      await upsertProductToSupabase(product);
-    }
-  } catch (error) {
-    const message = error?.message ? String(error.message) : 'Gagal memperbarui produk di Supabase.';
-    const state = updateDailyInventorySyncState(previous => ({
-      ...previous,
-      lastStatus: 'error',
-      lastError: message,
-      lastReason: reason
-    }));
-    console.error('Gagal menyimpan pembaruan stok Mekari ke Supabase.', error);
-    return { success: false, skipped: false, reason: 'supabase-upsert', message, state, error, attempt, attemptIso };
   }
 
   try {
@@ -2165,6 +2160,50 @@ async function upsertProductToSupabase(product) {
 
   if (error) {
     throw error;
+  }
+}
+
+async function bulkUpsertProductsToSupabase(products, { chunkSize = 50 } = {}) {
+  const items = Array.isArray(products) ? products.filter(Boolean) : [];
+  if (!items.length) {
+    return;
+  }
+
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const normalized = items
+    .map(product => {
+      const record = mapProductToRecord(product);
+      if (!record) {
+        return null;
+      }
+      const payload = { ...record };
+      if (!payload.id) {
+        payload.id = crypto.randomUUID();
+      }
+      if (!payload.updated_at) {
+        payload.updated_at = new Date().toISOString();
+      }
+      return payload;
+    })
+    .filter(Boolean);
+
+  if (!normalized.length) {
+    return;
+  }
+
+  const safeChunkSize = Math.max(1, Number.isFinite(chunkSize) ? Math.floor(chunkSize) : 50);
+
+  for (let index = 0; index < normalized.length; index += safeChunkSize) {
+    const slice = normalized.slice(index, index + safeChunkSize);
+    const { error } = await client
+      .from(SUPABASE_TABLES.products)
+      .upsert(slice, { onConflict: 'id' })
+      .select();
+
+    if (error) {
+      throw error;
+    }
   }
 }
 
