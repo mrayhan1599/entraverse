@@ -1623,116 +1623,7 @@ const remoteCache = {
   [STORAGE_KEYS.integrations]: []
 };
 
-const SUPABASE_SEEDING_FLAG_KEY = 'entraverse_supabase_seeded_v1';
-let seedingFlagInMemory = false;
-
-function isSeedingFlagActive() {
-  if (seedingFlagInMemory) {
-    return true;
-  }
-
-  if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
-    return false;
-  }
-
-  try {
-    const raw = localStorage.getItem(SUPABASE_SEEDING_FLAG_KEY);
-    const active = raw === 'true' || raw === '1';
-    if (active) {
-      seedingFlagInMemory = true;
-    }
-    return active;
-  } catch (error) {
-    console.warn('Gagal membaca flag seeding dari localStorage.', error);
-    return false;
-  }
-}
-
-function markSeedingFlagActive() {
-  seedingFlagInMemory = true;
-
-  if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') {
-    return;
-  }
-
-  try {
-    localStorage.setItem(SUPABASE_SEEDING_FLAG_KEY, 'true');
-  } catch (error) {
-    console.warn('Gagal menyimpan flag seeding ke localStorage.', error);
-  }
-}
-
 let seedingPromise = null;
-
-const SUPABASE_FETCH_LIMITS = Object.freeze({
-  categories: 200,
-  products: 500,
-  exchangeRates: 200,
-  shippingVendors: 200,
-  integrations: 200
-});
-
-const SUPABASE_SELECT_COLUMNS = Object.freeze({
-  categories: [
-    'id',
-    'name',
-    'note',
-    'fees',
-    'margin',
-    'margin_note',
-    'created_at',
-    'updated_at'
-  ],
-  products: [
-    'id',
-    'name',
-    'category',
-    'brand',
-    'description',
-    'trade_in',
-    'inventory',
-    'photos',
-    'variants',
-    'variant_pricing',
-    'mekari_status',
-    'created_at',
-    'updated_at'
-  ],
-  exchangeRates: ['id', 'currency', 'label', 'rate', 'created_at', 'updated_at'],
-  shippingVendors: [
-    'id',
-    'name',
-    'services',
-    'coverage',
-    'pic',
-    'email',
-    'phone',
-    'detail_url',
-    'air_rate',
-    'sea_rate',
-    'note',
-    'created_at',
-    'updated_at'
-  ],
-  integrations: [
-    'id',
-    'name',
-    'logo_url',
-    'logo_path',
-    'category',
-    'status',
-    'connected_account',
-    'sync_frequency',
-    'capabilities',
-    'api_base_url',
-    'authorization_path',
-    'access_token',
-    'last_sync',
-    'requires_setup',
-    'created_at',
-    'updated_at'
-  ]
-});
 
 function getSupabaseConfig() {
   const config = window.entraverseConfig?.supabase ?? {};
@@ -2068,9 +1959,8 @@ async function refreshExchangeRatesFromSupabase() {
   try {
     const { data, error } = await client
       .from(SUPABASE_TABLES.exchangeRates)
-      .select(SUPABASE_SELECT_COLUMNS.exchangeRates.join(','))
-      .order('currency', { ascending: true })
-      .limit(SUPABASE_FETCH_LIMITS.exchangeRates);
+      .select('*')
+      .order('currency', { ascending: true });
 
     if (error) {
       throw error;
@@ -2114,9 +2004,8 @@ async function refreshCategoriesFromSupabase() {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from(SUPABASE_TABLES.categories)
-    .select(SUPABASE_SELECT_COLUMNS.categories.join(','))
-    .order('created_at', { ascending: true })
-    .limit(SUPABASE_FETCH_LIMITS.categories);
+    .select('*')
+    .order('created_at', { ascending: true });
 
   if (error) {
     throw error;
@@ -2228,9 +2117,8 @@ async function refreshProductsFromSupabase() {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from(SUPABASE_TABLES.products)
-    .select(SUPABASE_SELECT_COLUMNS.products.join(','))
-    .order('created_at', { ascending: true })
-    .limit(SUPABASE_FETCH_LIMITS.products);
+    .select('*')
+    .order('created_at', { ascending: true });
 
   if (error) {
     throw error;
@@ -2403,9 +2291,8 @@ async function refreshShippingVendorsFromSupabase() {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from(SUPABASE_TABLES.shippingVendors)
-    .select(SUPABASE_SELECT_COLUMNS.shippingVendors.join(','))
-    .order('name', { ascending: true })
-    .limit(SUPABASE_FETCH_LIMITS.shippingVendors);
+    .select('*')
+    .order('name', { ascending: true });
 
   if (error) {
     throw error;
@@ -2563,258 +2450,246 @@ async function insertUserToSupabase(user) {
 }
 
 async function ensureSeeded() {
-  if (isSeedingFlagActive()) {
-    return Promise.resolve();
-  }
-
   await ensureSupabase();
   if (!seedingPromise) {
     seedingPromise = (async () => {
       const client = getSupabaseClient();
 
-      const seedingResults = await Promise.all([
-        (async () => {
-          const { count, error } = await client
-            .from(SUPABASE_TABLES.categories)
-            .select('id', { count: 'exact', head: true });
+      let categoriesAvailable = true;
+      try {
+        const { count, error } = await client
+          .from(SUPABASE_TABLES.categories)
+          .select('id', { count: 'exact', head: true });
 
-          if (error) {
-            throw error;
-          }
-
-          if (!count) {
-            const now = new Date().toISOString();
-            await client.from(SUPABASE_TABLES.categories).insert(
-              DEFAULT_CATEGORIES.map(category => {
-                const mapped = mapCategoryToRecord({
-                  ...category,
-                  createdAt: now,
-                  updatedAt: now
-                });
-                mapped.created_at = now;
-                mapped.updated_at = now;
-                return mapped;
-              })
-            );
-          }
-
-          return { key: 'categories', available: true };
-        })().catch(error => {
-          if (isTableMissingError(error)) {
-            console.warn('Tabel kategori tidak ditemukan. Melewati seeding kategori.');
-            return { key: 'categories', available: false };
-          }
+        if (error) {
           throw error;
-        }),
-        (async () => {
-          const { count, error } = await client
-            .from(SUPABASE_TABLES.products)
-            .select('id', { count: 'exact', head: true });
+        }
 
-          if (error) {
-            throw error;
-          }
-
-          if (!count) {
-            const now = new Date().toISOString();
-            await client.from(SUPABASE_TABLES.products).insert(
-              DEFAULT_PRODUCTS.map(product => {
-                const mapped = mapProductToRecord({
-                  ...product,
-                  createdAt: now,
-                  updatedAt: now
-                });
-                mapped.created_at = now;
-                mapped.updated_at = now;
-                return mapped;
-              })
-            );
-          }
-
-          return { key: 'products', available: true };
-        })().catch(error => {
-          if (isTableMissingError(error)) {
-            console.warn('Tabel produk tidak ditemukan. Melewati seeding produk.');
-            return { key: 'products', available: false };
-          }
+        if (!count) {
+          const now = new Date().toISOString();
+          await client.from(SUPABASE_TABLES.categories).insert(
+            DEFAULT_CATEGORIES.map(category => {
+              const mapped = mapCategoryToRecord({
+                ...category,
+                createdAt: now,
+                updatedAt: now
+              });
+              mapped.created_at = now;
+              mapped.updated_at = now;
+              return mapped;
+            })
+          );
+        }
+      } catch (error) {
+        if (isTableMissingError(error)) {
+          categoriesAvailable = false;
+          console.warn('Tabel kategori tidak ditemukan. Melewati seeding kategori.');
+        } else {
           throw error;
-        }),
-        (async () => {
-          const { count, error } = await client
-            .from(SUPABASE_TABLES.exchangeRates)
-            .select('id', { count: 'exact', head: true });
+        }
+      }
 
-          if (error) {
-            throw error;
-          }
+      let productsAvailable = true;
+      try {
+        const { count, error } = await client
+          .from(SUPABASE_TABLES.products)
+          .select('id', { count: 'exact', head: true });
 
-          if (!count) {
-            const now = new Date().toISOString();
-            await client.from(SUPABASE_TABLES.exchangeRates).insert(
-              DEFAULT_EXCHANGE_RATES.map(rate => ({
-                ...rate,
-                created_at: now,
-                updated_at: now
-              }))
-            );
-          }
-
-          return { key: 'exchangeRates', available: true };
-        })().catch(error => {
-          if (isTableMissingError(error)) {
-            console.warn('Tabel kurs tidak ditemukan. Melewati seeding kurs.');
-            return { key: 'exchangeRates', available: false };
-          }
+        if (error) {
           throw error;
-        }),
-        (async () => {
-          const { count, error } = await client
-            .from(SUPABASE_TABLES.shippingVendors)
-            .select('id', { count: 'exact', head: true });
+        }
 
-          if (error) {
-            throw error;
-          }
-
-          if (!count) {
-            const now = new Date().toISOString();
-            await client.from(SUPABASE_TABLES.shippingVendors).insert(
-              DEFAULT_SHIPPING_VENDORS.map(vendor => {
-                const mapped = mapShippingVendorToRecord({
-                  ...vendor,
-                  createdAt: now,
-                  updatedAt: now
-                });
-                if (!mapped) {
-                  return null;
-                }
-                mapped.created_at = now;
-                mapped.updated_at = now;
-                return mapped;
-              }).filter(Boolean)
-            );
-          }
-
-          return { key: 'shippingVendors', available: true };
-        })().catch(error => {
-          if (isTableMissingError(error)) {
-            console.warn('Tabel vendor pengiriman tidak ditemukan. Melewati seeding vendor pengiriman.');
-            return { key: 'shippingVendors', available: false };
-          }
+        if (!count) {
+          const now = new Date().toISOString();
+          await client.from(SUPABASE_TABLES.products).insert(
+            DEFAULT_PRODUCTS.map(product => {
+              const mapped = mapProductToRecord({
+                ...product,
+                createdAt: now,
+                updatedAt: now
+              });
+              mapped.created_at = now;
+              mapped.updated_at = now;
+              return mapped;
+            })
+          );
+        }
+      } catch (error) {
+        if (isTableMissingError(error)) {
+          productsAvailable = false;
+          console.warn('Tabel produk tidak ditemukan. Melewati seeding produk.');
+        } else {
           throw error;
-        }),
-        (async () => {
-          const { count, error } = await client
-            .from(SUPABASE_TABLES.integrations)
-            .select('id', { count: 'exact', head: true });
+        }
+      }
 
-          if (error) {
-            throw error;
-          }
+      let exchangeRatesAvailable = true;
+      try {
+        const { count, error } = await client
+          .from(SUPABASE_TABLES.exchangeRates)
+          .select('id', { count: 'exact', head: true });
 
-          if (!count) {
-            const now = new Date().toISOString();
-            await client.from(SUPABASE_TABLES.integrations).insert(
-              DEFAULT_API_INTEGRATIONS.map(integration => {
-                const mapped = mapIntegrationToRecord({
-                  ...integration,
-                  createdAt: now,
-                  updatedAt: now
-                });
-                if (!mapped) {
-                  return null;
-                }
-                mapped.created_at = mapped.created_at ?? now;
-                mapped.updated_at = mapped.updated_at ?? now;
-                return mapped;
-              }).filter(Boolean)
-            );
-          }
-
-          return { key: 'integrations', available: true };
-        })().catch(error => {
-          if (isTableMissingError(error)) {
-            console.warn('Tabel integrasi API tidak ditemukan. Melewati seeding integrasi.');
-            return { key: 'integrations', available: false };
-          }
+        if (error) {
           throw error;
-        })
-      ]);
+        }
 
-      const availabilityMap = new Map(seedingResults.map(result => [result.key, result.available]));
+        if (!count) {
+          const now = new Date().toISOString();
+          await client.from(SUPABASE_TABLES.exchangeRates).insert(
+            DEFAULT_EXCHANGE_RATES.map(rate => ({
+              ...rate,
+              created_at: now,
+              updated_at: now
+            }))
+          );
+        }
+      } catch (error) {
+        if (isTableMissingError(error)) {
+          exchangeRatesAvailable = false;
+          console.warn('Tabel kurs tidak ditemukan. Melewati seeding kurs.');
+        } else {
+          throw error;
+        }
+      }
 
-      const refreshPromises = [];
+      let shippingVendorsAvailable = true;
+      try {
+        const { count, error } = await client
+          .from(SUPABASE_TABLES.shippingVendors)
+          .select('id', { count: 'exact', head: true });
 
-      if (availabilityMap.get('categories')) {
-        refreshPromises.push(
-          refreshCategoriesFromSupabase().catch(error => {
-            if (isTableMissingError(error)) {
-              availabilityMap.set('categories', false);
-              console.warn('Tabel kategori tidak ditemukan saat refresh.');
-              return null;
-            }
+        if (error) {
+          throw error;
+        }
+
+        if (!count) {
+          const now = new Date().toISOString();
+          await client.from(SUPABASE_TABLES.shippingVendors).insert(
+            DEFAULT_SHIPPING_VENDORS.map(vendor => {
+              const mapped = mapShippingVendorToRecord({
+                ...vendor,
+                createdAt: now,
+                updatedAt: now
+              });
+              if (!mapped) {
+                return null;
+              }
+              mapped.created_at = now;
+              mapped.updated_at = now;
+              return mapped;
+            }).filter(Boolean)
+          );
+        }
+      } catch (error) {
+        if (isTableMissingError(error)) {
+          shippingVendorsAvailable = false;
+          console.warn('Tabel vendor pengiriman tidak ditemukan. Melewati seeding vendor pengiriman.');
+        } else {
+          throw error;
+        }
+      }
+
+      let integrationsAvailable = true;
+      try {
+        const { count, error } = await client
+          .from(SUPABASE_TABLES.integrations)
+          .select('id', { count: 'exact', head: true });
+
+        if (error) {
+          throw error;
+        }
+
+        if (!count) {
+          const now = new Date().toISOString();
+          await client.from(SUPABASE_TABLES.integrations).insert(
+            DEFAULT_API_INTEGRATIONS.map(integration => {
+              const mapped = mapIntegrationToRecord({
+                ...integration,
+                createdAt: now,
+                updatedAt: now
+              });
+              if (!mapped) {
+                return null;
+              }
+              mapped.created_at = mapped.created_at ?? now;
+              mapped.updated_at = mapped.updated_at ?? now;
+              return mapped;
+            }).filter(Boolean)
+          );
+        }
+      } catch (error) {
+        if (isTableMissingError(error)) {
+          integrationsAvailable = false;
+          console.warn('Tabel integrasi API tidak ditemukan. Melewati seeding integrasi.');
+        } else {
+          throw error;
+        }
+      }
+
+      if (categoriesAvailable) {
+        try {
+          await refreshCategoriesFromSupabase();
+        } catch (error) {
+          if (isTableMissingError(error)) {
+            categoriesAvailable = false;
+            console.warn('Tabel kategori tidak ditemukan saat refresh.');
+          } else {
             throw error;
-          })
-        );
+          }
+        }
       }
 
-      if (availabilityMap.get('products')) {
-        refreshPromises.push(
-          refreshProductsFromSupabase().catch(error => {
-            if (isTableMissingError(error)) {
-              availabilityMap.set('products', false);
-              console.warn('Tabel produk tidak ditemukan saat refresh.');
-              return null;
-            }
+      if (productsAvailable) {
+        try {
+          await refreshProductsFromSupabase();
+        } catch (error) {
+          if (isTableMissingError(error)) {
+            productsAvailable = false;
+            console.warn('Tabel produk tidak ditemukan saat refresh.');
+          } else {
             throw error;
-          })
-        );
+          }
+        }
       }
 
-      if (availabilityMap.get('exchangeRates')) {
-        refreshPromises.push(
-          refreshExchangeRatesFromSupabase().catch(error => {
-            if (isTableMissingError(error)) {
-              availabilityMap.set('exchangeRates', false);
-              console.warn('Tabel kurs tidak ditemukan saat refresh.');
-              return null;
-            }
+      if (exchangeRatesAvailable) {
+        try {
+          await refreshExchangeRatesFromSupabase();
+        } catch (error) {
+          if (isTableMissingError(error)) {
+            exchangeRatesAvailable = false;
+            console.warn('Tabel kurs tidak ditemukan saat refresh.');
+          } else {
             throw error;
-          })
-        );
+          }
+        }
       }
 
-      if (availabilityMap.get('shippingVendors')) {
-        refreshPromises.push(
-          refreshShippingVendorsFromSupabase().catch(error => {
-            if (isTableMissingError(error)) {
-              availabilityMap.set('shippingVendors', false);
-              console.warn('Tabel vendor pengiriman tidak ditemukan saat refresh.');
-              return null;
-            }
+      if (shippingVendorsAvailable) {
+        try {
+          await refreshShippingVendorsFromSupabase();
+        } catch (error) {
+          if (isTableMissingError(error)) {
+            shippingVendorsAvailable = false;
+            console.warn('Tabel vendor pengiriman tidak ditemukan saat refresh.');
+          } else {
             throw error;
-          })
-        );
+          }
+        }
       }
 
-      if (availabilityMap.get('integrations')) {
-        refreshPromises.push(
-          refreshIntegrationsFromSupabase().catch(error => {
-            if (isTableMissingError(error)) {
-              availabilityMap.set('integrations', false);
-              console.warn('Tabel integrasi API tidak ditemukan saat refresh.');
-              return null;
-            }
+      if (integrationsAvailable) {
+        try {
+          await refreshIntegrationsFromSupabase();
+        } catch (error) {
+          if (isTableMissingError(error)) {
+            integrationsAvailable = false;
+            console.warn('Tabel integrasi API tidak ditemukan saat refresh.');
+          } else {
             throw error;
-          })
-        );
+          }
+        }
       }
-
-      if (refreshPromises.length) {
-        await Promise.all(refreshPromises);
-      }
-
-      markSeedingFlagActive();
     })().catch(error => {
       console.error('Gagal melakukan seeding awal Supabase.', error);
       throw error;
@@ -8914,9 +8789,8 @@ async function refreshIntegrationsFromSupabase() {
   const client = getSupabaseClient();
   const { data, error } = await client
     .from(SUPABASE_TABLES.integrations)
-    .select(SUPABASE_SELECT_COLUMNS.integrations.join(','))
-    .order('name', { ascending: true })
-    .limit(SUPABASE_FETCH_LIMITS.integrations);
+    .select('*')
+    .order('name', { ascending: true });
 
   if (error) {
     throw error;
