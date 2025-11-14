@@ -1639,74 +1639,7 @@ const remoteCache = {
   [STORAGE_KEYS.integrations]: []
 };
 
-const SUPABASE_SEED_STATE_STORAGE_KEY = 'entraverse_supabase_seed_state';
-const SUPABASE_SEED_STATE_TTL = 5 * 60 * 1000;
-
 let seedingPromise = null;
-
-function readSupabaseSeedState() {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SUPABASE_SEED_STATE_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw);
-    const timestamp = Number(parsed?.timestamp);
-    if (!Number.isFinite(timestamp)) {
-      return null;
-    }
-
-    return {
-      timestamp,
-      success: Boolean(parsed?.success)
-    };
-  } catch (error) {
-    console.warn('Gagal membaca status seeding Supabase dari localStorage.', error);
-    return null;
-  }
-}
-
-function writeSupabaseSeedState(state) {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  try {
-    const payload = {
-      timestamp: Number.isFinite(state?.timestamp) ? state.timestamp : Date.now(),
-      success: Boolean(state?.success)
-    };
-    window.localStorage.setItem(SUPABASE_SEED_STATE_STORAGE_KEY, JSON.stringify(payload));
-  } catch (error) {
-    console.warn('Gagal menyimpan status seeding Supabase ke localStorage.', error);
-  }
-}
-
-function clearSupabaseSeedState() {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(SUPABASE_SEED_STATE_STORAGE_KEY);
-  } catch (error) {
-    console.warn('Gagal menghapus status seeding Supabase dari localStorage.', error);
-  }
-}
-
-function isSupabaseSeedFresh() {
-  const state = readSupabaseSeedState();
-  if (!state || !state.success) {
-    return false;
-  }
-
-  return Date.now() - state.timestamp < SUPABASE_SEED_STATE_TTL;
-}
 
 function getRemoteCacheStorageKey(key) {
   return `${REMOTE_CACHE_STORAGE_PREFIX}${key}`;
@@ -2651,19 +2584,9 @@ async function insertUserToSupabase(user) {
 }
 
 async function ensureSeeded() {
-  if (isSupabaseSeedFresh()) {
-    return;
-  }
-
+  await ensureSupabase();
   if (!seedingPromise) {
-    const task = (async () => {
-      try {
-        await ensureSupabase();
-      } catch (error) {
-        clearSupabaseSeedState();
-        throw error;
-      }
-
+    seedingPromise = (async () => {
       const client = getSupabaseClient();
 
       let categoriesAvailable = true;
@@ -2696,7 +2619,6 @@ async function ensureSeeded() {
           categoriesAvailable = false;
           console.warn('Tabel kategori tidak ditemukan. Melewati seeding kategori.');
         } else {
-          clearSupabaseSeedState();
           throw error;
         }
       }
@@ -2731,7 +2653,6 @@ async function ensureSeeded() {
           productsAvailable = false;
           console.warn('Tabel produk tidak ditemukan. Melewati seeding produk.');
         } else {
-          clearSupabaseSeedState();
           throw error;
         }
       }
@@ -2761,7 +2682,6 @@ async function ensureSeeded() {
           exchangeRatesAvailable = false;
           console.warn('Tabel kurs tidak ditemukan. Melewati seeding kurs.');
         } else {
-          clearSupabaseSeedState();
           throw error;
         }
       }
@@ -2799,7 +2719,6 @@ async function ensureSeeded() {
           shippingVendorsAvailable = false;
           console.warn('Tabel vendor pengiriman tidak ditemukan. Melewati seeding vendor pengiriman.');
         } else {
-          clearSupabaseSeedState();
           throw error;
         }
       }
@@ -2837,7 +2756,6 @@ async function ensureSeeded() {
           integrationsAvailable = false;
           console.warn('Tabel integrasi API tidak ditemukan. Melewati seeding integrasi.');
         } else {
-          clearSupabaseSeedState();
           throw error;
         }
       }
@@ -2850,7 +2768,6 @@ async function ensureSeeded() {
             categoriesAvailable = false;
             console.warn('Tabel kategori tidak ditemukan saat refresh.');
           } else {
-            clearSupabaseSeedState();
             throw error;
           }
         }
@@ -2864,7 +2781,6 @@ async function ensureSeeded() {
             productsAvailable = false;
             console.warn('Tabel produk tidak ditemukan saat refresh.');
           } else {
-            clearSupabaseSeedState();
             throw error;
           }
         }
@@ -2878,7 +2794,6 @@ async function ensureSeeded() {
             exchangeRatesAvailable = false;
             console.warn('Tabel kurs tidak ditemukan saat refresh.');
           } else {
-            clearSupabaseSeedState();
             throw error;
           }
         }
@@ -2892,7 +2807,6 @@ async function ensureSeeded() {
             shippingVendorsAvailable = false;
             console.warn('Tabel vendor pengiriman tidak ditemukan saat refresh.');
           } else {
-            clearSupabaseSeedState();
             throw error;
           }
         }
@@ -2906,25 +2820,13 @@ async function ensureSeeded() {
             integrationsAvailable = false;
             console.warn('Tabel integrasi API tidak ditemukan saat refresh.');
           } else {
-            clearSupabaseSeedState();
             throw error;
           }
         }
       }
-
-      writeSupabaseSeedState({ timestamp: Date.now(), success: true });
-    })();
-
-    seedingPromise = task
-      .catch(error => {
-        console.error('Gagal melakukan seeding awal Supabase.', error);
-        throw error;
-      });
-
-    task.finally(() => {
-      if (seedingPromise === task) {
-        seedingPromise = null;
-      }
+    })().catch(error => {
+      console.error('Gagal melakukan seeding awal Supabase.', error);
+      throw error;
     });
   }
 
@@ -12523,65 +12425,59 @@ function handleIntegrationActions(options = {}) {
   });
 }
 
-function initReportsPage() {
+async function initReportsPage() {
   ensureIntegrationsSeeded();
 
-  let mekariIntegration = null;
-  const pnlUI = createProfitLossSummaryUI();
-  pnlUI.setIntegration(mekariIntegration);
+  let supabaseReady = true;
+  try {
+    await ensureSeeded();
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Gagal menyiapkan data laporan stok gudang.', error);
+    toast.show('Gagal memuat data dari Supabase. Menggunakan data lokal.');
+  }
 
-  const refreshMekariIntegrationCard = async ({ refresh = false } = {}) => {
+  if (supabaseReady) {
     try {
-      const integration = await resolveMekariIntegration({ refresh });
-      mekariIntegration = integration ?? null;
-      pnlUI.setIntegration(mekariIntegration);
+      await refreshIntegrationsFromSupabase();
     } catch (error) {
-      console.warn('Gagal memperbarui konfigurasi Mekari Jurnal.', error);
+      console.error('Gagal memperbarui data integrasi Mekari.', error);
+      toast.show('Data integrasi Mekari Jurnal mungkin tidak terbaru.');
     }
-  };
+  } else {
+    setStoredIntegrations(getStoredIntegrations());
+  }
 
-  refreshMekariIntegrationCard().catch(error => {
-    console.warn('Gagal memuat konfigurasi Mekari Jurnal.', error);
-  });
-
-  document.addEventListener('integrations:changed', () => {
-    refreshMekariIntegrationCard({ refresh: true });
-  });
-
-  const pnlState = {
-    lastSignature: null,
-    hasData: false,
-    loading: false,
-    requestSignature: null
-  };
-
-  const runInitialSync = async () => {
-    let supabaseReady = true;
+    let mekariIntegration = null;
     try {
-      await ensureSeeded();
+      mekariIntegration = await resolveMekariIntegration();
     } catch (error) {
-      supabaseReady = false;
-      console.error('Gagal menyiapkan data laporan stok gudang.', error);
-      toast.show('Gagal memuat data dari Supabase. Menggunakan data lokal.');
+      console.warn('Gagal memuat konfigurasi Mekari Jurnal.', error);
     }
 
-    if (supabaseReady) {
+    const pnlUI = createProfitLossSummaryUI();
+    pnlUI.setIntegration(mekariIntegration);
+
+    const refreshMekariIntegrationCard = async ({ refresh = false } = {}) => {
       try {
-        await refreshIntegrationsFromSupabase();
+        const integration = await resolveMekariIntegration({ refresh });
+        mekariIntegration = integration ?? null;
+        pnlUI.setIntegration(mekariIntegration);
       } catch (error) {
-        console.error('Gagal memperbarui data integrasi Mekari.', error);
-        toast.show('Data integrasi Mekari Jurnal mungkin tidak terbaru.');
+        console.warn('Gagal memperbarui konfigurasi Mekari Jurnal.', error);
       }
-    } else {
-      setStoredIntegrations(getStoredIntegrations());
-    }
+    };
 
-    await refreshMekariIntegrationCard({ refresh: true });
-  };
+    document.addEventListener('integrations:changed', () => {
+      refreshMekariIntegrationCard({ refresh: true });
+    });
 
-  runInitialSync().catch(error => {
-    console.error('Gagal menyelesaikan sinkronisasi laporan.', error);
-  });
+    const pnlState = {
+      lastSignature: null,
+      hasData: false,
+      loading: false,
+      requestSignature: null
+    };
 
   let dateFilter = null;
 
@@ -12825,45 +12721,31 @@ function initReportsPage() {
   applyFilters();
 }
 
-function initIntegrations() {
+async function initIntegrations() {
   ensureIntegrationsSeeded();
 
-  const getFilterValue = () => document.getElementById('search-input')?.value ?? '';
-  const refreshTable = () => {
-    const filter = getFilterValue();
-    renderIntegrations(filter);
-  };
+  let supabaseReady = true;
+  try {
+    await ensureSeeded();
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Gagal menyiapkan data integrasi.', error);
+    toast.show('Gagal memuat data integrasi. Pastikan Supabase tersambung.');
+  }
+
+  if (supabaseReady) {
+    try {
+      await refreshIntegrationsFromSupabase();
+    } catch (error) {
+      console.error('Gagal memperbarui data integrasi.', error);
+      toast.show('Data integrasi mungkin tidak terbaru.');
+    }
+  } else {
+    setStoredIntegrations(getStoredIntegrations());
+  }
 
   renderIntegrations();
   handleSearch(value => renderIntegrations(value));
-
-  const runInitialSync = async () => {
-    let supabaseReady = true;
-    try {
-      await ensureSeeded();
-    } catch (error) {
-      supabaseReady = false;
-      console.error('Gagal menyiapkan data integrasi.', error);
-      toast.show('Gagal memuat data integrasi. Pastikan Supabase tersambung.');
-    }
-
-    if (supabaseReady) {
-      try {
-        await refreshIntegrationsFromSupabase();
-      } catch (error) {
-        console.error('Gagal memperbarui data integrasi.', error);
-        toast.show('Data integrasi mungkin tidak terbaru.');
-      }
-    } else {
-      setStoredIntegrations(getStoredIntegrations());
-    }
-
-    refreshTable();
-  };
-
-  runInitialSync().catch(error => {
-    console.error('Gagal menyelesaikan sinkronisasi integrasi.', error);
-  });
 
   const modal = document.getElementById('integration-modal');
   const form = document.getElementById('integration-form');
@@ -12877,6 +12759,12 @@ function initIntegrations() {
   const logoPreview = form?.querySelector('[data-logo-preview]');
   const logoPreviewImage = form?.querySelector('[data-logo-preview-image]');
   const logoPreviewInitial = form?.querySelector('[data-logo-preview-initial]');
+
+  const getFilterValue = () => document.getElementById('search-input')?.value ?? '';
+  const refreshTable = () => {
+    const filter = getFilterValue();
+    renderIntegrations(filter);
+  };
 
   document.addEventListener('integrations:changed', refreshTable);
 
@@ -13269,7 +13157,7 @@ function initIntegrations() {
   });
 }
 
-function initDashboard() {
+async function initDashboard() {
   const resolveCurrentFilter = () => (document.getElementById('search-input')?.value ?? '').toString();
 
   renderProducts(resolveCurrentFilter());
@@ -13308,65 +13196,51 @@ function initDashboard() {
     renderProducts(resolveCurrentFilter());
   });
 
-  const runInitialSync = async () => {
-    let supabaseReady = true;
+  let supabaseReady = true;
 
+  try {
+    await ensureSeeded();
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Gagal menyiapkan data dashboard.', error);
+    toast.show('Gagal memuat data dashboard. Pastikan Supabase tersambung.');
+  }
+
+  if (supabaseReady) {
     try {
-      await ensureSeeded();
+      await refreshCategoriesFromSupabase();
     } catch (error) {
-      supabaseReady = false;
-      console.error('Gagal menyiapkan data dashboard.', error);
-      toast.show('Gagal memuat data dashboard. Pastikan Supabase tersambung.');
+      console.error('Gagal memperbarui data dashboard.', error);
+      toast.show('Data dashboard mungkin tidak terbaru.');
     }
+  }
 
-    if (supabaseReady) {
-      try {
-        await refreshCategoriesFromSupabase();
-      } catch (error) {
-        console.error('Gagal memperbarui data dashboard.', error);
-        toast.show('Data dashboard mungkin tidak terbaru.');
-      }
-    }
-
-    renderProducts(resolveCurrentFilter());
-  };
-
-  runInitialSync().catch(error => {
-    console.error('Gagal menyelesaikan sinkronisasi dashboard.', error);
-  });
+  renderProducts(resolveCurrentFilter());
 }
 
-function initCategories() {
-  const runInitialSync = async () => {
-    let supabaseReady = true;
+async function initCategories() {
+  let supabaseReady = true;
 
+  try {
+    await ensureSeeded();
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Gagal menyiapkan data kategori.', error);
+    toast.show('Gagal memuat data kategori. Pastikan Supabase tersambung.');
+  }
+
+  if (supabaseReady) {
     try {
-      await ensureSeeded();
+      await refreshCategoriesFromSupabase();
     } catch (error) {
-      supabaseReady = false;
-      console.error('Gagal menyiapkan data kategori.', error);
-      toast.show('Gagal memuat data kategori. Pastikan Supabase tersambung.');
+      console.error('Gagal memperbarui data kategori.', error);
+      toast.show('Data kategori mungkin tidak terbaru.');
     }
-
-    if (supabaseReady) {
-      try {
-        await refreshCategoriesFromSupabase();
-      } catch (error) {
-        console.error('Gagal memperbarui data kategori.', error);
-        toast.show('Data kategori mungkin tidak terbaru.');
-      }
-    }
-
-    renderCategories();
-  };
+  }
 
   renderCategories();
   handleSearch(value => renderCategories(value));
   handleCategoryActions();
-
-  runInitialSync().catch(error => {
-    console.error('Gagal menyelesaikan sinkronisasi kategori.', error);
-  });
 }
 
 function initPage() {
@@ -13402,7 +13276,7 @@ function initPage() {
     }
 
     if (page === 'dashboard') {
-      initDashboard();
+      await initDashboard();
     }
 
     if (page === 'add-product') {
@@ -13410,7 +13284,7 @@ function initPage() {
     }
 
     if (page === 'categories') {
-      initCategories();
+      await initCategories();
     }
 
     if (page === 'shipping') {
@@ -13418,11 +13292,11 @@ function initPage() {
     }
 
     if (page === 'integrations') {
-      initIntegrations();
+      await initIntegrations();
     }
 
     if (page === 'reports') {
-      initReportsPage();
+      await initReportsPage();
     }
 
   });
