@@ -1587,6 +1587,16 @@ let supabaseClient = null;
 let supabaseInitializationPromise = null;
 let supabaseInitializationError = null;
 
+const REMOTE_CACHE_STORAGE_PREFIX = 'entraverse:remote-cache:';
+const REMOTE_CACHE_STORAGE_VERSION = 1;
+const PERSISTED_REMOTE_CACHE_KEYS = new Set([
+  STORAGE_KEYS.products,
+  STORAGE_KEYS.categories,
+  STORAGE_KEYS.exchangeRates,
+  STORAGE_KEYS.shippingVendors,
+  STORAGE_KEYS.integrations
+]);
+
 function isTableMissingError(error) {
   if (!error) {
     return false;
@@ -1624,6 +1634,95 @@ const remoteCache = {
 };
 
 let seedingPromise = null;
+
+function getRemoteCacheStorageKey(key) {
+  return `${REMOTE_CACHE_STORAGE_PREFIX}${key}`;
+}
+
+function readRemoteCacheFromStorage(key) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+
+  try {
+    const storageKey = getRemoteCacheStorageKey(key);
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    const data = Array.isArray(parsed?.data)
+      ? parsed.data
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
+
+    if (!Array.isArray(data) || !data.length) {
+      return [];
+    }
+
+    return data.map(item => clone(item));
+  } catch (error) {
+    console.warn('Gagal membaca cache tersinkronisasi dari localStorage.', error);
+    return null;
+  }
+}
+
+function persistRemoteCache(key, value) {
+  if (!PERSISTED_REMOTE_CACHE_KEYS.has(key)) {
+    return;
+  }
+
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  try {
+    const payload = {
+      version: REMOTE_CACHE_STORAGE_VERSION,
+      updatedAt: Date.now(),
+      data: Array.isArray(value) ? value.map(item => clone(item)) : []
+    };
+    window.localStorage.setItem(getRemoteCacheStorageKey(key), JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Gagal menyimpan cache tersinkronisasi ke localStorage.', error);
+  }
+}
+
+function loadPersistedRemoteCache() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  PERSISTED_REMOTE_CACHE_KEYS.forEach(key => {
+    const stored = readRemoteCacheFromStorage(key);
+    if (!stored) {
+      return;
+    }
+
+    switch (key) {
+      case STORAGE_KEYS.categories:
+        setCategoryCache(stored);
+        break;
+      case STORAGE_KEYS.products:
+        setProductCache(stored);
+        break;
+      case STORAGE_KEYS.exchangeRates:
+        setExchangeRateCache(stored);
+        break;
+      case STORAGE_KEYS.shippingVendors:
+        setShippingVendorCache(stored);
+        break;
+      case STORAGE_KEYS.integrations:
+        setIntegrationCache(stored);
+        break;
+      default:
+        setRemoteCache(key, Array.isArray(stored) ? stored : []);
+        break;
+    }
+  });
+}
 
 function getSupabaseConfig() {
   const config = window.entraverseConfig?.supabase ?? {};
@@ -1784,20 +1883,31 @@ function setRemoteCache(key, value) {
     return;
   }
 
-  if (!Array.isArray(value)) {
-    remoteCache[key] = [];
-    return;
+  let normalized = [];
+  if (Array.isArray(value)) {
+    normalized = value.map(item => clone(item));
   }
 
-  remoteCache[key] = value.map(item => clone(item));
+  remoteCache[key] = normalized;
+  persistRemoteCache(key, normalized);
 }
 
 function getRemoteCache(key, fallback) {
   if (!Object.prototype.hasOwnProperty.call(remoteCache, key)) {
     return clone(fallback);
   }
+  const cached = remoteCache[key];
 
-  return clone(remoteCache[key]);
+  if (PERSISTED_REMOTE_CACHE_KEYS.has(key) && (!Array.isArray(cached) || !cached.length)) {
+    const stored = readRemoteCacheFromStorage(key);
+    if (Array.isArray(stored)) {
+      const normalized = stored.map(item => clone(item));
+      remoteCache[key] = normalized;
+      return clone(normalized);
+    }
+  }
+
+  return clone(cached);
 }
 
 function mapSupabaseCategory(record) {
@@ -6527,17 +6637,21 @@ async function handleAddProductForm() {
     updateAllArrivalCosts();
   });
 
-  try {
-    await ensureSeeded();
-    await Promise.all([
-      refreshCategoriesFromSupabase(),
-      refreshProductsFromSupabase(),
-      refreshExchangeRatesFromSupabase()
-    ]);
-  } catch (error) {
-    console.error('Gagal menyiapkan data produk.', error);
-    toast.show('Gagal memuat data produk. Pastikan Supabase tersambung.');
-  }
+  let dataPreparationError = null;
+  const dataPreparationPromise = (async () => {
+    try {
+      await ensureSeeded();
+      await Promise.all([
+        refreshCategoriesFromSupabase(),
+        refreshProductsFromSupabase(),
+        refreshExchangeRatesFromSupabase()
+      ]);
+    } catch (error) {
+      dataPreparationError = error;
+      console.error('Gagal menyiapkan data produk.', error);
+      toast.show('Gagal memuat data produk. Pastikan Supabase tersambung.');
+    }
+  })();
 
   const getPricingRows = () => Array.from(pricingBody?.querySelectorAll('.pricing-row') ?? []);
 
@@ -6987,6 +7101,14 @@ async function handleAddProductForm() {
   const updateAllPricingRows = () => {
     getPricingRows().forEach(row => updateComputedPricingForRow(row));
   };
+
+  dataPreparationPromise.then(() => {
+    if (dataPreparationError) {
+      return;
+    }
+    refreshWarehouseAveragesForPricing();
+    updateAllPricingRows();
+  });
 
   const sanitizeCurrencyDigits = value => {
     if (value === null || value === undefined) {
@@ -8190,8 +8312,16 @@ async function handleAddProductForm() {
   });
 
   if (editingId) {
-    const products = getProductsFromCache();
-    const product = products.find(p => p.id === editingId);
+    let products = getProductsFromCache();
+    let product = products.find(p => p.id === editingId);
+
+    if (!product) {
+      await dataPreparationPromise;
+      if (!dataPreparationError) {
+        products = getProductsFromCache();
+        product = products.find(p => p.id === editingId);
+      }
+    }
 
     if (!product) {
       toast.show('Produk tidak ditemukan.');
@@ -12883,29 +13013,9 @@ async function initIntegrations() {
 }
 
 async function initDashboard() {
-  let supabaseReady = true;
+  const resolveCurrentFilter = () => (document.getElementById('search-input')?.value ?? '').toString();
 
-  try {
-    await ensureSeeded();
-  } catch (error) {
-    supabaseReady = false;
-    console.error('Gagal menyiapkan data dashboard.', error);
-    toast.show('Gagal memuat data dashboard. Pastikan Supabase tersambung.');
-  }
-
-  if (supabaseReady) {
-    try {
-      await Promise.all([
-        refreshProductsFromSupabase(),
-        refreshCategoriesFromSupabase()
-      ]);
-    } catch (error) {
-      console.error('Gagal memperbarui data dashboard.', error);
-      toast.show('Data dashboard mungkin tidak terbaru.');
-    }
-  }
-
-  renderProducts();
+  renderProducts(resolveCurrentFilter());
   handleProductActions();
   handleSearch(value => renderProducts(value, { resetPage: true }));
   handleSync();
@@ -12938,9 +13048,32 @@ async function initDashboard() {
 
   document.addEventListener('entraverse:session-change', () => {
     updateAddProductLinkState();
-    const filter = document.getElementById('search-input')?.value ?? '';
-    renderProducts(filter);
+    renderProducts(resolveCurrentFilter());
   });
+
+  let supabaseReady = true;
+
+  try {
+    await ensureSeeded();
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Gagal menyiapkan data dashboard.', error);
+    toast.show('Gagal memuat data dashboard. Pastikan Supabase tersambung.');
+  }
+
+  if (supabaseReady) {
+    try {
+      await Promise.all([
+        refreshProductsFromSupabase(),
+        refreshCategoriesFromSupabase()
+      ]);
+    } catch (error) {
+      console.error('Gagal memperbarui data dashboard.', error);
+      toast.show('Data dashboard mungkin tidak terbaru.');
+    }
+  }
+
+  renderProducts(resolveCurrentFilter());
 }
 
 async function initCategories() {
@@ -13027,4 +13160,5 @@ function initPage() {
   });
 }
 
+loadPersistedRemoteCache();
 initPage();
