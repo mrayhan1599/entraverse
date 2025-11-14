@@ -13489,11 +13489,42 @@ function initIntegrations() {
 function initDashboard() {
   const resolveCurrentFilter = () => (document.getElementById('search-input')?.value ?? '').toString();
 
-  renderProducts(resolveCurrentFilter());
+  const tableBody = document.getElementById('product-table-body');
+  const countEl = document.getElementById('product-count');
+  const metaEl = document.getElementById('table-meta');
+
+  const showLoadingIndicators = () => {
+    if (countEl) {
+      countEl.textContent = 'Memuat…';
+    }
+    if (metaEl) {
+      metaEl.textContent = 'Menyiapkan data produk…';
+    }
+    if (tableBody) {
+      renderProductTableMessage(tableBody, 'Memuat produk…', { className: 'loading-state' });
+    }
+  };
+
+  showLoadingIndicators();
   handleProductActions();
-  handleSearch(value => renderProducts(value, { resetPage: true }));
   handleSync();
   scheduleDailyInventorySync();
+
+  let initialSyncCompleted = false;
+  let pendingFilter = (resolveCurrentFilter() ?? '').toString();
+  let pendingRenderOptions = {};
+
+  const requestRender = (filter, options = {}) => {
+    pendingFilter = (filter ?? '').toString();
+    pendingRenderOptions = options && typeof options === 'object' ? { ...options } : {};
+    if (initialSyncCompleted) {
+      renderProducts(pendingFilter, pendingRenderOptions);
+    } else {
+      showLoadingIndicators();
+    }
+  };
+
+  handleSearch(value => requestRender(value, { resetPage: true }));
 
   const addProductLink = document.querySelector('[data-add-product-link]');
   const updateAddProductLinkState = () => {
@@ -13522,7 +13553,7 @@ function initDashboard() {
 
   document.addEventListener('entraverse:session-change', () => {
     updateAddProductLinkState();
-    renderProducts(resolveCurrentFilter());
+    requestRender(resolveCurrentFilter());
   });
 
   const runInitialSync = async () => {
@@ -13578,11 +13609,14 @@ function initDashboard() {
       await Promise.all(followUpTasks);
     }
 
-    renderProducts(resolveCurrentFilter());
+    initialSyncCompleted = true;
+    renderProducts(pendingFilter, pendingRenderOptions);
   };
 
   runInitialSync().catch(error => {
     console.error('Gagal menyelesaikan sinkronisasi dashboard.', error);
+    initialSyncCompleted = true;
+    renderProducts(pendingFilter, pendingRenderOptions);
   });
 }
 
