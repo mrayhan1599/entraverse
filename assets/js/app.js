@@ -601,6 +601,7 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
 const MEKARI_DEFAULT_LOGO_URL = 'assets/img/integrations/mekari-jurnal.svg';
 let mekariIntegrationCache = null;
+let mekariIntegrationFetchPromise = null;
 const TARGET_WAREHOUSE_NAME = 'Display';
 
 let warehouseMovementsState = {
@@ -9443,27 +9444,40 @@ function setMekariIntegrationCache(integration) {
 async function resolveMekariIntegration({ refresh = false } = {}) {
   ensureIntegrationsSeeded();
 
-  if (!refresh && mekariIntegrationCache) {
+  if (refresh) {
+    mekariIntegrationFetchPromise = null;
+  } else if (mekariIntegrationCache) {
     return mekariIntegrationCache;
   }
 
-  if (!refresh) {
-    const existing = findIntegrationByName(MEKARI_INTEGRATION_NAME);
-    if (existing) {
-      return setMekariIntegrationCache(existing);
-    }
+  if (!mekariIntegrationFetchPromise) {
+    mekariIntegrationFetchPromise = (async () => {
+      let integration = null;
+
+      if (isSupabaseConfigured()) {
+        try {
+          await refreshIntegrationsFromSupabase();
+          integration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? null;
+        } catch (error) {
+          console.warn('Gagal memperbarui data integrasi dari Supabase.', error);
+        }
+      }
+
+      if (!integration) {
+        integration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? null;
+      }
+
+      return setMekariIntegrationCache(integration);
+    })();
   }
 
-  if (isSupabaseConfigured() && (refresh || !mekariIntegrationCache)) {
-    try {
-      await refreshIntegrationsFromSupabase();
-    } catch (error) {
-      console.warn('Gagal memperbarui data integrasi dari Supabase.', error);
-    }
+  try {
+    const resolved = await mekariIntegrationFetchPromise;
+    return resolved ?? null;
+  } catch (error) {
+    mekariIntegrationFetchPromise = null;
+    throw error;
   }
-
-  const integration = findIntegrationByName(MEKARI_INTEGRATION_NAME);
-  return setMekariIntegrationCache(integration);
 }
 
 async function markMekariIntegrationSynced(integration, syncedAt) {
@@ -13522,13 +13536,46 @@ function initDashboard() {
       toast.show('Gagal memuat data dashboard. Pastikan Supabase tersambung.');
     }
 
+    const followUpTasks = [];
+
     if (supabaseReady) {
-      try {
-        await refreshCategoriesFromSupabase();
-      } catch (error) {
-        console.error('Gagal memperbarui data dashboard.', error);
-        toast.show('Data dashboard mungkin tidak terbaru.');
+      followUpTasks.push(
+        (async () => {
+          try {
+            await refreshCategoriesFromSupabase();
+          } catch (error) {
+            console.error('Gagal memperbarui data dashboard.', error);
+            toast.show('Data dashboard mungkin tidak terbaru.');
+          }
+        })()
+      );
+
+      if (isSupabaseConfigured()) {
+        followUpTasks.push(
+          (async () => {
+            try {
+              await refreshProductsFromSupabase();
+            } catch (error) {
+              console.error('Gagal memperbarui data produk dashboard.', error);
+              toast.show('Data produk mungkin tidak terbaru.');
+            }
+          })()
+        );
+
+        followUpTasks.push(
+          (async () => {
+            try {
+              await resolveMekariIntegration();
+            } catch (error) {
+              console.warn('Gagal memuat integrasi Mekari Jurnal terbaru.', error);
+            }
+          })()
+        );
       }
+    }
+
+    if (followUpTasks.length) {
+      await Promise.all(followUpTasks);
     }
 
     renderProducts(resolveCurrentFilter());
