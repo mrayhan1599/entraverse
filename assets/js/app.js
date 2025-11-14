@@ -1776,6 +1776,34 @@ function isTableMissingError(error) {
   );
 }
 
+function isPermissionDeniedError(error) {
+  if (!error) {
+    return false;
+  }
+
+  const code = error.code || error?.cause?.code;
+  if (code === '42501' || code === 'PGRST302' || code === 'PGRST403') {
+    return true;
+  }
+
+  const details = [error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (!details) {
+    return false;
+  }
+
+  return (
+    details.includes('permission denied') ||
+    details.includes('row-level security') ||
+    details.includes('not authorised') ||
+    details.includes('not authorized') ||
+    details.includes('access denied')
+  );
+}
+
 const remoteCache = {
   [STORAGE_KEYS.users]: [],
   [STORAGE_KEYS.products]: [],
@@ -2839,9 +2867,9 @@ async function ensureSeeded() {
           });
         }
       } catch (error) {
-        if (isTableMissingError(error)) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           categoriesAvailable = false;
-          console.warn('Tabel kategori tidak ditemukan. Melewati seeding kategori.');
+          console.warn('Tabel kategori tidak tersedia atau akses ditolak. Melewati seeding kategori.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -2879,9 +2907,9 @@ async function ensureSeeded() {
           });
         }
       } catch (error) {
-        if (isTableMissingError(error)) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           productsAvailable = false;
-          console.warn('Tabel produk tidak ditemukan. Melewati seeding produk.');
+          console.warn('Tabel produk tidak tersedia atau akses ditolak. Melewati seeding produk.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -2900,11 +2928,20 @@ async function ensureSeeded() {
 
         if (!count) {
           const now = new Date().toISOString();
-          const payload = DEFAULT_EXCHANGE_RATES.map(rate => ({
-            ...rate,
-            created_at: now,
-            updated_at: now
-          }));
+          const payload = DEFAULT_EXCHANGE_RATES.map(rate => {
+            if (!rate) {
+              return null;
+            }
+
+            const { id: _ignoredId, currency, label, rate: value } = rate;
+            return {
+              currency,
+              label,
+              rate: value,
+              created_at: now,
+              updated_at: now
+            };
+          }).filter(Boolean);
 
           await executeSupabaseMutation({
             client,
@@ -2914,9 +2951,9 @@ async function ensureSeeded() {
           });
         }
       } catch (error) {
-        if (isTableMissingError(error)) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           exchangeRatesAvailable = false;
-          console.warn('Tabel kurs tidak ditemukan. Melewati seeding kurs.');
+          console.warn('Tabel kurs tidak tersedia atau akses ditolak. Melewati seeding kurs.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -2957,9 +2994,9 @@ async function ensureSeeded() {
           });
         }
       } catch (error) {
-        if (isTableMissingError(error)) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           shippingVendorsAvailable = false;
-          console.warn('Tabel vendor pengiriman tidak ditemukan. Melewati seeding vendor pengiriman.');
+          console.warn('Tabel vendor pengiriman tidak tersedia atau akses ditolak. Melewati seeding vendor pengiriman.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -3000,9 +3037,9 @@ async function ensureSeeded() {
           });
         }
       } catch (error) {
-        if (isTableMissingError(error)) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           integrationsAvailable = false;
-          console.warn('Tabel integrasi API tidak ditemukan. Melewati seeding integrasi.');
+          console.warn('Tabel integrasi API tidak tersedia atau akses ditolak. Melewati seeding integrasi.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -3013,9 +3050,9 @@ async function ensureSeeded() {
         try {
           await refreshCategoriesFromSupabase();
         } catch (error) {
-          if (isTableMissingError(error)) {
+          if (isTableMissingError(error) || isPermissionDeniedError(error)) {
             categoriesAvailable = false;
-            console.warn('Tabel kategori tidak ditemukan saat refresh.');
+            console.warn('Tabel kategori tidak tersedia atau akses ditolak saat refresh.', error);
           } else {
             clearSupabaseSeedState();
             throw error;
@@ -3027,9 +3064,9 @@ async function ensureSeeded() {
         try {
           await refreshProductsFromSupabase();
         } catch (error) {
-          if (isTableMissingError(error)) {
+          if (isTableMissingError(error) || isPermissionDeniedError(error)) {
             productsAvailable = false;
-            console.warn('Tabel produk tidak ditemukan saat refresh.');
+            console.warn('Tabel produk tidak tersedia atau akses ditolak saat refresh.', error);
           } else {
             clearSupabaseSeedState();
             throw error;
@@ -3041,9 +3078,9 @@ async function ensureSeeded() {
         try {
           await refreshExchangeRatesFromSupabase();
         } catch (error) {
-          if (isTableMissingError(error)) {
+          if (isTableMissingError(error) || isPermissionDeniedError(error)) {
             exchangeRatesAvailable = false;
-            console.warn('Tabel kurs tidak ditemukan saat refresh.');
+            console.warn('Tabel kurs tidak tersedia atau akses ditolak saat refresh.', error);
           } else {
             clearSupabaseSeedState();
             throw error;
@@ -3055,9 +3092,9 @@ async function ensureSeeded() {
         try {
           await refreshShippingVendorsFromSupabase();
         } catch (error) {
-          if (isTableMissingError(error)) {
+          if (isTableMissingError(error) || isPermissionDeniedError(error)) {
             shippingVendorsAvailable = false;
-            console.warn('Tabel vendor pengiriman tidak ditemukan saat refresh.');
+            console.warn('Tabel vendor pengiriman tidak tersedia atau akses ditolak saat refresh.', error);
           } else {
             clearSupabaseSeedState();
             throw error;
@@ -3069,9 +3106,9 @@ async function ensureSeeded() {
         try {
           await refreshIntegrationsFromSupabase();
         } catch (error) {
-          if (isTableMissingError(error)) {
+          if (isTableMissingError(error) || isPermissionDeniedError(error)) {
             integrationsAvailable = false;
-            console.warn('Tabel integrasi API tidak ditemukan saat refresh.');
+            console.warn('Tabel integrasi API tidak tersedia atau akses ditolak saat refresh.', error);
           } else {
             clearSupabaseSeedState();
             throw error;
