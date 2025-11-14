@@ -78,7 +78,7 @@ Halaman admin Entraverse kini menggunakan Supabase sebagai basis data untuk aute
    </script>
    ```
 
-   Anda dapat menaruh konfigurasi ini di satu file terpisah dan memuatnya sebelum `assets/js/app.js` bila diperlukan.
+   Aplikasi kini menyertakan bundel lokal `assets/vendor/supabase-js-2.43.4.js` sehingga dependensi Supabase dapat dimuat tanpa akses CDN. Pastikan skrip tersebut dimuat sebelum `assets/js/app.js` apabila Anda memisahkan konfigurasi ke file lain.
 
 3. Setelah konfigurasi benar, aplikasi akan otomatis melakukan seeding data awal (produk dan kategori contoh) saat pertama kali dijalankan.
 
