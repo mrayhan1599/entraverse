@@ -196,6 +196,7 @@ const DEFAULT_PRODUCTS = [
     name: 'Meta Quest 3S 128 GB Virtual Reality Headset',
     category: 'Virtual Reality',
     brand: 'Meta',
+    spu: 'SPU-MQ3S-128',
     photos: [
       'https://images.unsplash.com/photo-1580894897617-4812950f48cd?auto=format&fit=crop&w=600&q=80'
     ],
@@ -260,6 +261,7 @@ const DEFAULT_PRODUCTS = [
     name: 'Meta Quest 3S 256 GB Virtual Reality Headset',
     category: 'Virtual Reality',
     brand: 'Meta',
+    spu: 'SPU-MQ3S-256',
     photos: [
       'https://images.unsplash.com/photo-1549923746-c502d488b3ea?auto=format&fit=crop&w=600&q=80'
     ],
@@ -2368,12 +2370,20 @@ function mapSupabaseProduct(record) {
   const photos = Array.isArray(record.photos) ? record.photos.filter(Boolean) : [];
   const variants = Array.isArray(record.variants) ? record.variants : [];
   const variantPricing = Array.isArray(record.variant_pricing) ? record.variant_pricing : [];
+  const rawSpu = record.spu ?? record.parent_sku ?? record.parentSku ?? '';
+  const normalizedSpu =
+    typeof rawSpu === 'string'
+      ? rawSpu.trim()
+      : rawSpu && typeof rawSpu !== 'undefined'
+        ? String(rawSpu).trim()
+        : '';
 
   return {
     id: record.id,
     name: record.name ?? '',
     category: record.category ?? '',
     brand: record.brand ?? '',
+    spu: normalizedSpu,
     description: record.description ?? '',
     tradeIn: Boolean(record.trade_in),
     inventory: record.inventory ?? null,
@@ -2397,11 +2407,13 @@ function mapSupabaseProduct(record) {
 }
 
 function mapProductToRecord(product) {
+  const sanitizedSpu = (product?.spu ?? '').toString().trim();
   return {
     id: product.id,
     name: product.name,
     category: product.category,
     brand: product.brand || null,
+    spu: sanitizedSpu || null,
     description: product.description || null,
     trade_in: Boolean(product.tradeIn),
     inventory: product.inventory ?? null,
@@ -4106,6 +4118,7 @@ function getPrimaryProductSku(product) {
   }
 
   const directCandidates = [
+    product.spu,
     product.sku,
     product.inventory?.sku,
     product.inventory?.sellerSku,
@@ -5925,8 +5938,9 @@ function computeLocalProductsPage({
       }
       const name = (product?.name ?? '').toString().toLowerCase();
       const brand = (product?.brand ?? '').toString().toLowerCase();
+      const spu = (product?.spu ?? '').toString().toLowerCase();
       const filterValue = normalizedFilter.toLowerCase();
-      return name.includes(filterValue) || brand.includes(filterValue);
+      return name.includes(filterValue) || brand.includes(filterValue) || spu.includes(filterValue);
     })
   );
 
@@ -5963,7 +5977,7 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 
   if (normalizedFilter) {
     const filterValue = `%${normalizedFilter}%`;
-    query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue}`);
+    query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue},spu.ilike.${filterValue}`);
   }
 
   if (PRODUCT_SORT_STATE.field === 'name') {
@@ -8867,6 +8881,10 @@ async function handleAddProductForm() {
     if (brandInput) {
       brandInput.value = product.brand ?? '';
     }
+    const spuInput = form.querySelector('#product-spu');
+    if (spuInput) {
+      spuInput.value = product.spu ?? '';
+    }
     const descriptionInput = form.querySelector('#product-description');
     if (descriptionInput) {
       descriptionInput.value = product.description ?? '';
@@ -9137,6 +9155,7 @@ async function handleAddProductForm() {
       name: (formData.get('name') ?? '').toString().trim(),
       category: categoryValue,
       brand: (formData.get('brand') ?? '').toString().trim(),
+      spu: (formData.get('spu') ?? '').toString().trim(),
       description: (formData.get('description') ?? '').toString().trim(),
       tradeIn: form.querySelector('#trade-in-toggle')?.checked ?? false,
       inventory: hasInventoryData ? inventoryData : null,
