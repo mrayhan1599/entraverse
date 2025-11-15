@@ -6564,39 +6564,81 @@ function handleSync() {
   const button = document.getElementById('sync-btn');
   if (!button) return;
 
-  const syncBadge = button.querySelector('[data-sync-badge]');
-  const loadingState = {
-    initial: syncBadge ? syncBadge.dataset.loading !== 'false' : false,
-    manual: false,
-    daily: false
+  const mekariLogoElement = button.querySelector('[data-mekari-logo]');
+  const mekariLogoBadge = button.querySelector('[data-mekari-logo-badge]');
+
+  const setLogoLoadingState = isLoading => {
+    if (!mekariLogoBadge) {
+      return;
+    }
+
+    mekariLogoBadge.dataset.loading = isLoading ? 'true' : 'false';
   };
 
-  const setBadgeLoadingState = isLoading => {
-    if (!syncBadge) return;
-    syncBadge.dataset.loading = isLoading ? 'true' : 'false';
+  const isLogoLoaded = () =>
+    Boolean(
+      mekariLogoElement &&
+        mekariLogoElement.complete &&
+        typeof mekariLogoElement.naturalWidth === 'number' &&
+        mekariLogoElement.naturalWidth > 0
+    );
+
+  const handleLogoLoad = () => {
+    setLogoLoadingState(false);
   };
 
-  const updateBadgeLoadingState = () => {
-    const isLoading = Boolean(loadingState.initial || loadingState.manual || loadingState.daily);
-    setBadgeLoadingState(isLoading);
+  const handleLogoError = () => {
+    if (mekariLogoElement && mekariLogoElement.getAttribute('src') !== MEKARI_DEFAULT_LOGO_URL) {
+      setLogoLoadingState(true);
+      mekariLogoElement.setAttribute('src', MEKARI_DEFAULT_LOGO_URL);
+      return;
+    }
+
+    setLogoLoadingState(false);
   };
 
-  const setInitialLoading = value => {
-    loadingState.initial = Boolean(value);
-    updateBadgeLoadingState();
+  if (mekariLogoElement && !button.dataset.mekariLogoEventsBound) {
+    mekariLogoElement.addEventListener('load', handleLogoLoad);
+    mekariLogoElement.addEventListener('error', handleLogoError);
+    button.dataset.mekariLogoEventsBound = 'true';
+  }
+
+  setLogoLoadingState(!isLogoLoaded());
+  const normalizedMekariName = MEKARI_INTEGRATION_NAME.toLowerCase();
+  const updateMekariLogo = (integrationsList = null) => {
+    if (!mekariLogoElement) {
+      return;
+    }
+
+    let integration = null;
+    if (Array.isArray(integrationsList)) {
+      integration =
+        integrationsList.find(item => (item?.name ?? '').toString().trim().toLowerCase() === normalizedMekariName) ?? null;
+    }
+
+    if (!integration) {
+      integration = findIntegrationByName(MEKARI_INTEGRATION_NAME) ?? mekariIntegrationCache;
+    }
+
+    const logoUrl = sanitizeIntegrationLogo(integration?.logoUrl) || MEKARI_DEFAULT_LOGO_URL;
+    if (mekariLogoElement.getAttribute('src') !== logoUrl) {
+      setLogoLoadingState(true);
+      mekariLogoElement.setAttribute('src', logoUrl);
+    } else if (isLogoLoaded()) {
+      setLogoLoadingState(false);
+    }
   };
 
-  const setManualLoading = value => {
-    loadingState.manual = Boolean(value);
-    updateBadgeLoadingState();
-  };
+  updateMekariLogo();
 
-  const setDailyLoading = value => {
-    loadingState.daily = Boolean(value);
-    updateBadgeLoadingState();
-  };
+  if (mekariLogoElement && !button.dataset.mekariLogoListenerBound) {
+    const handleIntegrationsChange = event => {
+      updateMekariLogo(event?.detail?.integrations ?? null);
+    };
 
-  updateBadgeLoadingState();
+    document.addEventListener('integrations:changed', handleIntegrationsChange);
+    button.dataset.mekariLogoListenerBound = 'true';
+  }
 
   const hiddenLabel = button.querySelector('[data-label]');
   const defaultLabel = button.dataset.labelDefault || 'Sync ke Mekari Jurnal';
@@ -6615,8 +6657,6 @@ function handleSync() {
     const input = document.getElementById('search-input');
     return (input?.value ?? '').toString();
   };
-
-  const finishInitialLoading = () => setInitialLoading(false);
 
   const getDefaultSyncMessage = () => 'Terakhir disinkronisasi Mekari Jurnal: Belum pernah disinkronkan.';
 
@@ -6688,14 +6728,11 @@ function handleSync() {
 
   const applyDailySyncState = state => {
     if (!state || typeof state !== 'object') {
-      setDailyLoading(false);
       setSyncErrorMessage('');
       return;
     }
 
     const { lastStatus, lastError, lastSuccessAt, lastReason } = state;
-
-    setDailyLoading(lastStatus === 'running');
 
     if (lastSuccessAt) {
       setSyncMetaToDate(lastSuccessAt);
@@ -6738,7 +6775,6 @@ function handleSync() {
   setLabel(defaultLabel);
 
   if (syncMetaElement) {
-    setInitialLoading(true);
     syncMetaElement.textContent = getDefaultSyncMessage();
     void (async () => {
       try {
@@ -6755,12 +6791,8 @@ function handleSync() {
         console.warn('Gagal memuat status sinkronisasi Mekari Jurnal.', error);
         setSyncMetaMessage('Status sinkronisasi Mekari Jurnal tidak tersedia.');
         setSyncErrorMessage('');
-      } finally {
-        finishInitialLoading();
       }
     })();
-  } else {
-    finishInitialLoading();
   }
 
   applyDailySyncState(readDailyInventorySyncState());
@@ -6780,7 +6812,7 @@ function handleSync() {
     }
 
     button.disabled = true;
-    setManualLoading(true);
+    button.classList.add('is-loading');
     setLabel(loadingLabel);
 
     const attemptTime = new Date();
@@ -6814,7 +6846,7 @@ function handleSync() {
       toast.show(message);
     } finally {
       button.disabled = false;
-      setManualLoading(false);
+      button.classList.remove('is-loading');
       setLabel(defaultLabel);
     }
   });

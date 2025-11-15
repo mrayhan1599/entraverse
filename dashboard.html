@@ -113,20 +113,11 @@
           <div class="title-bar">
             <h1>Produk</h1>
             <div class="title-actions" role="toolbar" aria-label="Aksi produk">
-              <button
-                id="sync-btn"
-                class="action-icon"
-                type="button"
-                aria-label="Sync ke Mekari Jurnal"
-                data-label-default="Sync ke Mekari Jurnal"
-                data-label-loading="Menyinkronkan..."
-              >
+              <button id="sync-btn" class="action-icon" type="button" aria-label="Sync ke Mekari Jurnal" data-label-default="Sync ke Mekari Jurnal" data-label-loading="Menyinkronkan...">
                 <span class="visually-hidden" data-label>Sync ke Mekari Jurnal</span>
-                <span aria-hidden="true" class="sync-badge" data-loading="true" data-sync-badge>
-                  <span class="sync-badge__spinner" aria-hidden="true"></span>
-                  <svg class="sync-badge__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M21 11a8.5 8.5 0 0 0-14-6.5M3 13a8.5 8.5 0 0 0 14 6.5M3 5v6h6M21 19v-6h-6" />
-                  </svg>
+                <span aria-hidden="true" class="logo-badge" data-loading="true" data-mekari-logo-badge>
+                  <span class="logo-badge__spinner" aria-hidden="true" data-mekari-logo-spinner></span>
+                  <img src="assets/img/integrations/mekari-jurnal.svg" alt="" loading="lazy" class="logo-badge__image" data-mekari-logo>
                 </span>
               </button>
               <a href="add-product.html" class="action-icon" aria-label="Tambah produk" data-add-product-link>
