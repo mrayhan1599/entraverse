@@ -1917,59 +1917,12 @@ function readRemoteCacheFromStorage(key) {
   }
 }
 
-function persistRemoteCache(key, value) {
-  if (!PERSISTED_REMOTE_CACHE_KEYS.has(key)) {
-    return;
-  }
-
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  try {
-    const payload = {
-      version: REMOTE_CACHE_STORAGE_VERSION,
-      updatedAt: Date.now(),
-      data: Array.isArray(value) ? value.map(item => clone(item)) : []
-    };
-    window.localStorage.setItem(getRemoteCacheStorageKey(key), JSON.stringify(payload));
-  } catch (error) {
-    console.warn('Gagal menyimpan cache tersinkronisasi ke localStorage.', error);
-  }
+function persistRemoteCache() {
+  // Penyimpanan cache ke localStorage dinonaktifkan agar data selalu dimuat langsung dari Supabase.
 }
 
 function loadPersistedRemoteCache() {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return;
-  }
-
-  PERSISTED_REMOTE_CACHE_KEYS.forEach(key => {
-    const stored = readRemoteCacheFromStorage(key);
-    if (!stored) {
-      return;
-    }
-
-    switch (key) {
-      case STORAGE_KEYS.categories:
-        setCategoryCache(stored);
-        break;
-      case STORAGE_KEYS.products:
-        setProductCache(stored);
-        break;
-      case STORAGE_KEYS.exchangeRates:
-        setExchangeRateCache(stored);
-        break;
-      case STORAGE_KEYS.shippingVendors:
-        setShippingVendorCache(stored);
-        break;
-      case STORAGE_KEYS.integrations:
-        setIntegrationCache(stored);
-        break;
-      default:
-        setRemoteCache(key, Array.isArray(stored) ? stored : []);
-        break;
-    }
-  });
+  // Tidak ada cache lokal yang perlu dimuat lagi.
 }
 
 function getSupabaseConfig() {
@@ -5640,6 +5593,48 @@ async function initShippingPage() {
   }
 }
 
+function renderCategoryLoadingState() {
+  const tbody = document.getElementById('category-table-body');
+  if (!tbody) return;
+
+  const row = document.createElement('tr');
+  row.className = 'loading-state';
+  row.innerHTML = '<td colspan="6">Memuat kategori…</td>';
+  tbody.innerHTML = '';
+  tbody.appendChild(row);
+
+  const countEl = document.getElementById('category-count');
+  if (countEl) {
+    countEl.textContent = 'Memuat…';
+  }
+
+  const metaEl = document.getElementById('category-meta');
+  if (metaEl) {
+    metaEl.textContent = 'Mengambil data kategori dari Supabase…';
+  }
+}
+
+function renderCategoryErrorState(message) {
+  const tbody = document.getElementById('category-table-body');
+  if (!tbody) return;
+
+  const row = document.createElement('tr');
+  row.className = 'empty-state';
+  row.innerHTML = `<td colspan="6">${escapeHtml(message)}</td>`;
+  tbody.innerHTML = '';
+  tbody.appendChild(row);
+
+  const countEl = document.getElementById('category-count');
+  if (countEl) {
+    countEl.textContent = '0 kategori';
+  }
+
+  const metaEl = document.getElementById('category-meta');
+  if (metaEl) {
+    metaEl.textContent = message;
+  }
+}
+
 function renderCategories(filterText = '') {
   const tbody = document.getElementById('category-table-body');
   if (!tbody) return;
@@ -5954,53 +5949,49 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
   const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
   const safePerPage = Math.max(1, Number.isFinite(perPage) ? Math.floor(perPage) : PRODUCT_PAGINATION_STATE.pageSize);
 
-  if (isSupabaseConfigured()) {
-    try {
-      await ensureSupabase();
-      const client = getSupabaseClient();
-      const from = (safePage - 1) * safePerPage;
-      const to = from + safePerPage - 1;
-      let query = client
-        .from(SUPABASE_TABLES.products)
-        .select('*', { count: 'exact' });
-
-      if (normalizedFilter) {
-        const filterValue = `%${normalizedFilter}%`;
-        query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue}`);
-      }
-
-      if (PRODUCT_SORT_STATE.field === 'name') {
-        const ascending = PRODUCT_SORT_STATE.direction !== 'desc';
-        query = query.order('name', { ascending, nullsFirst: ascending });
-      } else {
-        query = query.order('created_at', { ascending: true });
-      }
-
-      const { data, error, count } = await query.range(from, to);
-
-      if (error) {
-        throw error;
-      }
-
-      const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
-      mergeProductsIntoCache(products);
-
-      const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
-
-      return {
-        items: products,
-        total: totalFiltered,
-        overallTotal: normalizedFilter ? undefined : totalFiltered,
-        page: safePage,
-        perPage: safePerPage,
-        source: 'supabase'
-      };
-    } catch (error) {
-      console.warn('Gagal memuat produk dari Supabase, menggunakan data lokal.', error);
-    }
+  if (!isSupabaseConfigured()) {
+    throw new Error('Supabase belum dikonfigurasi.');
   }
 
-  return computeLocalProductsPage({ filter: normalizedFilter, page: safePage, perPage: safePerPage });
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const from = (safePage - 1) * safePerPage;
+  const to = from + safePerPage - 1;
+  let query = client
+    .from(SUPABASE_TABLES.products)
+    .select('*', { count: 'exact' });
+
+  if (normalizedFilter) {
+    const filterValue = `%${normalizedFilter}%`;
+    query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue}`);
+  }
+
+  if (PRODUCT_SORT_STATE.field === 'name') {
+    const ascending = PRODUCT_SORT_STATE.direction !== 'desc';
+    query = query.order('name', { ascending, nullsFirst: ascending });
+  } else {
+    query = query.order('created_at', { ascending: true });
+  }
+
+  const { data, error, count } = await query.range(from, to);
+
+  if (error) {
+    throw error;
+  }
+
+  const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
+  mergeProductsIntoCache(products);
+
+  const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
+
+  return {
+    items: products,
+    total: totalFiltered,
+    overallTotal: normalizedFilter ? undefined : totalFiltered,
+    page: safePage,
+    perPage: safePerPage,
+    source: 'supabase'
+  };
 }
 
 
@@ -6232,26 +6223,8 @@ function renderProducts(filterText = '', options = {}) {
 
   const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
   const requestedPage = PRODUCT_PAGINATION_STATE.currentPage;
-  const cachedProducts = Array.isArray(getProductsFromCache()) ? getProductsFromCache() : [];
-  const hasCachedProducts = cachedProducts.length > 0;
 
-  if (hasCachedProducts) {
-    const cachedResult = computeLocalProductsPage({
-      filter: normalizedFilter,
-      page: requestedPage,
-      perPage: pageSize,
-      products: cachedProducts,
-      source: 'cache'
-    });
-    applyProductRenderResult(cachedResult, {
-      filter: normalizedFilter,
-      requestedPage,
-      pageSize,
-      requestId
-    });
-  } else {
-    renderProductTableMessage(tbody, 'Memuat produk…', { className: 'loading-state' });
-  }
+  renderProductTableMessage(tbody, 'Memuat produk…', { className: 'loading-state' });
 
   fetchProductsPage({ filter: normalizedFilter, page: requestedPage, perPage: pageSize })
     .then(result => {
@@ -6269,13 +6242,11 @@ function renderProducts(filterText = '', options = {}) {
         return;
       }
       console.error('Gagal merender produk.', error);
-      if (!hasCachedProducts) {
-        currentProductPageItems = [];
-        PRODUCT_PAGINATION_STATE.totalFiltered = 0;
-        PRODUCT_PAGINATION_STATE.totalPages = 1;
-        renderProductTableMessage(tbody, 'Gagal memuat produk. Coba lagi.');
-        renderProductPaginationControls(0, 1);
-      }
+      currentProductPageItems = [];
+      PRODUCT_PAGINATION_STATE.totalFiltered = 0;
+      PRODUCT_PAGINATION_STATE.totalPages = 1;
+      renderProductTableMessage(tbody, 'Gagal memuat produk. Coba lagi.');
+      renderProductPaginationControls(0, 1);
     });
 }
 
@@ -6299,11 +6270,7 @@ function handleProductActions() {
   }
 
   const getCurrentPageProducts = () => {
-    if (currentProductPageItems.length) {
-      return currentProductPageItems;
-    }
-    const cached = getProductsFromCache();
-    return Array.isArray(cached) ? cached : [];
+    return currentProductPageItems;
   };
 
   tbody.addEventListener('click', async event => {
@@ -6624,7 +6591,7 @@ function handleCategoryActions() {
   });
 }
 
-function handleSearch(callback) {
+function handleSearch(callback, { triggerInitial = true } = {}) {
   const input = document.getElementById('search-input');
   if (!input || typeof callback !== 'function') return;
 
@@ -6647,7 +6614,7 @@ function handleSearch(callback) {
     });
   }
 
-  if (input.value) {
+  if (triggerInitial && input.value) {
     triggerSearch(input.value);
   }
 }
@@ -13714,34 +13681,27 @@ function initDashboard() {
 
 function initCategories() {
   const runInitialSync = async () => {
-    let supabaseReady = true;
+    renderCategoryLoadingState();
 
     try {
       await ensureSeeded();
+      await refreshCategoriesFromSupabase();
+      const searchInput = document.getElementById('search-input');
+      const initialFilter = (searchInput?.value ?? '').toString();
+      renderCategories(initialFilter);
     } catch (error) {
-      supabaseReady = false;
-      console.error('Gagal menyiapkan data kategori.', error);
+      console.error('Gagal memuat data kategori dari Supabase.', error);
+      renderCategoryErrorState('Gagal memuat data kategori. Coba lagi.');
       toast.show('Gagal memuat data kategori. Pastikan Supabase tersambung.');
     }
-
-    if (supabaseReady) {
-      try {
-        await refreshCategoriesFromSupabase();
-      } catch (error) {
-        console.error('Gagal memperbarui data kategori.', error);
-        toast.show('Data kategori mungkin tidak terbaru.');
-      }
-    }
-
-    renderCategories();
   };
 
-  renderCategories();
-  handleSearch(value => renderCategories(value));
+  handleSearch(value => renderCategories(value), { triggerInitial: false });
   handleCategoryActions();
 
   runInitialSync().catch(error => {
     console.error('Gagal menyelesaikan sinkronisasi kategori.', error);
+    renderCategoryErrorState('Gagal memuat data kategori. Coba lagi.');
   });
 }
 
