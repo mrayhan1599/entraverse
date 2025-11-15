@@ -6117,7 +6117,7 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
     };
   } catch (error) {
     console.error('Gagal mengambil produk dari Supabase.', error);
-    return useCachedProducts('Gagal memuat produk dari Supabase. Menampilkan data produk terakhir yang tersimpan.');
+    return useCachedProducts('');
   }
 }
 
