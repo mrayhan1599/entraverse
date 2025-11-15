@@ -6548,15 +6548,27 @@ function handleSearch(callback) {
   const input = document.getElementById('search-input');
   if (!input || typeof callback !== 'function') return;
 
-  const handle = event => {
-    const value = (event?.target?.value ?? input.value ?? '').trim().toLowerCase();
-    callback(value);
+  const triggerSearch = value => {
+    callback((value ?? '').toString().trim().toLowerCase());
   };
 
-  input.addEventListener('input', handle);
+  const form = input.closest('form');
+
+  if (form) {
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      triggerSearch(input.value);
+    });
+  } else {
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      triggerSearch(event.target?.value ?? input.value);
+    });
+  }
 
   if (input.value) {
-    callback(input.value.trim().toLowerCase());
+    triggerSearch(input.value);
   }
 }
 
