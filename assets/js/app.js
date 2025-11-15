@@ -6031,15 +6031,20 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 
   if (normalizedFilter) {
     const filterValue = `%${normalizedFilter}%`;
-    query = query.or(
-      [
-        'name.ilike.' + filterValue,
-        'brand.ilike.' + filterValue,
-        'spu.ilike.' + filterValue,
-        'variants::text.ilike.' + filterValue,
-        'variant_pricing::text.ilike.' + filterValue
-      ].join(',')
-    );
+    const orFilters = [
+      `name.ilike.${filterValue}`,
+      `brand.ilike.${filterValue}`,
+      `spu.ilike.${filterValue}`,
+      `inventory->>sku.ilike.${filterValue}`,
+      `inventory->>sellerSku.ilike.${filterValue}`,
+      `inventory->>seller_sku.ilike.${filterValue}`,
+      `inventory->>productSku.ilike.${filterValue}`,
+      `inventory->>product_sku.ilike.${filterValue}`,
+      `inventory->>parentSku.ilike.${filterValue}`,
+      `inventory->>parent_sku.ilike.${filterValue}`
+    ];
+
+    query = query.or(orFilters.join(','));
   }
 
   if (PRODUCT_SORT_STATE.field === 'name') {
