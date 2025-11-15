@@ -6565,45 +6565,6 @@ function handleSync() {
   if (!button) return;
 
   const mekariLogoElement = button.querySelector('[data-mekari-logo]');
-  const mekariLogoBadge = button.querySelector('[data-mekari-logo-badge]');
-
-  const setLogoLoadingState = isLoading => {
-    if (!mekariLogoBadge) {
-      return;
-    }
-
-    mekariLogoBadge.dataset.loading = isLoading ? 'true' : 'false';
-  };
-
-  const isLogoLoaded = () =>
-    Boolean(
-      mekariLogoElement &&
-        mekariLogoElement.complete &&
-        typeof mekariLogoElement.naturalWidth === 'number' &&
-        mekariLogoElement.naturalWidth > 0
-    );
-
-  const handleLogoLoad = () => {
-    setLogoLoadingState(false);
-  };
-
-  const handleLogoError = () => {
-    if (mekariLogoElement && mekariLogoElement.getAttribute('src') !== MEKARI_DEFAULT_LOGO_URL) {
-      setLogoLoadingState(true);
-      mekariLogoElement.setAttribute('src', MEKARI_DEFAULT_LOGO_URL);
-      return;
-    }
-
-    setLogoLoadingState(false);
-  };
-
-  if (mekariLogoElement && !button.dataset.mekariLogoEventsBound) {
-    mekariLogoElement.addEventListener('load', handleLogoLoad);
-    mekariLogoElement.addEventListener('error', handleLogoError);
-    button.dataset.mekariLogoEventsBound = 'true';
-  }
-
-  setLogoLoadingState(!isLogoLoaded());
   const normalizedMekariName = MEKARI_INTEGRATION_NAME.toLowerCase();
   const updateMekariLogo = (integrationsList = null) => {
     if (!mekariLogoElement) {
@@ -6622,10 +6583,7 @@ function handleSync() {
 
     const logoUrl = sanitizeIntegrationLogo(integration?.logoUrl) || MEKARI_DEFAULT_LOGO_URL;
     if (mekariLogoElement.getAttribute('src') !== logoUrl) {
-      setLogoLoadingState(true);
       mekariLogoElement.setAttribute('src', logoUrl);
-    } else if (isLogoLoaded()) {
-      setLogoLoadingState(false);
     }
   };
 
