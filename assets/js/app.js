@@ -6042,21 +6042,49 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
     .select('*', { count: 'exact' });
 
   if (normalizedFilter) {
-    const filterValue = `%${normalizedFilter}%`;
-    const orFilters = [
-      `name.ilike.${filterValue}`,
-      `brand.ilike.${filterValue}`,
-      `spu.ilike.${filterValue}`,
-      `inventory->>sku.ilike.${filterValue}`,
-      `inventory->>sellerSku.ilike.${filterValue}`,
-      `inventory->>seller_sku.ilike.${filterValue}`,
-      `inventory->>productSku.ilike.${filterValue}`,
-      `inventory->>product_sku.ilike.${filterValue}`,
-      `inventory->>parentSku.ilike.${filterValue}`,
-      `inventory->>parent_sku.ilike.${filterValue}`
-    ];
+    const sanitizeKeyword = keyword => {
+      const text = (keyword ?? '').toString();
+      const normalized = typeof text.normalize === 'function' ? text.normalize('NFKC') : text;
+      return normalized
+        .replace(/["'()%_*]/g, ' ')
+        .replace(/,+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
 
-    query = query.or(orFilters.join(','));
+    const buildFilterGroup = keyword => {
+      const sanitized = sanitizeKeyword(keyword);
+      if (!sanitized) {
+        return null;
+      }
+      const filterValue = `%${sanitized}%`;
+      return [
+        `name.ilike.${filterValue}`,
+        `brand.ilike.${filterValue}`,
+        `spu.ilike.${filterValue}`,
+        `inventory->>sku.ilike.${filterValue}`,
+        `inventory->>sellerSku.ilike.${filterValue}`,
+        `inventory->>seller_sku.ilike.${filterValue}`,
+        `inventory->>productSku.ilike.${filterValue}`,
+        `inventory->>product_sku.ilike.${filterValue}`,
+        `inventory->>parentSku.ilike.${filterValue}`,
+        `inventory->>parent_sku.ilike.${filterValue}`
+      ].join(',');
+    };
+
+    const sanitizedFilter = sanitizeKeyword(normalizedFilter);
+    const keywords = sanitizedFilter
+      ? Array.from(new Set(sanitizedFilter.split(' ').filter(Boolean)))
+      : [];
+
+    const filterGroups = keywords.length ? keywords : [sanitizedFilter];
+
+    filterGroups
+      .map(buildFilterGroup)
+      .filter(Boolean)
+      .forEach(group => {
+        query = query.or(group);
+      });
   }
 
   if (PRODUCT_SORT_STATE.field === 'name') {
@@ -6709,7 +6737,7 @@ function handleSearch(callback, { triggerInitial = true, debounceMs = 300 } = {}
   let lastQuery = null;
   let debounceTimer = null;
 
-  const normalizeValue = value => (value ?? '').toString().trim().toLowerCase();
+  const normalizeValue = value => (value ?? '').toString().replace(/\s+/g, ' ').trim();
 
   const dispatchSearch = value => {
     const normalized = normalizeValue(value);
