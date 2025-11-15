@@ -6113,9 +6113,20 @@ function renderProducts(filterText = '', options = {}) {
           ? badgeLabelParts.join('. ')
           : 'Status sinkronisasi Mekari tidak tersedia';
 
+      const missingTooltip = 'Produk tidak aktif di Mekari Jurnal';
+      const badgeClassNames = ['mekari-status__badge'];
+      if (statusState === 'missing') {
+        badgeClassNames.push('has-tooltip');
+      }
+
+      const tooltipAttributes =
+        statusState === 'missing'
+          ? ` data-tooltip="${escapeHtml(missingTooltip)}" tabindex="0"`
+          : '';
+
       const mekariStatusHtml = `
         <div class="mekari-status" data-state="${escapeHtml(statusState)}">
-          <span class="mekari-status__badge" role="img" aria-label="${escapeHtml(badgeAriaLabel)}">
+          <span class="${badgeClassNames.join(' ')}" role="img" aria-label="${escapeHtml(badgeAriaLabel)}"${tooltipAttributes}>
             <img src="${escapeHtml(mekariLogoUrl)}" alt="" aria-hidden="true">
           </span>
         </div>
