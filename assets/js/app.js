@@ -6730,12 +6730,11 @@ function handleCategoryActions() {
   });
 }
 
-function handleSearch(callback, { triggerInitial = true, debounceMs = 300 } = {}) {
+function handleSearch(callback, { triggerInitial = true } = {}) {
   const input = document.getElementById('search-input');
   if (!input || typeof callback !== 'function') return;
 
   let lastQuery = null;
-  let debounceTimer = null;
 
   const normalizeValue = value => (value ?? '').toString().replace(/\s+/g, ' ').trim();
 
@@ -6747,29 +6746,6 @@ function handleSearch(callback, { triggerInitial = true, debounceMs = 300 } = {}
     lastQuery = normalized;
     callback(normalized);
   };
-
-  const scheduleSearch = value => {
-    if (!Number.isFinite(debounceMs) || debounceMs <= 0) {
-      dispatchSearch(value);
-      return;
-    }
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      dispatchSearch(value);
-    }, debounceMs);
-  };
-
-  input.addEventListener('input', event => {
-    scheduleSearch(event.target?.value ?? input.value);
-  });
-
-  input.addEventListener('change', event => {
-    dispatchSearch(event.target?.value ?? input.value);
-  });
 
   const form = input.closest('form');
 
