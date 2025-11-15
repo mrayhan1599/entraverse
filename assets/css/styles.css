@@ -1104,29 +1104,24 @@ a.action-icon {
   stroke-linejoin: round;
 }
 
-.logo-badge {
+.sync-badge {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 999px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  border-radius: 12px;
+  border: 1px solid var(--color-icon-border);
+  background: var(--color-icon-bg);
+  color: var(--color-primary);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
-.logo-badge__image {
-  width: 22px;
-  height: 22px;
-  display: block;
-}
-
-.logo-badge__spinner {
-  display: none;
+.sync-badge__spinner {
   width: 18px;
   height: 18px;
+  display: block;
   border-radius: 50%;
   border: 2px solid transparent;
   border-top-color: currentColor;
@@ -1134,23 +1129,31 @@ a.action-icon {
   animation: spin 0.8s linear infinite;
 }
 
-.logo-badge[data-loading="true"] .logo-badge__image {
+.sync-badge__icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 0.2s ease;
+}
+
+.sync-badge[data-loading="true"] .sync-badge__icon {
   opacity: 0;
   visibility: hidden;
 }
 
-.logo-badge[data-loading="true"] .logo-badge__spinner {
-  display: inline-block;
-}
-
-.logo-badge[data-loading="false"] .logo-badge__spinner {
+.sync-badge[data-loading="false"] .sync-badge__spinner {
   display: none;
 }
 
-body[data-theme="dark"] .logo-badge {
-  background: transparent;
-  border: none;
-  box-shadow: none;
+body[data-theme="dark"] .sync-badge {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.32);
+  color: #60a5fa;
 }
 
 .action-icon.is-loading::after {
