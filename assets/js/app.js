@@ -400,6 +400,7 @@ const PRODUCT_PAGINATION_STATE = {
 
 let currentProductPageItems = [];
 let productRenderRequestToken = 0;
+let productCacheFallbackNotified = false;
 
 const PRODUCT_SORT_STATE = {
   field: 'name',
@@ -5995,31 +5996,42 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
   const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
   const safePerPage = Math.max(1, Number.isFinite(perPage) ? Math.floor(perPage) : PRODUCT_PAGINATION_STATE.pageSize);
 
-  if (!isSupabaseConfigured()) {
-    return {
-      items: [],
-      total: 0,
-      overallTotal: 0,
+  const useCachedProducts = message => {
+    const fallbackResult = computeLocalProductsPage({
+      filter: normalizedFilter,
       page: safePage,
       perPage: safePerPage,
-      source: 'supabase',
-      error: 'Konfigurasi Supabase tidak ditemukan. Hubungi administrator sistem.'
+      source: 'cache'
+    });
+
+    if (fallbackResult.total > 0 || fallbackResult.items.length > 0) {
+      if (!productCacheFallbackNotified && message) {
+        productCacheFallbackNotified = true;
+        try {
+          toast.show(message);
+        } catch (notificationError) {
+          console.warn('Tidak dapat menampilkan notifikasi fallback produk.', notificationError);
+        }
+      }
+      return fallbackResult;
+    }
+
+    return {
+      ...fallbackResult,
+      error: 'Gagal memuat produk. Coba lagi.'
     };
+  };
+
+  if (!isSupabaseConfigured()) {
+    console.warn('Supabase belum dikonfigurasi. Menggunakan data produk dari cache.');
+    return useCachedProducts('Supabase tidak tersedia. Menampilkan data produk terakhir yang tersimpan.');
   }
 
   try {
     await ensureSupabase();
   } catch (initializationError) {
     console.error('Gagal menyiapkan Supabase untuk produk.', initializationError);
-    return {
-      items: [],
-      total: 0,
-      overallTotal: 0,
-      page: safePage,
-      perPage: safePerPage,
-      source: 'supabase',
-      error: 'Gagal menghubungkan ke Supabase. Coba lagi nanti.'
-    };
+    return useCachedProducts('Gagal terhubung ke Supabase. Menampilkan data produk terakhir yang tersimpan.');
   }
 
   const client = getSupabaseClient();
@@ -6063,6 +6075,7 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 
     const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
     mergeProductsIntoCache(products);
+    productCacheFallbackNotified = false;
 
     const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
 
@@ -6076,15 +6089,7 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
     };
   } catch (error) {
     console.error('Gagal mengambil produk dari Supabase.', error);
-    return {
-      items: [],
-      total: 0,
-      overallTotal: 0,
-      page: safePage,
-      perPage: safePerPage,
-      source: 'supabase',
-      error: 'Gagal memuat produk. Coba lagi.'
-    };
+    return useCachedProducts('Gagal memuat produk dari Supabase. Menampilkan data produk terakhir yang tersimpan.');
   }
 }
 
