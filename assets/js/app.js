@@ -6702,31 +6702,66 @@ function handleCategoryActions() {
   });
 }
 
-function handleSearch(callback, { triggerInitial = true } = {}) {
+function handleSearch(callback, { triggerInitial = true, debounceMs = 300 } = {}) {
   const input = document.getElementById('search-input');
   if (!input || typeof callback !== 'function') return;
 
-  const triggerSearch = value => {
-    callback((value ?? '').toString().trim().toLowerCase());
+  let lastQuery = null;
+  let debounceTimer = null;
+
+  const normalizeValue = value => (value ?? '').toString().trim().toLowerCase();
+
+  const dispatchSearch = value => {
+    const normalized = normalizeValue(value);
+    if (normalized === lastQuery) {
+      return;
+    }
+    lastQuery = normalized;
+    callback(normalized);
   };
+
+  const scheduleSearch = value => {
+    if (!Number.isFinite(debounceMs) || debounceMs <= 0) {
+      dispatchSearch(value);
+      return;
+    }
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      dispatchSearch(value);
+    }, debounceMs);
+  };
+
+  input.addEventListener('input', event => {
+    scheduleSearch(event.target?.value ?? input.value);
+  });
+
+  input.addEventListener('change', event => {
+    dispatchSearch(event.target?.value ?? input.value);
+  });
 
   const form = input.closest('form');
 
   if (form) {
     form.addEventListener('submit', event => {
       event.preventDefault();
-      triggerSearch(input.value);
+      dispatchSearch(input.value);
     });
   } else {
     input.addEventListener('keydown', event => {
       if (event.key !== 'Enter') return;
       event.preventDefault();
-      triggerSearch(event.target?.value ?? input.value);
+      dispatchSearch(event.target?.value ?? input.value);
     });
   }
 
   if (triggerInitial && input.value) {
-    triggerSearch(input.value);
+    dispatchSearch(input.value);
+  } else {
+    lastQuery = normalizeValue(input.value);
   }
 }
 
