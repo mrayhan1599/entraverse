@@ -5931,16 +5931,48 @@ function computeLocalProductsPage({
 
   const allProducts = Array.isArray(products) ? products : [];
   const overallTotal = allProducts.length;
+
+  const filterValue = normalizedFilter.toLowerCase();
   const filteredProducts = sortProductsByState(
     allProducts.filter(product => {
-      if (!normalizedFilter) {
+      if (!filterValue) {
         return true;
       }
-      const name = (product?.name ?? '').toString().toLowerCase();
-      const brand = (product?.brand ?? '').toString().toLowerCase();
-      const spu = (product?.spu ?? '').toString().toLowerCase();
-      const filterValue = normalizedFilter.toLowerCase();
-      return name.includes(filterValue) || brand.includes(filterValue) || spu.includes(filterValue);
+
+      const matchesBasicFields = (() => {
+        const name = (product?.name ?? '').toString().toLowerCase();
+        const brand = (product?.brand ?? '').toString().toLowerCase();
+        const spu = (product?.spu ?? '').toString().toLowerCase();
+        return name.includes(filterValue) || brand.includes(filterValue) || spu.includes(filterValue);
+      })();
+
+      if (matchesBasicFields) {
+        return true;
+      }
+
+      const variantPricing = Array.isArray(product?.variantPricing) ? product.variantPricing : [];
+      if (variantPricing.some(row => {
+        if (!row) return false;
+        const skuValues = [row.sellerSku, row.sku, row.seller_sku, row.SKU];
+        return skuValues.some(value => (value ?? '').toString().toLowerCase().includes(filterValue));
+      })) {
+        return true;
+      }
+
+      const variants = Array.isArray(product?.variants) ? product.variants : [];
+      return variants.some(variant => {
+        if (!variant) return false;
+        if ((variant.sku ?? '').toString().toLowerCase().includes(filterValue)) {
+          return true;
+        }
+        if (!Array.isArray(variant.options)) {
+          return false;
+        }
+        return variant.options
+          .map(option => option?.toString().toLowerCase())
+          .filter(Boolean)
+          .some(optionValue => optionValue.includes(filterValue));
+      });
     })
   );
 
@@ -5964,10 +5996,32 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
   const safePerPage = Math.max(1, Number.isFinite(perPage) ? Math.floor(perPage) : PRODUCT_PAGINATION_STATE.pageSize);
 
   if (!isSupabaseConfigured()) {
-    throw new Error('Supabase belum dikonfigurasi.');
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Konfigurasi Supabase tidak ditemukan. Hubungi administrator sistem.'
+    };
   }
 
-  await ensureSupabase();
+  try {
+    await ensureSupabase();
+  } catch (initializationError) {
+    console.error('Gagal menyiapkan Supabase untuk produk.', initializationError);
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Gagal menghubungkan ke Supabase. Coba lagi nanti.'
+    };
+  }
+
   const client = getSupabaseClient();
   const from = (safePage - 1) * safePerPage;
   const to = from + safePerPage - 1;
@@ -5977,7 +6031,15 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 
   if (normalizedFilter) {
     const filterValue = `%${normalizedFilter}%`;
-    query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue},spu.ilike.${filterValue}`);
+    query = query.or(
+      [
+        'name.ilike.' + filterValue,
+        'brand.ilike.' + filterValue,
+        'spu.ilike.' + filterValue,
+        'variants::text.ilike.' + filterValue,
+        'variant_pricing::text.ilike.' + filterValue
+      ].join(',')
+    );
   }
 
   if (PRODUCT_SORT_STATE.field === 'name') {
@@ -5987,25 +6049,38 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
     query = query.order('created_at', { ascending: true });
   }
 
-  const { data, error, count } = await query.range(from, to);
+  try {
+    const { data, error, count } = await query.range(from, to);
 
-  if (error) {
-    throw error;
+    if (error) {
+      throw error;
+    }
+
+    const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
+    mergeProductsIntoCache(products);
+
+    const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
+
+    return {
+      items: products,
+      total: totalFiltered,
+      overallTotal: normalizedFilter ? undefined : totalFiltered,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase'
+    };
+  } catch (error) {
+    console.error('Gagal mengambil produk dari Supabase.', error);
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Gagal memuat produk. Coba lagi.'
+    };
   }
-
-  const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
-  mergeProductsIntoCache(products);
-
-  const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
-
-  return {
-    items: products,
-    total: totalFiltered,
-    overallTotal: normalizedFilter ? undefined : totalFiltered,
-    page: safePage,
-    perPage: safePerPage,
-    source: 'supabase'
-  };
 }
 
 
@@ -6022,6 +6097,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
   const normalizedFilter = (filter ?? '').toString().trim();
   const canManage = canManageCatalog();
   const items = Array.isArray(result?.items) ? result.items : [];
+  const errorMessage = result?.error ? String(result.error).trim() : '';
+
+  if (errorMessage) {
+    currentProductPageItems = [];
+    PRODUCT_PAGINATION_STATE.currentPage = 1;
+    PRODUCT_PAGINATION_STATE.totalFiltered = 0;
+    PRODUCT_PAGINATION_STATE.totalPages = 1;
+    renderProductTableMessage(tbody, errorMessage, { className: 'error-state' });
+    renderProductPaginationControls(0, 1);
+    return;
+  }
+
   const totalFiltered = Number.isFinite(result?.total) && result.total >= 0 ? result.total : items.length;
   const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
   PRODUCT_PAGINATION_STATE.totalFiltered = totalFiltered;
