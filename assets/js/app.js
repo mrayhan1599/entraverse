@@ -5910,6 +5910,45 @@ function renderProductTableMessage(tbody, message, { className = 'empty-state' }
   tbody.appendChild(row);
 }
 
+function computeLocalProductsPage({
+  filter = '',
+  page = 1,
+  perPage = PRODUCT_PAGINATION_STATE.pageSize,
+  products = getProductsFromCache(),
+  source = 'local'
+} = {}) {
+  const normalizedFilter = (filter ?? '').toString().trim();
+  const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
+  const safePerPage = Math.max(1, Number.isFinite(perPage) ? Math.floor(perPage) : PRODUCT_PAGINATION_STATE.pageSize);
+
+  const allProducts = Array.isArray(products) ? products : [];
+  const overallTotal = allProducts.length;
+  const filteredProducts = sortProductsByState(
+    allProducts.filter(product => {
+      if (!normalizedFilter) {
+        return true;
+      }
+      const name = (product?.name ?? '').toString().toLowerCase();
+      const brand = (product?.brand ?? '').toString().toLowerCase();
+      const filterValue = normalizedFilter.toLowerCase();
+      return name.includes(filterValue) || brand.includes(filterValue);
+    })
+  );
+
+  const totalFiltered = filteredProducts.length;
+  const startIndex = totalFiltered ? (safePage - 1) * safePerPage : 0;
+  const paginated = totalFiltered ? filteredProducts.slice(startIndex, startIndex + safePerPage) : [];
+
+  return {
+    items: paginated,
+    total: totalFiltered,
+    overallTotal,
+    page: safePage,
+    perPage: safePerPage,
+    source
+  };
+}
+
 async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGINATION_STATE.pageSize } = {}) {
   const normalizedFilter = (filter ?? '').toString().trim();
   const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
@@ -5946,9 +5985,14 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
       const products = (data ?? []).map(mapSupabaseProduct).filter(Boolean);
       mergeProductsIntoCache(products);
 
+      const totalFiltered = typeof count === 'number' && count >= 0 ? count : products.length;
+
       return {
         items: products,
-        total: typeof count === 'number' && count >= 0 ? count : products.length,
+        total: totalFiltered,
+        overallTotal: normalizedFilter ? undefined : totalFiltered,
+        page: safePage,
+        perPage: safePerPage,
         source: 'supabase'
       };
     } catch (error) {
@@ -5956,97 +6000,61 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
     }
   }
 
-  const products = Array.isArray(getProductsFromCache()) ? getProductsFromCache() : [];
-  const normalizedProducts = sortProductsByState(
-    products.filter(product => {
-      if (!normalizedFilter) {
-        return true;
-      }
-      const name = (product?.name ?? '').toString().toLowerCase();
-      const brand = (product?.brand ?? '').toString().toLowerCase();
-      const filterValue = normalizedFilter.toLowerCase();
-      return name.includes(filterValue) || brand.includes(filterValue);
-    })
-  );
-
-  const startIndex = normalizedProducts.length ? (safePage - 1) * safePerPage : 0;
-  const paginated = normalizedProducts.slice(startIndex, startIndex + safePerPage);
-
-  return {
-    items: paginated,
-    total: normalizedProducts.length,
-    source: 'local'
-  };
+  return computeLocalProductsPage({ filter: normalizedFilter, page: safePage, perPage: safePerPage });
 }
 
-function renderProducts(filterText = '', options = {}) {
+
+function applyProductRenderResult(result, { filter, requestedPage, pageSize, requestId }) {
+  if (typeof requestId === 'number' && requestId !== productRenderRequestToken) {
+    return;
+  }
+
   const tbody = document.getElementById('product-table-body');
-  if (!tbody) return;
+  if (!tbody) {
+    return;
+  }
 
-  const normalizedOptions = options && typeof options === 'object' ? options : {};
-  const resetPage = Boolean(normalizedOptions.resetPage);
-  const forcePage = normalizedOptions.forcePage ?? null;
-
+  const normalizedFilter = (filter ?? '').toString().trim();
   const canManage = canManageCatalog();
-  const normalizedFilter = (filterText ?? '').toString().trim();
+  const items = Array.isArray(result?.items) ? result.items : [];
+  const totalFiltered = Number.isFinite(result?.total) && result.total >= 0 ? result.total : items.length;
+  const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
+  PRODUCT_PAGINATION_STATE.totalFiltered = totalFiltered;
+  PRODUCT_PAGINATION_STATE.totalPages = totalPages;
 
-  const filterChanged = normalizedFilter !== PRODUCT_PAGINATION_STATE.lastFilter;
-  if (filterChanged || resetPage) {
-    PRODUCT_PAGINATION_STATE.currentPage = 1;
+  const clampedPage = clampProductPage(requestedPage, totalPages);
+  if (clampedPage !== requestedPage) {
+    PRODUCT_PAGINATION_STATE.currentPage = clampedPage;
+    renderProducts(normalizedFilter, { forcePage: clampedPage });
+    return;
   }
-  PRODUCT_PAGINATION_STATE.lastFilter = normalizedFilter;
 
-  if (forcePage !== null && forcePage !== undefined) {
-    PRODUCT_PAGINATION_STATE.currentPage = clampProductPage(forcePage, PRODUCT_PAGINATION_STATE.totalPages);
+  currentProductPageItems = items;
+  PRODUCT_PAGINATION_STATE.currentPage = clampedPage;
+
+  if (!normalizedFilter) {
+    const overallTotal =
+      Number.isFinite(result?.overallTotal) && result.overallTotal >= 0
+        ? result.overallTotal
+        : totalFiltered;
+    PRODUCT_PAGINATION_STATE.totalItems = overallTotal;
   }
 
-  const requestId = ++productRenderRequestToken;
-  renderProductTableMessage(tbody, 'Memuat produk…', { className: 'loading-state' });
+  updateProductSortIndicator();
 
-  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
-  const requestedPage = PRODUCT_PAGINATION_STATE.currentPage;
-
-  fetchProductsPage({ filter: normalizedFilter, page: requestedPage, perPage: pageSize })
-    .then(result => {
-      if (requestId !== productRenderRequestToken) {
-        return;
-      }
-
-      const items = Array.isArray(result?.items) ? result.items : [];
-      const totalFiltered = Number.isFinite(result?.total) && result.total >= 0 ? result.total : items.length;
-      const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
-      PRODUCT_PAGINATION_STATE.totalFiltered = totalFiltered;
-      PRODUCT_PAGINATION_STATE.totalPages = totalPages;
-      const clampedPage = clampProductPage(requestedPage, totalPages);
-
-      if (clampedPage !== requestedPage) {
-        PRODUCT_PAGINATION_STATE.currentPage = clampedPage;
-        renderProducts(normalizedFilter, { forcePage: clampedPage });
-        return;
-      }
-
-      currentProductPageItems = items;
-      PRODUCT_PAGINATION_STATE.currentPage = clampedPage;
-      if (!normalizedFilter) {
-        PRODUCT_PAGINATION_STATE.totalItems = totalFiltered;
-      }
-
-      updateProductSortIndicator();
-
-      tbody.innerHTML = '';
-
-      if (!items.length) {
-        renderProductTableMessage(
-          tbody,
-          normalizedFilter ? 'Tidak ada produk yang cocok dengan pencarian.' : 'Tidak ada produk ditemukan.'
-        );
-      } else {
-        items.forEach(product => {
-          const row = document.createElement('tr');
-          const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
-          const safeName = escapeHtml(product.name ?? '');
-          const safeBrand = product.brand ? escapeHtml(product.brand) : '';
-          const skuValue = getPrimaryProductSku(product);
+  if (!items.length) {
+    renderProductTableMessage(
+      tbody,
+      normalizedFilter ? 'Tidak ada produk yang cocok dengan pencarian.' : 'Tidak ada produk ditemukan.'
+    );
+  } else {
+    tbody.innerHTML = '';
+    items.forEach(product => {
+      const row = document.createElement('tr');
+      const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
+      const safeName = escapeHtml(product.name ?? '');
+      const safeBrand = product.brand ? escapeHtml(product.brand) : '';
+      const skuValue = getPrimaryProductSku(product);
       const safeSku = skuValue ? escapeHtml(skuValue) : '';
       const rawStock = product.stock;
       const normalizedStock = rawStock === null || rawStock === undefined ? '' : String(rawStock).trim();
@@ -6099,6 +6107,7 @@ function renderProducts(filterText = '', options = {}) {
       if (statusState === 'synced' && formattedSync) {
         badgeLabelParts.push(`Terakhir sinkron pada ${formattedSync}`);
       }
+
       const statusMessage = (normalizedMekariStatus.message ?? '').toString().trim();
       if (statusMessage && statusMessage !== statusLabel) {
         badgeLabelParts.push(statusMessage);
@@ -6118,6 +6127,7 @@ function renderProducts(filterText = '', options = {}) {
       if (statusState === 'missing') {
         badgeClassNames.push('has-tooltip');
       }
+      badgeClassNames.push(`mekari-status__badge--${statusState}`);
 
       const tooltipAttributes =
         statusState === 'missing'
@@ -6167,46 +6177,105 @@ function renderProducts(filterText = '', options = {}) {
         </td>
       `;
       tbody.appendChild(row);
-        });
-      }
+    });
+  }
 
-      const countEl = document.getElementById('product-count');
-      const metaEl = document.getElementById('table-meta');
-      const overallTotal = PRODUCT_PAGINATION_STATE.totalItems || totalFiltered;
-      const startIndex = totalFiltered ? (clampedPage - 1) * pageSize : 0;
-      const lastItemIndex = totalFiltered ? Math.min(totalFiltered, startIndex + items.length) : 0;
+  const countEl = document.getElementById('product-count');
+  const metaEl = document.getElementById('table-meta');
+  const overallTotal = PRODUCT_PAGINATION_STATE.totalItems || totalFiltered;
+  const startIndex = totalFiltered ? (clampedPage - 1) * pageSize : 0;
+  const lastItemIndex = totalFiltered ? Math.min(totalFiltered, startIndex + items.length) : 0;
 
-      if (countEl) {
-        if (normalizedFilter) {
-          countEl.textContent = `${totalFiltered} produk`;
-        } else {
-          countEl.textContent = `${overallTotal} produk`;
-        }
-      }
+  if (countEl) {
+    if (normalizedFilter) {
+      countEl.textContent = `${totalFiltered} produk`;
+    } else {
+      countEl.textContent = `${overallTotal} produk`;
+    }
+  }
 
-      if (metaEl) {
-        if (!totalFiltered) {
-          metaEl.textContent = normalizedFilter
-            ? 'Tidak ada produk yang cocok dengan pencarian.'
-            : 'Tidak ada produk ditemukan.';
-        } else {
-          const scopeText = normalizedFilter ? `${totalFiltered} produk cocok` : `${overallTotal} produk`;
-          metaEl.textContent = `Menampilkan ${startIndex + 1}-${lastItemIndex} dari ${scopeText}`;
-        }
-      }
+  if (metaEl) {
+    if (!totalFiltered) {
+      metaEl.textContent = normalizedFilter
+        ? 'Tidak ada produk yang cocok dengan pencarian.'
+        : 'Tidak ada produk ditemukan.';
+    } else {
+      const scopeText = normalizedFilter ? `${totalFiltered} produk cocok` : `${overallTotal} produk`;
+      metaEl.textContent = `Menampilkan ${startIndex + 1}-${lastItemIndex} dari ${scopeText}`;
+    }
+  }
 
-      renderProductPaginationControls(totalFiltered, totalPages);
+  renderProductPaginationControls(totalFiltered, totalPages);
+}
+
+function renderProducts(filterText = '', options = {}) {
+  const tbody = document.getElementById('product-table-body');
+  if (!tbody) return;
+
+  const normalizedOptions = options && typeof options === 'object' ? options : {};
+  const resetPage = Boolean(normalizedOptions.resetPage);
+  const forcePage = normalizedOptions.forcePage ?? null;
+
+  const normalizedFilter = (filterText ?? '').toString().trim();
+
+  const filterChanged = normalizedFilter !== PRODUCT_PAGINATION_STATE.lastFilter;
+  if (filterChanged || resetPage) {
+    PRODUCT_PAGINATION_STATE.currentPage = 1;
+  }
+  PRODUCT_PAGINATION_STATE.lastFilter = normalizedFilter;
+
+  if (forcePage !== null && forcePage !== undefined) {
+    PRODUCT_PAGINATION_STATE.currentPage = clampProductPage(forcePage, PRODUCT_PAGINATION_STATE.totalPages);
+  }
+
+  const requestId = ++productRenderRequestToken;
+
+  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
+  const requestedPage = PRODUCT_PAGINATION_STATE.currentPage;
+  const cachedProducts = Array.isArray(getProductsFromCache()) ? getProductsFromCache() : [];
+  const hasCachedProducts = cachedProducts.length > 0;
+
+  if (hasCachedProducts) {
+    const cachedResult = computeLocalProductsPage({
+      filter: normalizedFilter,
+      page: requestedPage,
+      perPage: pageSize,
+      products: cachedProducts,
+      source: 'cache'
+    });
+    applyProductRenderResult(cachedResult, {
+      filter: normalizedFilter,
+      requestedPage,
+      pageSize,
+      requestId
+    });
+  } else {
+    renderProductTableMessage(tbody, 'Memuat produk…', { className: 'loading-state' });
+  }
+
+  fetchProductsPage({ filter: normalizedFilter, page: requestedPage, perPage: pageSize })
+    .then(result => {
+      const nextPageSize = Number.isFinite(result?.perPage) ? result.perPage : pageSize;
+      const nextPage = Number.isFinite(result?.page) ? result.page : requestedPage;
+      applyProductRenderResult(result, {
+        filter: normalizedFilter,
+        requestedPage: nextPage,
+        pageSize: nextPageSize,
+        requestId
+      });
     })
     .catch(error => {
       if (requestId !== productRenderRequestToken) {
         return;
       }
       console.error('Gagal merender produk.', error);
-      currentProductPageItems = [];
-      PRODUCT_PAGINATION_STATE.totalFiltered = 0;
-      PRODUCT_PAGINATION_STATE.totalPages = 1;
-      renderProductTableMessage(tbody, 'Gagal memuat produk. Coba lagi.');
-      renderProductPaginationControls(0, 1);
+      if (!hasCachedProducts) {
+        currentProductPageItems = [];
+        PRODUCT_PAGINATION_STATE.totalFiltered = 0;
+        PRODUCT_PAGINATION_STATE.totalPages = 1;
+        renderProductTableMessage(tbody, 'Gagal memuat produk. Coba lagi.');
+        renderProductPaginationControls(0, 1);
+      }
     });
 }
 
