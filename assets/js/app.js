@@ -5995,18 +5995,31 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
   const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
   const safePerPage = Math.max(1, Number.isFinite(perPage) ? Math.floor(perPage) : PRODUCT_PAGINATION_STATE.pageSize);
 
-  const resolveLocalPage = () =>
-    computeLocalProductsPage({ filter: normalizedFilter, page: safePage, perPage: safePerPage, source: 'local' });
-
   if (!isSupabaseConfigured()) {
-    return resolveLocalPage();
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Konfigurasi Supabase tidak ditemukan. Hubungi administrator sistem.'
+    };
   }
 
   try {
     await ensureSupabase();
   } catch (initializationError) {
-    console.warn('Gagal menyiapkan Supabase, menggunakan cache lokal untuk produk.', initializationError);
-    return resolveLocalPage();
+    console.error('Gagal menyiapkan Supabase untuk produk.', initializationError);
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Gagal menghubungkan ke Supabase. Coba lagi nanti.'
+    };
   }
 
   const client = getSupabaseClient();
@@ -6018,7 +6031,15 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 
   if (normalizedFilter) {
     const filterValue = `%${normalizedFilter}%`;
-    query = query.or(`name.ilike.${filterValue},brand.ilike.${filterValue},spu.ilike.${filterValue}`);
+    query = query.or(
+      [
+        'name.ilike.' + filterValue,
+        'brand.ilike.' + filterValue,
+        'spu.ilike.' + filterValue,
+        'variants::text.ilike.' + filterValue,
+        'variant_pricing::text.ilike.' + filterValue
+      ].join(',')
+    );
   }
 
   if (PRODUCT_SORT_STATE.field === 'name') {
@@ -6049,8 +6070,16 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
       source: 'supabase'
     };
   } catch (error) {
-    console.error('Gagal mengambil produk dari Supabase, menggunakan data lokal.', error);
-    return resolveLocalPage();
+    console.error('Gagal mengambil produk dari Supabase.', error);
+    return {
+      items: [],
+      total: 0,
+      overallTotal: 0,
+      page: safePage,
+      perPage: safePerPage,
+      source: 'supabase',
+      error: 'Gagal memuat produk. Coba lagi.'
+    };
   }
 }
 
@@ -6068,6 +6097,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
   const normalizedFilter = (filter ?? '').toString().trim();
   const canManage = canManageCatalog();
   const items = Array.isArray(result?.items) ? result.items : [];
+  const errorMessage = result?.error ? String(result.error).trim() : '';
+
+  if (errorMessage) {
+    currentProductPageItems = [];
+    PRODUCT_PAGINATION_STATE.currentPage = 1;
+    PRODUCT_PAGINATION_STATE.totalFiltered = 0;
+    PRODUCT_PAGINATION_STATE.totalPages = 1;
+    renderProductTableMessage(tbody, errorMessage, { className: 'error-state' });
+    renderProductPaginationControls(0, 1);
+    return;
+  }
+
   const totalFiltered = Number.isFinite(result?.total) && result.total >= 0 ? result.total : items.length;
   const totalPages = totalFiltered > 0 ? Math.ceil(totalFiltered / pageSize) : 1;
   PRODUCT_PAGINATION_STATE.totalFiltered = totalFiltered;
