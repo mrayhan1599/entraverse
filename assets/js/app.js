@@ -2646,13 +2646,16 @@ function normalizeSpuValue(value, { ensurePrefix = true } = {}) {
   return cleaned.startsWith('SPU-') ? cleaned : `SPU-${cleaned}`;
 }
 
-function generateSpuFromPrefix(prefix) {
+function generateSpuFromPrefix(prefix, { ensurePrefix = true } = {}) {
   if (!prefix) {
     return '';
   }
   const normalized = normalizeSpuValue(prefix, { ensurePrefix: false });
   if (!normalized) {
     return '';
+  }
+  if (!ensurePrefix) {
+    return normalized;
   }
   return normalized.startsWith('SPU-') ? normalized : `SPU-${normalized}`;
 }
@@ -2686,9 +2689,12 @@ function buildAutoMappingGroups(products) {
   return Array.from(groups.values())
     .map(group => {
       const productIds = Array.from(group.productIds);
-      const targetSpu = generateSpuFromPrefix(group.prefix);
-      const normalizedSpus = Array.from(group.currentSpus).filter(Boolean);
-      const isMerged = normalizedSpus.length === 1 && normalizedSpus[0] === targetSpu;
+      const targetSpu = generateSpuFromPrefix(group.prefix, { ensurePrefix: false });
+      const normalizedSpus = Array.from(group.currentSpus)
+        .map(spu => normalizeSpuValue(spu, { ensurePrefix: false }))
+        .filter(Boolean);
+      const uniqueSpus = Array.from(new Set(normalizedSpus));
+      const isMerged = uniqueSpus.length === 1 && uniqueSpus[0] === targetSpu;
       return {
         prefix: group.prefix,
         skus: group.skus,
@@ -2722,9 +2728,13 @@ async function refreshProductsForMapping() {
   return [];
 }
 
-async function mergeProductsIntoSpu(productIds, targetSpu, { reason = 'merge' } = {}) {
+async function mergeProductsIntoSpu(
+  productIds,
+  targetSpu,
+  { reason = 'merge', ensureSpuPrefix = true } = {}
+) {
   const ids = Array.isArray(productIds) ? productIds.filter(Boolean) : [];
-  const normalizedSpu = normalizeSpuValue(targetSpu);
+  const normalizedSpu = normalizeSpuValue(targetSpu, { ensurePrefix: ensureSpuPrefix });
   if (!ids.length || !normalizedSpu) {
     return { updated: [], products: getProductsFromCache() };
   }
@@ -14349,9 +14359,7 @@ async function initProductMappingAutoPage() {
           ? '<span class="mapping-group__badge">Sudah tergabung</span>'
           : '';
         const buttonLabel = group.isMerged ? 'Terselesaikan' : 'Satukan';
-        const targetSpuLabel = escapeHtml(
-          group.targetSpu ? group.targetSpu.replace(/^SPU-/, '') : 'Belum tersedia'
-        );
+        const targetSpuLabel = escapeHtml(group.targetSpu || 'Belum tersedia');
         return `
           <article class="mapping-group">
             <div class="mapping-group__header">
@@ -14418,7 +14426,8 @@ async function initProductMappingAutoPage() {
 
     try {
       const { updated } = await mergeProductsIntoSpu(group.productIds, group.targetSpu, {
-        reason: 'auto-mapping'
+        reason: 'auto-mapping',
+        ensureSpuPrefix: false
       });
       if (!updated.length) {
         toast.show('Produk dengan awalan tersebut sudah tergabung.');
