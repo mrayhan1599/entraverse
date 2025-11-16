@@ -3845,6 +3845,8 @@ initializeTheme();
 
 const toast = createToast();
 
+let actionMenusInitialized = false;
+
 function requireCatalogManager(message = 'Silakan login untuk mengelola katalog.') {
   if (canManageCatalog()) {
     return true;
@@ -3879,6 +3881,127 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function createActionMenu(items, { label = 'Menu tindakan' } = {}) {
+  const normalizedItems = Array.isArray(items)
+    ? items
+        .map(item => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+    : [];
+
+  if (!normalizedItems.length) {
+    return '';
+  }
+
+  const safeLabel = escapeHtml(label);
+
+  return `
+    <div class="action-menu" data-action-menu>
+      <button
+        class="action-menu__trigger"
+        type="button"
+        aria-haspopup="true"
+        aria-expanded="false"
+        aria-label="${safeLabel}"
+        data-action-menu-trigger
+      >
+        <span aria-hidden="true">⋯</span>
+      </button>
+      <div class="action-menu__list" role="menu" data-action-menu-list hidden>
+        ${normalizedItems.join('')}
+      </div>
+    </div>
+  `;
+}
+
+function setupActionMenus() {
+  if (actionMenusInitialized) {
+    return;
+  }
+
+  const closeMenu = menu => {
+    if (!menu) return;
+    menu.removeAttribute('data-open');
+    const list = menu.querySelector('[data-action-menu-list]');
+    if (list) {
+      list.hidden = true;
+    }
+    const trigger = menu.querySelector('[data-action-menu-trigger]');
+    if (trigger) {
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  };
+
+  const openMenu = menu => {
+    if (!menu) return;
+    const list = menu.querySelector('[data-action-menu-list]');
+    const trigger = menu.querySelector('[data-action-menu-trigger]');
+    if (!list || !trigger) {
+      return;
+    }
+    menu.setAttribute('data-open', 'true');
+    list.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    const firstItem = list.querySelector('[data-action-menu-item]');
+    if (firstItem) {
+      requestAnimationFrame(() => {
+        firstItem.focus();
+      });
+    }
+  };
+
+  const closeAllMenus = exceptMenu => {
+    const openMenus = document.querySelectorAll('[data-action-menu][data-open="true"]');
+    openMenus.forEach(menu => {
+      if (menu !== exceptMenu) {
+        closeMenu(menu);
+      }
+    });
+  };
+
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest('[data-action-menu-trigger]');
+    if (trigger) {
+      const menu = trigger.closest('[data-action-menu]');
+      if (!menu) return;
+      const isOpen = menu.dataset.open === 'true';
+      if (isOpen) {
+        closeMenu(menu);
+      } else {
+        closeAllMenus(menu);
+        openMenu(menu);
+      }
+      return;
+    }
+
+    const menuItem = event.target.closest('[data-action-menu-item]');
+    if (menuItem) {
+      const menu = menuItem.closest('[data-action-menu]');
+      if (menu) {
+        closeMenu(menu);
+      }
+      return;
+    }
+
+    if (!event.target.closest('[data-action-menu]')) {
+      closeAllMenus();
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeAllMenus();
+    }
+  });
+
+  document.addEventListener('focusin', event => {
+    if (!event.target.closest('[data-action-menu]')) {
+      closeAllMenus();
+    }
+  });
+
+  actionMenusInitialized = true;
 }
 
 function getData(key, fallback) {
@@ -5035,25 +5158,32 @@ function renderShippingVendors(filterText = '') {
 
       const contacts = createContactStack(contactItems);
 
-      const actionButtons = [];
-      if (canManage) {
-        actionButtons.push(`
-          <button class="icon-btn small" type="button" data-shipping-action="edit" data-id="${safeId}" title="Edit vendor">✏️</button>
-        `);
-        actionButtons.push(`
-          <button class="icon-btn danger small" type="button" data-shipping-action="delete" data-id="${safeId}" title="Hapus vendor">🗑️</button>
-        `);
-      }
-
+      const actionItems = [];
       if (vendor.detailUrl) {
         const detailUrl = escapeHtml(vendor.detailUrl);
-        actionButtons.unshift(`<a class="btn ghost-btn small" href="${detailUrl}">Kelola Tarif</a>`);
+        actionItems.push(`
+          <a class="action-menu__item" href="${detailUrl}" role="menuitem" data-action-menu-item>
+            Kelola Tarif
+          </a>
+        `);
+      }
+      if (canManage) {
+        actionItems.push(`
+          <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-shipping-action="edit" data-id="${safeId}">
+            Edit
+          </button>
+        `);
+        actionItems.push(`
+          <button class="action-menu__item action-menu__item--danger" type="button" role="menuitem" data-action-menu-item data-shipping-action="delete" data-id="${safeId}">
+            Hapus
+          </button>
+        `);
       }
 
-      const actionMarkup = actionButtons.map(action => action.trim()).join('');
-      const actions = actionButtons.length
-        ? `<div class="table-actions">${actionMarkup}</div>`
-        : '<span class="table-note">Hubungi PIC</span>';
+      const actionMenu = createActionMenu(actionItems, { label: `Menu tindakan untuk ${vendor.name ?? 'vendor pengiriman'}` });
+      const actions = actionMenu
+        ? `<div class="table-actions">${actionMenu}</div>`
+        : '<div class="table-actions"><span class="table-note">Hubungi PIC</span></div>';
 
       return `
         <tr data-vendor-id="${safeId}">
@@ -5677,21 +5807,33 @@ function renderCategories(filterText = '') {
       const safeId = escapeHtml(category.id ?? '');
       row.dataset.categoryId = category.id ?? '';
 
-      const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
-      const editTitle = canManage ? 'Edit kategori' : 'Login untuk mengedit kategori';
-      const deleteTitle = canManage ? 'Hapus kategori' : 'Login untuk menghapus kategori';
+      const actionItems = canManage
+        ? [
+            `
+              <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-category-action="edit" data-id="${safeId}">
+                Edit
+              </button>
+            `,
+            `
+              <button class="action-menu__item action-menu__item--danger" type="button" role="menuitem" data-action-menu-item data-category-action="delete" data-id="${safeId}">
+                Hapus
+              </button>
+            `
+          ]
+        : [];
+
+      const actionMenu = createActionMenu(actionItems, { label: `Menu tindakan untuk kategori ${category.name ?? ''}` });
+      const actionContent = actionMenu
+        ? `<div class="table-actions">${actionMenu}</div>`
+        : '<div class="table-actions"><span class="table-note">Akses terbatas</span></div>';
+
       row.innerHTML = `
         <td><strong>${escapeHtml(category.name ?? '')}</strong></td>
         <td><span class="fee-chip">${escapeHtml(category.fees?.marketplace ?? '-')}</span></td>
         <td><span class="fee-chip">${escapeHtml(category.fees?.shopee ?? '-')}</span></td>
         <td><span class="fee-chip">${escapeHtml(category.fees?.entraverse ?? '-')}</span></td>
         <td class="category-margin"><span class="fee-chip fee-chip--highlight">${escapeHtml(category.margin?.value ?? '-')}</span></td>
-        <td>
-          <div class="table-actions">
-            <button class="icon-btn small" type="button" data-category-action="edit" data-id="${safeId}" title="${editTitle}" ${manageDisabledAttr}>✏️</button>
-            <button class="icon-btn danger small" type="button" data-category-action="delete" data-id="${safeId}" title="${deleteTitle}" ${manageDisabledAttr}>🗑️</button>
-          </div>
-        </td>
+        <td>${actionContent}</td>
       `;
 
       tbody.appendChild(row);
@@ -6186,41 +6328,9 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const safeBrand = product.brand ? escapeHtml(product.brand) : '';
       const skuValue = getPrimaryProductSku(product);
       const safeSku = skuValue ? escapeHtml(skuValue) : '';
-      const rawStock = product.stock;
-      const normalizedStock = rawStock === null || rawStock === undefined ? '' : String(rawStock).trim();
-      const safeStock = normalizedStock ? escapeHtml(normalizedStock) : '';
-      const variantStockLines = Array.isArray(product.variantPricing)
-        ? product.variantPricing
-            .map(variant => {
-              const variantStockRaw = variant?.stock;
-              const normalizedVariantStock =
-                variantStockRaw === null || variantStockRaw === undefined ? '' : String(variantStockRaw).trim();
-              if (!normalizedVariantStock) {
-                return null;
-              }
-
-              const variantValues = Array.isArray(variant?.variants)
-                ? variant.variants
-                    .map(option => {
-                      const optionName = (option?.name ?? '').toString().trim();
-                      const optionValue = (option?.value ?? '').toString().trim();
-                      if (optionName && optionValue) {
-                        return `${escapeHtml(optionName)}: ${escapeHtml(optionValue)}`;
-                      }
-                      if (optionValue) {
-                        return escapeHtml(optionValue);
-                      }
-                      return '';
-                    })
-                    .filter(Boolean)
-                : [];
-
-              const variantLabel = variantValues.length ? variantValues.join(' · ') : 'Varian';
-              return `<span class="product-meta product-variant-stock">${variantLabel} — ${escapeHtml(normalizedVariantStock)}</span>`;
-            })
-            .filter(Boolean)
-        : [];
-      const variantStockHtml = variantStockLines.join('');
+      const totalStockValue = calculateProductTotalStock(product);
+      const hasStockValue = typeof totalStockValue === 'string' && totalStockValue.trim() !== '';
+      const safeStock = hasStockValue ? escapeHtml(totalStockValue) : '';
 
       const normalizedMekariStatus = normalizeMekariStatus(product.mekariStatus);
       const statusState = normalizedMekariStatus.state ?? 'pending';
@@ -6272,9 +6382,29 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         </div>
       `;
 
-      const manageDisabledAttr = canManage ? '' : 'disabled aria-disabled="true"';
-      const editTitle = canManage ? 'Edit' : 'Login untuk mengedit produk';
-      const deleteTitle = canManage ? 'Hapus' : 'Login untuk menghapus produk';
+      const actionItems = [];
+      actionItems.push(`
+        <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-action="view-variants" data-id="${product.id}">
+          Lihat
+        </button>
+      `);
+      if (canManage) {
+        actionItems.push(`
+          <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-action="edit" data-id="${product.id}">
+            Edit
+          </button>
+        `);
+        actionItems.push(`
+          <button class="action-menu__item action-menu__item--danger" type="button" role="menuitem" data-action-menu-item data-action="delete" data-id="${product.id}">
+            Hapus
+          </button>
+        `);
+      }
+
+      const actionMenu = createActionMenu(actionItems, { label: `Menu tindakan untuk ${product.name ?? 'produk'}` });
+      const actionsHtml = actionMenu
+        ? `<div class="table-actions">${actionMenu}</div>`
+        : '<div class="table-actions"><span class="table-note">Tidak ada aksi</span></div>';
 
       row.innerHTML = `
         <td>
@@ -6286,8 +6416,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           <div class="product-cell">
             <strong>${safeName}</strong>
             ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
-            ${variantStockHtml}
-            ${safeStock ? `<span class="product-meta product-stock">Stok: ${safeStock}</span>` : ''}
+            ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
@@ -6298,13 +6427,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             <span class="slider"></span>
           </label>
         </td>
-        <td>
-          <div class="table-actions">
-            <button class="icon-btn small" type="button" data-action="edit" data-id="${product.id}" title="${editTitle}" ${manageDisabledAttr}>✏️</button>
-            <button class="icon-btn small" type="button" data-action="view-variants" data-id="${product.id}" title="Lihat varian">👁️</button>
-            <button class="icon-btn danger small" type="button" data-action="delete" data-id="${product.id}" title="${deleteTitle}" ${manageDisabledAttr}>🗑️</button>
-          </div>
-        </td>
+        <td>${actionsHtml}</td>
       `;
       tbody.appendChild(row);
     });
@@ -13867,6 +13990,7 @@ function initPage() {
     const initialUser = getCurrentUser();
     topbarAuth.update(initialUser ?? getGuestUser());
     setupThemeControls();
+    setupActionMenus();
 
     if (page === 'login') {
       const existingUser = getCurrentUser();
