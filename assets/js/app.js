@@ -2603,6 +2603,18 @@ function collectProductVariantSkus(product) {
     .filter(Boolean);
 }
 
+function extractProductNameParts(name) {
+  if (!name || typeof name !== 'string') {
+    return { baseName: '', variantName: '' };
+  }
+
+  const segments = name.split(',');
+  const baseName = segments.shift()?.trim() ?? '';
+  const variantName = segments.join(',').trim();
+
+  return { baseName, variantName };
+}
+
 function getPrimarySku(product) {
   const skus = collectProductVariantSkus(product);
   if (!skus.length) {
@@ -2720,30 +2732,124 @@ async function mergeProductsIntoSpu(productIds, targetSpu, { reason = 'merge' } 
   const products = Array.isArray(getProductsFromCache()) ? getProductsFromCache() : [];
   const idSet = new Set(ids);
   const timestamp = Date.now();
-  const changedProducts = [];
-
-  const updatedList = products.map(product => {
-    if (!idSet.has(product.id)) {
-      return product;
-    }
-    if (product.spu === normalizedSpu) {
-      return product;
-    }
-    const updated = { ...product, spu: normalizedSpu, updatedAt: timestamp };
-    changedProducts.push(updated);
-    return updated;
-  });
-
-  if (!changedProducts.length) {
+  const selectedProducts = products.filter(product => idSet.has(product.id));
+  if (!selectedProducts.length) {
     return { updated: [], products };
   }
+
+  const nameVotes = new Map();
+  const variantNameByProduct = new Map();
+  selectedProducts.forEach(product => {
+    const { baseName, variantName } = extractProductNameParts(product.name);
+    if (baseName) {
+      nameVotes.set(baseName, (nameVotes.get(baseName) ?? 0) + 1);
+    }
+    if (variantName) {
+      variantNameByProduct.set(product.id, variantName);
+    }
+  });
+
+  const preferredNameEntry = Array.from(nameVotes.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) {
+      return b[1] - a[1];
+    }
+    return a[0].localeCompare(b[0]);
+  })[0];
+  const targetName = preferredNameEntry?.[0] || selectedProducts[0]?.name || 'Produk';
+
+  const primaryProduct = selectedProducts.reduce((winner, candidate) => {
+    if (!winner) {
+      return candidate;
+    }
+    const winnerVariants = Array.isArray(winner.variantPricing) ? winner.variantPricing.length : 0;
+    const candidateVariants = Array.isArray(candidate.variantPricing) ? candidate.variantPricing.length : 0;
+    if (candidateVariants > winnerVariants) {
+      return candidate;
+    }
+    if (candidateVariants === winnerVariants) {
+      return (winner.createdAt ?? 0) <= (candidate.createdAt ?? 0) ? winner : candidate;
+    }
+    return winner;
+  }, null);
+
+  if (!primaryProduct) {
+    return { updated: [], products };
+  }
+
+  const pricingMap = new Map();
+  selectedProducts.forEach(product => {
+    const variantLabel = variantNameByProduct.get(product.id) || '';
+    const rows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+    rows.forEach(row => {
+      const sellerSku = (row?.sellerSku ?? '').toString().trim();
+      if (!sellerSku) {
+        return;
+      }
+      const existingVariants = Array.isArray(row.variants) ? row.variants.filter(Boolean) : [];
+      const normalizedVariants = variantLabel
+        ? (() => {
+            const target = variantLabel.toLowerCase();
+            const hasVariant = existingVariants.some(entry => {
+              const value = (entry?.value ?? '').toString().trim().toLowerCase();
+              return value && value === target;
+            });
+            if (hasVariant) {
+              return existingVariants;
+            }
+            return [...existingVariants, { name: 'Varian', value: variantLabel }];
+          })()
+        : existingVariants;
+      const safeVariants = normalizedVariants === existingVariants ? [...normalizedVariants] : normalizedVariants;
+      pricingMap.set(sellerSku, { ...row, variants: safeVariants });
+    });
+  });
+
+  const combinedVariantPricing = Array.from(pricingMap.values());
+  const variantOptions = Array.from(new Set(Array.from(variantNameByProduct.values()).filter(Boolean)));
+  const baseVariants = Array.isArray(primaryProduct.variants) ? primaryProduct.variants.filter(Boolean) : [];
+  const varianIndex = baseVariants.findIndex(entry => (entry?.name ?? '').toString().toLowerCase() === 'varian');
+  let mergedVariants = baseVariants;
+  if (variantOptions.length) {
+    if (varianIndex === -1) {
+      mergedVariants = [...baseVariants, { name: 'Varian', options: variantOptions }];
+    } else {
+      mergedVariants = baseVariants.map((entry, index) =>
+        index === varianIndex ? { ...entry, options: variantOptions } : entry
+      );
+    }
+  }
+
+  const updatedPrimary = {
+    ...primaryProduct,
+    name: targetName,
+    spu: normalizedSpu,
+    variants: mergedVariants,
+    variantPricing: combinedVariantPricing,
+    updatedAt: timestamp
+  };
+
+  const removalIds = selectedProducts.filter(product => product.id !== primaryProduct.id).map(product => product.id);
+  const removalSet = new Set(removalIds);
+  const updatedList = products
+    .filter(product => product.id === primaryProduct.id || !removalSet.has(product.id))
+    .map(product => (product.id === primaryProduct.id ? updatedPrimary : product));
 
   setProductCache(updatedList);
 
   try {
-    await bulkUpsertProductsToSupabase(changedProducts);
+    await bulkUpsertProductsToSupabase([updatedPrimary]);
   } catch (error) {
     console.warn('Gagal menyimpan hasil pemetaan produk.', error);
+  }
+
+  if (removalIds.length) {
+    for (const id of removalIds) {
+      try {
+        await deleteProductFromSupabase(id);
+      } catch (error) {
+        console.warn('Gagal menghapus produk setelah penggabungan.', error);
+      }
+    }
   }
 
   try {
@@ -2756,7 +2862,11 @@ async function mergeProductsIntoSpu(productIds, targetSpu, { reason = 'merge' } 
     console.warn('Gagal mengirimkan event pembaruan produk.', error);
   }
 
-  return { updated: changedProducts, products: updatedList };
+  const updatedRecords = selectedProducts.map(product =>
+    product.id === primaryProduct.id ? updatedPrimary : product
+  );
+
+  return { updated: updatedRecords, products: updatedList };
 }
 
 function mapSupabaseShippingVendor(record) {
