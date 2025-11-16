@@ -2548,6 +2548,217 @@ async function bulkUpsertProductsToSupabase(products, { chunkSize = 50 } = {}) {
   }
 }
 
+function extractSkuPrefix(sku) {
+  if (!sku) {
+    return '';
+  }
+  const value = sku.toString().trim();
+  if (!value) {
+    return '';
+  }
+  const lastDash = value.lastIndexOf('-');
+  if (lastDash === -1) {
+    return value;
+  }
+  return value.slice(0, lastDash).trim();
+}
+
+function formatVariantCombination(variants) {
+  if (!Array.isArray(variants) || !variants.length) {
+    return '';
+  }
+  return variants
+    .map(option => {
+      const name = (option?.name ?? 'Opsi').toString();
+      const value = option?.value ?? option?.option ?? '';
+      return value ? `${name}: ${value}` : name;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function collectProductVariantSkus(product) {
+  if (!product || !Array.isArray(product.variantPricing)) {
+    return [];
+  }
+
+  return product.variantPricing
+    .map(entry => {
+      const sellerSku = (entry?.sellerSku ?? '').toString().trim();
+      if (!sellerSku) {
+        return null;
+      }
+      const prefix = extractSkuPrefix(sellerSku);
+      if (!prefix) {
+        return null;
+      }
+      return {
+        sku: sellerSku,
+        prefix,
+        variantSummary: formatVariantCombination(entry?.variants),
+        productId: product.id,
+        productName: product.name
+      };
+    })
+    .filter(Boolean);
+}
+
+function getPrimarySku(product) {
+  const skus = collectProductVariantSkus(product);
+  if (!skus.length) {
+    return '';
+  }
+  return skus[0].sku;
+}
+
+function normalizeSpuValue(value, { ensurePrefix = true } = {}) {
+  if (!value && value !== 0) {
+    return '';
+  }
+  const cleaned = value
+    .toString()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toUpperCase();
+
+  if (!cleaned) {
+    return '';
+  }
+
+  if (!ensurePrefix) {
+    return cleaned;
+  }
+
+  return cleaned.startsWith('SPU-') ? cleaned : `SPU-${cleaned}`;
+}
+
+function generateSpuFromPrefix(prefix) {
+  if (!prefix) {
+    return '';
+  }
+  const normalized = normalizeSpuValue(prefix, { ensurePrefix: false });
+  if (!normalized) {
+    return '';
+  }
+  return normalized.startsWith('SPU-') ? normalized : `SPU-${normalized}`;
+}
+
+function buildAutoMappingGroups(products) {
+  const groups = new Map();
+  const items = Array.isArray(products) ? products : [];
+
+  items.forEach(product => {
+    collectProductVariantSkus(product).forEach(entry => {
+      const existing = groups.get(entry.prefix);
+      if (!existing) {
+        groups.set(entry.prefix, {
+          prefix: entry.prefix,
+          skus: [entry],
+          productIds: new Set([entry.productId]),
+          productNames: new Map([[entry.productId, product.name]]),
+          currentSpus: new Set([(product.spu ?? '').toString().trim()].filter(Boolean))
+        });
+        return;
+      }
+      existing.skus.push(entry);
+      existing.productIds.add(entry.productId);
+      existing.productNames.set(entry.productId, product.name);
+      if (product.spu) {
+        existing.currentSpus.add(product.spu.toString().trim());
+      }
+    });
+  });
+
+  return Array.from(groups.values())
+    .map(group => {
+      const productIds = Array.from(group.productIds);
+      const targetSpu = generateSpuFromPrefix(group.prefix);
+      const normalizedSpus = Array.from(group.currentSpus).filter(Boolean);
+      const isMerged = normalizedSpus.length === 1 && normalizedSpus[0] === targetSpu;
+      return {
+        prefix: group.prefix,
+        skus: group.skus,
+        productIds,
+        productNames: group.productNames,
+        targetSpu,
+        isMerged,
+        skuCount: group.skus.length,
+        productCount: productIds.length
+      };
+    })
+    .filter(group => group.skuCount > 1 || group.productCount > 1)
+    .sort((a, b) => a.prefix.localeCompare(b.prefix));
+}
+
+async function refreshProductsForMapping() {
+  try {
+    await ensureSeeded();
+    await refreshProductsFromSupabase();
+  } catch (error) {
+    console.warn('Gagal memuat data terbaru untuk pemetaan produk.', error);
+  }
+  const cached = getProductsFromCache();
+  if (Array.isArray(cached) && cached.length) {
+    return cached;
+  }
+  if (Array.isArray(DEFAULT_PRODUCTS) && DEFAULT_PRODUCTS.length) {
+    setProductCache(DEFAULT_PRODUCTS);
+    return DEFAULT_PRODUCTS;
+  }
+  return [];
+}
+
+async function mergeProductsIntoSpu(productIds, targetSpu, { reason = 'merge' } = {}) {
+  const ids = Array.isArray(productIds) ? productIds.filter(Boolean) : [];
+  const normalizedSpu = normalizeSpuValue(targetSpu);
+  if (!ids.length || !normalizedSpu) {
+    return { updated: [], products: getProductsFromCache() };
+  }
+
+  const products = Array.isArray(getProductsFromCache()) ? getProductsFromCache() : [];
+  const idSet = new Set(ids);
+  const timestamp = Date.now();
+  const changedProducts = [];
+
+  const updatedList = products.map(product => {
+    if (!idSet.has(product.id)) {
+      return product;
+    }
+    if (product.spu === normalizedSpu) {
+      return product;
+    }
+    const updated = { ...product, spu: normalizedSpu, updatedAt: timestamp };
+    changedProducts.push(updated);
+    return updated;
+  });
+
+  if (!changedProducts.length) {
+    return { updated: [], products };
+  }
+
+  setProductCache(updatedList);
+
+  try {
+    await bulkUpsertProductsToSupabase(changedProducts);
+  } catch (error) {
+    console.warn('Gagal menyimpan hasil pemetaan produk.', error);
+  }
+
+  try {
+    document.dispatchEvent(
+      new CustomEvent('entraverse:products-change', {
+        detail: { reason, productIds: ids, spu: normalizedSpu }
+      })
+    );
+  } catch (error) {
+    console.warn('Gagal mengirimkan event pembaruan produk.', error);
+  }
+
+  return { updated: changedProducts, products: updatedList };
+}
+
 function mapSupabaseShippingVendor(record) {
   if (!record) {
     return null;
@@ -5045,7 +5256,18 @@ async function ensureAuthenticatedPage() {
   const page = document.body.dataset.page;
   const guest = getGuestUser();
 
-  if (!['dashboard', 'add-product', 'categories', 'shipping', 'integrations', 'reports'].includes(page)) {
+  if (
+    ![
+      'dashboard',
+      'add-product',
+      'categories',
+      'shipping',
+      'integrations',
+      'reports',
+      'product-mapping-auto',
+      'product-mapping-manual'
+    ].includes(page)
+  ) {
     return { user: guest, status: 'guest' };
   }
 
@@ -13786,6 +14008,31 @@ function initIntegrations() {
   });
 }
 
+function initProductMappingMenu() {
+  const menu = document.querySelector('[data-product-mapping-menu]');
+  if (!menu) {
+    return;
+  }
+  if (menu.dataset.initialized === 'true') {
+    return;
+  }
+  menu.dataset.initialized = 'true';
+
+  menu.addEventListener('click', event => {
+    const option = event.target.closest('[data-product-mapping-option]');
+    if (!option) {
+      return;
+    }
+    event.preventDefault();
+    const method = option.dataset.productMappingOption;
+    if (method === 'auto') {
+      window.location.href = 'product-mapping-auto.html';
+    } else if (method === 'manual') {
+      window.location.href = 'product-mapping-manual.html';
+    }
+  });
+}
+
 function initDashboard() {
   const resolveCurrentFilter = () => (document.getElementById('search-input')?.value ?? '').toString();
 
@@ -13825,6 +14072,7 @@ function initDashboard() {
   };
 
   handleSearch(value => requestRender(value, { resetPage: true }));
+  initProductMappingMenu();
 
   const addProductLink = document.querySelector('[data-add-product-link]');
   const updateAddProductLinkState = () => {
@@ -13920,6 +14168,381 @@ function initDashboard() {
   });
 }
 
+async function initProductMappingAutoPage() {
+  const container = document.querySelector('[data-auto-mapping]');
+  if (!container) {
+    return;
+  }
+
+  const listEl = container.querySelector('[data-mapping-groups]');
+  const emptyEl = container.querySelector('[data-mapping-empty]');
+  const loadingEl = container.querySelector('[data-mapping-loading]');
+  const metaEl = container.querySelector('[data-auto-mapping-meta]');
+  const refreshBtn = container.querySelector('[data-auto-refresh]');
+  let groups = [];
+
+  const setLoading = isLoading => {
+    if (loadingEl) {
+      loadingEl.hidden = !isLoading;
+    }
+    if (listEl) {
+      listEl.hidden = Boolean(isLoading);
+    }
+    if (emptyEl && isLoading) {
+      emptyEl.hidden = true;
+    }
+    if (metaEl) {
+      metaEl.textContent = isLoading
+        ? 'Memindai SKU berdasarkan awalan…'
+        : groups.length
+          ? `${groups.length} grup SKU siap digabung.`
+          : 'Semua SKU dengan awalan serupa sudah tergabung.';
+    }
+  };
+
+  const renderGroups = () => {
+    if (!listEl) {
+      return;
+    }
+    if (!groups.length) {
+      listEl.innerHTML = '';
+      listEl.hidden = true;
+      if (emptyEl) {
+        emptyEl.hidden = false;
+      }
+      return;
+    }
+    listEl.hidden = false;
+    if (emptyEl) {
+      emptyEl.hidden = true;
+    }
+
+    listEl.innerHTML = groups
+      .map(group => {
+        const rows = group.skus
+          .map(entry => {
+            const variantLabel = entry.variantSummary
+              ? `<span class="manual-product-meta">${escapeHtml(entry.variantSummary)}</span>`
+              : '';
+            return `
+              <tr>
+                <td>${escapeHtml(entry.sku)}</td>
+                <td>
+                  <p class="manual-product-name">${escapeHtml(entry.productName ?? 'Produk')}</p>
+                  ${variantLabel}
+                </td>
+              </tr>
+            `;
+          })
+          .join('');
+        const badge = group.isMerged
+          ? '<span class="mapping-group__badge">Sudah tergabung</span>'
+          : '';
+        const buttonLabel = group.isMerged ? 'Terselesaikan' : 'Satukan';
+        return `
+          <article class="mapping-group">
+            <div class="mapping-group__header">
+              <div class="mapping-group__stats">
+                <span class="mapping-group__meta">Awalan SKU</span>
+                <span class="mapping-group__prefix">${escapeHtml(group.prefix)}</span>
+                <span class="mapping-group__meta">${group.skuCount} SKU • ${group.productCount} produk</span>
+              </div>
+              <div class="mapping-group__actions">
+                <span class="mapping-group__target">Target SPU: <strong>${escapeHtml(group.targetSpu || 'Belum tersedia')}</strong></span>
+                ${badge}
+                <button class="btn primary-btn" type="button" data-merge-prefix="${escapeHtml(group.prefix)}" ${
+                  group.isMerged ? 'disabled' : ''
+                }>${buttonLabel}</button>
+              </div>
+            </div>
+            <div class="table-wrapper">
+              <table class="mapping-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Produk & Varian</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        `;
+      })
+      .join('');
+  };
+
+  const refreshGroups = async () => {
+    setLoading(true);
+    const products = await refreshProductsForMapping();
+    groups = buildAutoMappingGroups(products);
+    setLoading(false);
+    renderGroups();
+  };
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', event => {
+      event.preventDefault();
+      refreshGroups();
+    });
+  }
+
+  container.addEventListener('click', async event => {
+    const button = event.target.closest('[data-merge-prefix]');
+    if (!button) {
+      return;
+    }
+    const prefix = button.dataset.mergePrefix;
+    const group = groups.find(item => item.prefix === prefix);
+    if (!group || group.isMerged) {
+      return;
+    }
+    button.disabled = true;
+    const originalLabel = button.textContent;
+    button.textContent = 'Menyatukan…';
+
+    try {
+      const { updated } = await mergeProductsIntoSpu(group.productIds, group.targetSpu, {
+        reason: 'auto-mapping'
+      });
+      if (!updated.length) {
+        toast.show('Produk dengan awalan tersebut sudah tergabung.');
+      } else {
+        toast.show(`Berhasil menyatukan ${updated.length} produk ke ${group.targetSpu}.`);
+      }
+    } catch (error) {
+      console.error('Gagal menyatukan produk otomatis.', error);
+      toast.show('Gagal menyatukan produk. Coba lagi.');
+    } finally {
+      button.textContent = originalLabel;
+      await refreshGroups();
+    }
+  });
+
+  await refreshGroups();
+}
+
+async function initProductMappingManualPage() {
+  const container = document.querySelector('[data-manual-mapping]');
+  if (!container) {
+    return;
+  }
+
+  const tableBody = container.querySelector('[data-manual-products]');
+  const emptyEl = container.querySelector('[data-manual-empty]');
+  const loadingEl = container.querySelector('[data-manual-loading]');
+  const selectionInfo = container.querySelector('[data-manual-selection-info]');
+  const form = container.querySelector('[data-manual-form]');
+  const mergeButton = container.querySelector('[data-manual-merge]');
+  const spuInput = container.querySelector('[data-manual-spu]');
+  const logList = container.querySelector('[data-manual-log]');
+  const searchInput = container.querySelector('[data-manual-search]');
+  const refreshBtn = container.querySelector('[data-manual-refresh]');
+  const tableContainer = container.querySelector('[data-manual-products-container]');
+  const selectedIds = new Set();
+  let logs = [];
+  let products = [];
+  let filter = '';
+
+  const setLoading = isLoading => {
+    if (loadingEl) {
+      loadingEl.hidden = !isLoading;
+    }
+    if (tableContainer) {
+      tableContainer.hidden = Boolean(isLoading);
+    }
+    if (emptyEl && isLoading) {
+      emptyEl.hidden = true;
+    }
+  };
+
+  const updateSelectionInfo = () => {
+    const count = selectedIds.size;
+    if (selectionInfo) {
+      selectionInfo.textContent = count ? `${count} produk dipilih.` : 'Belum ada produk dipilih.';
+    }
+    if (mergeButton) {
+      const hasSpu = Boolean(normalizeSpuValue(spuInput?.value ?? ''));
+      mergeButton.disabled = !(count >= 2 && hasSpu);
+    }
+  };
+
+  const renderLogs = () => {
+    if (!logList) {
+      return;
+    }
+    if (!logs.length) {
+      logList.innerHTML = '';
+      return;
+    }
+    logList.innerHTML = logs.map(entry => `<li>${escapeHtml(entry)}</li>`).join('');
+  };
+
+  const renderProducts = () => {
+    if (!tableBody) {
+      return;
+    }
+    const normalizedFilter = filter.trim().toLowerCase();
+    const rows = (normalizedFilter
+      ? products.filter(product => {
+          const primarySku = getPrimarySku(product) || '';
+          const combined = [product.name, product.spu, primarySku].join(' ').toLowerCase();
+          return combined.includes(normalizedFilter);
+        })
+      : [...products]
+    ).sort((a, b) => a.name.localeCompare(b.name));
+
+    if (!rows.length) {
+      tableBody.innerHTML = '';
+      if (tableContainer) {
+        tableContainer.hidden = true;
+      }
+      if (emptyEl) {
+        emptyEl.hidden = false;
+      }
+      return;
+    }
+    if (tableContainer) {
+      tableContainer.hidden = false;
+    }
+
+    if (emptyEl) {
+      emptyEl.hidden = true;
+    }
+
+    tableBody.innerHTML = rows
+      .map(product => {
+        const checked = selectedIds.has(product.id) ? 'checked' : '';
+        const displaySpu = product.spu ? product.spu : 'Belum ditentukan';
+        const sampleSku = getPrimarySku(product) || 'Belum ada SKU';
+        const nameText = product.name ?? 'Produk';
+        const name = escapeHtml(nameText);
+        const ariaLabel = escapeHtml(`Pilih ${nameText}`);
+        return `
+          <tr>
+            <td>
+              <input type="checkbox" data-manual-product-checkbox value="${product.id}" ${checked} aria-label="${ariaLabel}">
+            </td>
+            <td>
+              <p class="manual-product-name">${name}</p>
+              <span class="manual-product-meta">SPU: ${escapeHtml(displaySpu)}</span>
+              <span class="manual-product-meta">SKU contoh: ${escapeHtml(sampleSku)}</span>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+  };
+
+  const refreshProducts = async () => {
+    setLoading(true);
+    products = await refreshProductsForMapping();
+    const availableIds = new Set(products.map(product => product.id));
+    Array.from(selectedIds).forEach(id => {
+      if (!availableIds.has(id)) {
+        selectedIds.delete(id);
+      }
+    });
+    setLoading(false);
+    renderProducts();
+    updateSelectionInfo();
+  };
+
+  container.addEventListener('change', event => {
+    const checkbox = event.target.closest('[data-manual-product-checkbox]');
+    if (!checkbox) {
+      return;
+    }
+    const value = checkbox.value;
+    if (!value) {
+      return;
+    }
+    if (checkbox.checked) {
+      selectedIds.add(value);
+    } else {
+      selectedIds.delete(value);
+    }
+    updateSelectionInfo();
+  });
+
+  if (searchInput) {
+    searchInput.addEventListener('input', event => {
+      filter = (event.target.value ?? '').toString();
+      renderProducts();
+    });
+  }
+
+  if (spuInput) {
+    spuInput.addEventListener('input', () => {
+      updateSelectionInfo();
+    });
+  }
+
+  const addLogEntry = message => {
+    logs = [message, ...logs].slice(0, 5);
+    renderLogs();
+  };
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', event => {
+      event.preventDefault();
+      refreshProducts();
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const ids = Array.from(selectedIds);
+      if (ids.length < 2) {
+        toast.show('Pilih minimal 2 produk untuk digabungkan.');
+        return;
+      }
+      const targetSpu = normalizeSpuValue(spuInput?.value ?? '');
+      if (!targetSpu) {
+        toast.show('Masukkan nomor SPU baru.');
+        return;
+      }
+      if (mergeButton) {
+        mergeButton.disabled = true;
+        mergeButton.textContent = 'Menggabungkan…';
+      }
+
+      try {
+        const { updated } = await mergeProductsIntoSpu(ids, targetSpu, { reason: 'manual-mapping' });
+        if (!updated.length) {
+          toast.show('Produk yang dipilih sudah memiliki SPU tersebut.');
+        } else {
+          toast.show(`Berhasil menggabungkan ${updated.length} produk.`);
+          const timestamp = new Intl.DateTimeFormat('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }).format(new Date());
+          addLogEntry(`${timestamp} · ${updated.length} produk digabung ke ${targetSpu}`);
+        }
+        selectedIds.clear();
+        if (spuInput) {
+          spuInput.value = '';
+        }
+        await refreshProducts();
+      } catch (error) {
+        console.error('Gagal menggabungkan produk manual.', error);
+        toast.show('Gagal menggabungkan produk. Coba lagi.');
+      } finally {
+        if (mergeButton) {
+          mergeButton.textContent = 'Gabungkan produk';
+          mergeButton.disabled = true;
+        }
+        updateSelectionInfo();
+      }
+    });
+  }
+
+  await refreshProducts();
+}
+
 function initCategories() {
   const runInitialSync = async () => {
     renderCategoryLoadingState();
@@ -13969,7 +14592,18 @@ function initPage() {
       handleRegister();
     }
 
-    if (['dashboard', 'add-product', 'categories', 'shipping', 'integrations', 'reports'].includes(page)) {
+    if (
+      [
+        'dashboard',
+        'add-product',
+        'categories',
+        'shipping',
+        'integrations',
+        'reports',
+        'product-mapping-auto',
+        'product-mapping-manual'
+      ].includes(page)
+    ) {
       setupSidebarToggle();
       setupSidebarCollapse();
       const { user, status } = await ensureAuthenticatedPage();
@@ -14001,6 +14635,14 @@ function initPage() {
 
     if (page === 'reports') {
       initReportsPage();
+    }
+
+    if (page === 'product-mapping-auto') {
+      await initProductMappingAutoPage();
+    }
+
+    if (page === 'product-mapping-manual') {
+      await initProductMappingManualPage();
     }
 
   });
