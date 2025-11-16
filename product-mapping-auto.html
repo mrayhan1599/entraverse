@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entraverse Admin - Produk</title>
+  <title>Entraverse Admin - Pemetaan Produk Otomatis</title>
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="dashboard">
+<body data-page="product-mapping-auto">
   <div class="app-shell">
     <aside class="sidebar" data-sidebar>
       <div class="sidebar-header">
@@ -111,85 +111,28 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <h1>Produk</h1>
-            <div class="title-actions" role="toolbar" aria-label="Aksi produk">
-              <button id="sync-btn" class="action-icon" type="button" aria-label="Sync ke Mekari Jurnal" data-label-default="Sync ke Mekari Jurnal" data-label-loading="Menyinkronkan...">
-                <span class="visually-hidden" data-label>Sync ke Mekari Jurnal</span>
-                <span aria-hidden="true" class="logo-badge">
-                  <img src="assets/img/integrations/mekari-jurnal.svg" alt="" loading="lazy" data-mekari-logo>
-                </span>
-              </button>
-              <div class="action-menu" data-action-menu data-product-mapping-menu>
-                <button
-                  class="action-icon action-icon--label action-menu__trigger action-menu__trigger--label"
-                  type="button"
-                  aria-haspopup="true"
-                  aria-expanded="false"
-                  aria-label="Petakan produk"
-                  data-action-menu-trigger
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M4 5.5v13M20 5.5v13M4 8.5l4.5-3 7 5 4.5-3M4 15.5l4.5-3 7 5 4.5-3"></path>
-                  </svg>
-                  <span class="action-icon__label">Petakan produk</span>
-                </button>
-                <div class="action-menu__list" role="menu" data-action-menu-list hidden>
-                  <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-product-mapping-option="auto">
-                    Metode otomatis
-                  </button>
-                  <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-product-mapping-option="manual">
-                    Metode manual
-                  </button>
-                </div>
-              </div>
-              <a href="add-product.html" class="action-icon" aria-label="Tambah produk" data-add-product-link>
-                <span class="visually-hidden">Tambah produk</span>
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path d="M12 5v14M5 12h14"></path>
-                </svg>
-              </a>
+            <div>
+              <a class="back-link" href="dashboard.html">← Kembali ke Produk</a>
+              <h1>Petakan Produk</h1>
             </div>
+            <a class="btn ghost-btn" href="product-mapping-manual.html">Metode manual</a>
           </div>
-          <p>Kelola katalog produk Anda, atur trade-in, dan sinkronisasi stok.</p>
-          <p class="sync-meta" data-mekari-sync-text>Terakhir disinkronisasi Mekari Jurnal: Memuat status sinkronisasi...</p>
-          <p class="sync-meta sync-meta--error" data-mekari-sync-error hidden aria-live="polite"></p>
+          <p>Satukan SKU dengan awalan yang sama agar berbagi SPU yang konsisten di seluruh kanal.</p>
+          <p>Gunakan metode otomatis ini untuk mempercepat pemetaan SPU berdasarkan pola SKU sebelum tanda strip (-).</p>
         </div>
       </section>
-      <section class="card">
+      <section class="card mapping-card" data-auto-mapping>
         <header class="card-header">
-          <h2>Daftar Produk</h2>
-          <span id="product-count" class="count-pill">0 produk</span>
+          <div>
+            <h2>Metode otomatis</h2>
+            <p>Temukan SKU dengan awalan identik, lalu satukan menjadi satu SPU.</p>
+          </div>
+          <button class="btn ghost-btn" type="button" data-auto-refresh>Segarkan data</button>
         </header>
-        <div class="table-wrapper">
-          <table class="product-table">
-            <thead>
-              <tr>
-                <th class="col-photo">Foto</th>
-                <th>
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    data-sort="product-name"
-                    data-sort-active="true"
-                    data-sort-direction="asc"
-                    aria-label="Urutkan Nama Produk (A-Z)"
-                  >
-                    <span>Nama Produk</span>
-                    <span class="table-sort-indicator" aria-hidden="true"></span>
-                  </button>
-                </th>
-                <th class="col-status">Status</th>
-                <th class="col-actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="product-table-body">
-            </tbody>
-          </table>
-        </div>
-        <footer class="card-footer">
-          <nav class="pagination" id="product-pagination" aria-label="Navigasi halaman produk" hidden></nav>
-          <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
-        </footer>
+        <p class="manual-selection-info" data-auto-mapping-meta>Memindai SKU berdasarkan awalan…</p>
+        <div class="mapping-empty-state" data-mapping-loading>Memindai SKU berdasarkan awalan…</div>
+        <div class="mapping-empty-state" data-mapping-empty hidden>Semua SKU dengan awalan serupa sudah tergabung.</div>
+        <div class="mapping-groups" data-mapping-groups hidden></div>
       </section>
     </main>
   </div>
