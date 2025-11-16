@@ -6407,7 +6407,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         : '<div class="table-actions"><span class="table-note">Tidak ada aksi</span></div>';
 
       row.innerHTML = `
-        <td>
+        <td class="col-photo">
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
           </div>
@@ -6417,17 +6417,12 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             <strong>${safeName}</strong>
             ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
+            <div class="product-status-mobile">${mekariStatusHtml}</div>
             ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
-        <td>${mekariStatusHtml}</td>
-        <td>
-          <label class="switch">
-            <input type="checkbox" ${product.tradeIn ? 'checked' : ''} data-action="toggle-trade" data-id="${product.id}" ${canManage ? '' : 'disabled'}>
-            <span class="slider"></span>
-          </label>
-        </td>
-        <td>${actionsHtml}</td>
+        <td class="col-status">${mekariStatusHtml}</td>
+        <td class="col-actions">${actionsHtml}</td>
       `;
       tbody.appendChild(row);
     });
@@ -6583,38 +6578,6 @@ function handleProductActions() {
     }
   });
 
-  tbody.addEventListener('change', async event => {
-    const input = event.target.closest('input[data-action="toggle-trade"]');
-    if (!input) return;
-
-    if (!requireCatalogManager('Silakan login untuk memperbarui status trade-in.')) {
-      input.checked = !input.checked;
-      return;
-    }
-
-    const id = input.dataset.id;
-    const products = getCurrentPageProducts();
-    const product = products.find(p => p.id === id);
-    if (!product) {
-      return;
-    }
-
-    input.disabled = true;
-
-    try {
-      const updated = { ...product, tradeIn: input.checked, updatedAt: Date.now() };
-      await upsertProductToSupabase(updated);
-      await refreshProductsFromSupabase();
-      toast.show(input.checked ? 'Trade-in diaktifkan.' : 'Trade-in dimatikan.');
-      renderProducts(getCurrentFilter());
-    } catch (error) {
-      console.error('Gagal memperbarui status trade-in.', error);
-      input.checked = !input.checked;
-      toast.show('Gagal memperbarui status trade-in. Coba lagi.');
-    } finally {
-      input.disabled = false;
-    }
-  });
 }
 
 function handleCategoryActions() {
