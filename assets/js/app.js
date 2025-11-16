@@ -6667,7 +6667,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const row = document.createElement('tr');
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
       const safeName = escapeHtml(product.name ?? '');
-      const safeBrand = product.brand ? escapeHtml(product.brand) : '';
       const skuValue = getPrimaryProductSku(product);
       const safeSku = skuValue ? escapeHtml(skuValue) : '';
       const totalStockValue = calculateProductTotalStock(product);
@@ -6757,10 +6756,9 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         <td>
           <div class="product-cell">
             <strong>${safeName}</strong>
-            ${safeSku ? `<span class="product-meta product-sku">SKU: ${safeSku}</span>` : ''}
+            ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
             <div class="product-status-mobile">${mekariStatusHtml}</div>
-            ${safeBrand ? `<span class="product-meta">${safeBrand}</span>` : ''}
           </div>
         </td>
         <td class="col-status">${mekariStatusHtml}</td>
