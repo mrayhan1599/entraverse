@@ -14453,6 +14453,7 @@ async function initProductMappingManualPage() {
   const logList = container.querySelector('[data-manual-log]');
   const searchInput = container.querySelector('[data-manual-search]');
   const refreshBtn = container.querySelector('[data-manual-refresh]');
+  const stripSpuPrefixBtn = container.querySelector('[data-manual-strip-spu]');
   const tableContainer = container.querySelector('[data-manual-products-container]');
   const selectedIds = new Set();
   let logs = [];
@@ -14602,6 +14603,68 @@ async function initProductMappingManualPage() {
     refreshBtn.addEventListener('click', event => {
       event.preventDefault();
       refreshProducts();
+    });
+  }
+
+  if (stripSpuPrefixBtn) {
+    stripSpuPrefixBtn.addEventListener('click', async event => {
+      event.preventDefault();
+      if (stripSpuPrefixBtn.disabled) {
+        return;
+      }
+
+      const originalLabel = stripSpuPrefixBtn.textContent;
+      stripSpuPrefixBtn.disabled = true;
+      stripSpuPrefixBtn.textContent = 'Membersihkan…';
+
+      try {
+        const timestamp = Date.now();
+        const updatedProducts = [];
+        const nextProducts = products.map(product => {
+          const currentSpu = (product?.spu ?? '').toString().trim();
+          if (!currentSpu || !/^SPU-/i.test(currentSpu)) {
+            return product;
+          }
+          const cleanedSpu = currentSpu.replace(/^SPU-/i, '').trim();
+          const updatedProduct = {
+            ...product,
+            spu: cleanedSpu || null,
+            updatedAt: timestamp
+          };
+          updatedProducts.push(updatedProduct);
+          return updatedProduct;
+        });
+
+        if (!updatedProducts.length) {
+          toast.show('Tidak ada SPU yang memiliki awalan "SPU-".');
+        } else {
+          products = nextProducts;
+          setProductCache(nextProducts);
+
+          let supabaseFailed = false;
+          if (isSupabaseConfigured()) {
+            try {
+              await Promise.all(updatedProducts.map(product => upsertProductToSupabase(product)));
+            } catch (error) {
+              supabaseFailed = true;
+              console.error('Gagal menyinkronkan perubahan SPU ke Supabase.', error);
+            }
+          }
+
+          renderProducts();
+          if (supabaseFailed) {
+            toast.show(`Awalan berhasil dihapus pada ${updatedProducts.length} SPU, namun Supabase tidak dapat diperbarui.`);
+          } else {
+            toast.show(`Awalan dihapus pada ${updatedProducts.length} SPU.`);
+          }
+        }
+      } catch (error) {
+        console.error('Gagal menghapus awalan SPU.', error);
+        toast.show('Gagal menghapus awalan SPU. Coba lagi.');
+      } finally {
+        stripSpuPrefixBtn.textContent = originalLabel;
+        stripSpuPrefixBtn.disabled = false;
+      }
     });
   }
 

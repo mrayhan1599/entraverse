@@ -1192,6 +1192,14 @@ body[data-theme="dark"] .logo-badge {
   font-size: 20px;
 }
 
+.card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .count-pill {
   background: var(--color-icon-bg);
   color: var(--color-text);
