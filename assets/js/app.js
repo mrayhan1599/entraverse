@@ -14349,6 +14349,9 @@ async function initProductMappingAutoPage() {
           ? '<span class="mapping-group__badge">Sudah tergabung</span>'
           : '';
         const buttonLabel = group.isMerged ? 'Terselesaikan' : 'Satukan';
+        const targetSpuLabel = escapeHtml(
+          group.targetSpu ? group.targetSpu.replace(/^SPU-/, '') : 'Belum tersedia'
+        );
         return `
           <article class="mapping-group">
             <div class="mapping-group__header">
@@ -14358,7 +14361,7 @@ async function initProductMappingAutoPage() {
                 <span class="mapping-group__meta">${group.skuCount} SKU • ${group.productCount} produk</span>
               </div>
               <div class="mapping-group__actions">
-                <span class="mapping-group__target">Target SPU: <strong>${escapeHtml(group.targetSpu || 'Belum tersedia')}</strong></span>
+                <span class="mapping-group__target">Target SPU: <strong>${targetSpuLabel}</strong></span>
                 ${badge}
                 <button class="btn primary-btn" type="button" data-merge-prefix="${escapeHtml(group.prefix)}" ${
                   group.isMerged ? 'disabled' : ''
