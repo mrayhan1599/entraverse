@@ -5032,6 +5032,27 @@ function formatCurrencyCompact(value) {
   }).format(numeric);
 }
 
+function parseNumericValue(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[^\d.-]/g, '');
+    if (!normalized) {
+      return null;
+    }
+    const numeric = Number(normalized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  return null;
+}
+
 function formatNumber(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -6606,6 +6627,175 @@ async function fetchProductsPage({ filter = '', page = 1, perPage = PRODUCT_PAGI
 }
 
 
+function getProductVariantCount(product) {
+  if (!product || !Array.isArray(product.variantPricing)) {
+    return 0;
+  }
+  return product.variantPricing.length;
+}
+
+function resolveSkuCode(entry = {}) {
+  const keys = ['sellerSku', 'seller_sku', 'sku', 'SKU'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return '';
+}
+
+function resolveStockValue(entry = {}) {
+  const keys = ['stock', 'stok', 'qty', 'quantity'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function resolveOfflinePriceValue(entry = {}) {
+  const keys = ['offlinePrice', 'offline_price', 'priceOffline', 'price_offline', 'offline_price_idr'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function buildProductSkuTable(product) {
+  const variantPricing = Array.isArray(product?.variantPricing) ? product.variantPricing : [];
+  if (!variantPricing.length) {
+    return `
+      <div class="sku-empty-state">
+        <strong>Belum ada SKU penjual</strong>
+        <span>Tambahkan SKU pada menu edit produk untuk menampilkan stok dan harga.</span>
+      </div>
+    `;
+  }
+
+  const safeProductName = escapeHtml(product?.name ?? 'produk');
+  const rows = variantPricing
+    .map(entry => {
+      const skuCode = (resolveSkuCode(entry) ?? '').toString().trim();
+      const variantSummary =
+        formatVariantCombination(entry?.variants) || (entry?.variantLabel ?? '');
+      const stockValue = parseNumericValue(resolveStockValue(entry));
+      const priceValue = parseNumericValue(resolveOfflinePriceValue(entry));
+
+      const stockDisplay = stockValue !== null ? formatNumber(stockValue) : '—';
+      const priceDisplay = priceValue !== null ? formatCurrency(priceValue) : '—';
+
+      return `
+        <tr>
+          <td>
+            <div class="sku-cell">
+              <span class="sku-code">${skuCode ? escapeHtml(skuCode) : 'Tanpa SKU'}</span>
+              ${variantSummary ? `<span class="sku-meta">${escapeHtml(variantSummary)}</span>` : ''}
+            </div>
+          </td>
+          <td>${stockDisplay}</td>
+          <td>${priceDisplay}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="sku-table-wrapper">
+      <table class="sku-table" aria-label="Daftar SKU ${safeProductName}">
+        <thead>
+          <tr>
+            <th>SKU Penjual & Varian</th>
+            <th>Stok</th>
+            <th>Harga jual Offline</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildProductVariantPanel(product, { regionId, toggleId } = {}) {
+  const skuCount = getProductVariantCount(product);
+  const safeRegionId = escapeHtml(regionId || `product-variant-panel-${product?.id ?? crypto.randomUUID()}`);
+  const safeProductName = escapeHtml(product?.name ?? 'produk');
+  const skuLabel = skuCount === 0 ? 'Belum ada SKU' : `${skuCount} SKU tersedia`;
+  const toggleTargetId = toggleId ?? product?.id ?? '';
+
+  return `
+    <div class="product-variant-content" id="${safeRegionId}" role="region" aria-hidden="true" aria-label="Daftar SKU untuk ${safeProductName}">
+      <div class="product-variant-header">
+        <div>
+          <p class="product-variant-title">${skuLabel}</p>
+          <p class="product-variant-subtitle">Pantau stok dan harga jual offline setiap SKU.</p>
+        </div>
+        <button
+          type="button"
+          class="sku-collapse-btn"
+          data-variant-toggle="${escapeHtml(toggleTargetId)}"
+          data-variant-count="${skuCount}"
+          aria-controls="${safeRegionId}"
+          aria-expanded="false"
+        >
+          <span data-variant-toggle-label>Lihat SKU</span>
+        </button>
+      </div>
+      ${buildProductSkuTable(product)}
+    </div>
+  `;
+}
+
+function escapeSelector(value) {
+  const stringValue = (value ?? '').toString();
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(stringValue);
+  }
+  return stringValue.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function syncVariantToggleButtons(tableBody, productId, expanded) {
+  if (!tableBody || !productId) return;
+  const buttons = tableBody.querySelectorAll(`[data-variant-toggle="${escapeSelector(productId)}"]`);
+  buttons.forEach(button => {
+    button.setAttribute('aria-expanded', String(expanded));
+    button.classList.toggle('is-active', expanded);
+    const count = Number(button.dataset.variantCount) || 0;
+    const countText = count === 0 ? '0 SKU' : count === 1 ? '1 SKU' : `${count} SKU`;
+    const collapsedLabel = count ? `Lihat SKU (${countText})` : 'Lihat SKU';
+    const labelTarget = button.querySelector('[data-variant-toggle-label]');
+    const labelText = expanded ? 'Sembunyikan SKU' : collapsedLabel;
+    if (labelTarget) {
+      labelTarget.textContent = labelText;
+    } else {
+      button.textContent = labelText;
+    }
+  });
+}
+
+function toggleProductVariantRow(tableBody, productId, forceExpanded) {
+  if (!tableBody || !productId) return;
+  const detailRow = tableBody.querySelector(
+    `.product-variant-row[data-variant-row-for="${escapeSelector(productId)}"]`
+  );
+  if (!detailRow) return;
+  const region = detailRow.querySelector('.product-variant-content');
+  const isExpanded = !detailRow.hidden;
+  const nextExpanded = typeof forceExpanded === 'boolean' ? forceExpanded : !isExpanded;
+
+  detailRow.hidden = !nextExpanded;
+  detailRow.classList.toggle('is-expanded', nextExpanded);
+  if (region) {
+    region.setAttribute('aria-hidden', String(!nextExpanded));
+  }
+  syncVariantToggleButtons(tableBody, productId, nextExpanded);
+}
+
 function applyProductRenderResult(result, { filter, requestedPage, pageSize, requestId }) {
   if (typeof requestId === 'number' && requestId !== productRenderRequestToken) {
     return;
@@ -6667,11 +6857,32 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const row = document.createElement('tr');
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
       const safeName = escapeHtml(product.name ?? '');
+      const variantAnchorId = (product?.id ?? crypto.randomUUID()).toString();
+      const safeProductId = escapeHtml(variantAnchorId);
       const skuValue = getPrimaryProductSku(product);
       const safeSku = skuValue ? escapeHtml(skuValue) : '';
       const totalStockValue = calculateProductTotalStock(product);
       const hasStockValue = typeof totalStockValue === 'string' && totalStockValue.trim() !== '';
       const safeStock = hasStockValue ? escapeHtml(totalStockValue) : '';
+      const variantCount = getProductVariantCount(product);
+      const detailRegionId = `product-variant-panel-${variantAnchorId}`;
+      const variantToggleButtonHtml = `
+        <button
+          class="product-expand-toggle"
+          type="button"
+          data-variant-toggle="${safeProductId}"
+          data-variant-count="${variantCount}"
+          aria-controls="${escapeHtml(detailRegionId)}"
+          aria-expanded="false"
+        >
+          <span class="product-expand-toggle__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </span>
+          <span data-variant-toggle-label>Lihat SKU</span>
+        </button>
+      `;
 
       const normalizedMekariStatus = normalizeMekariStatus(product.mekariStatus);
       const statusState = normalizedMekariStatus.state ?? 'pending';
@@ -6724,11 +6935,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       `;
 
       const actionItems = [];
-      actionItems.push(`
-        <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-action="view-variants" data-id="${product.id}">
-          Lihat
-        </button>
-      `);
       if (canManage) {
         actionItems.push(`
           <button class="action-menu__item" type="button" role="menuitem" data-action-menu-item data-action="edit" data-id="${product.id}">
@@ -6755,7 +6961,10 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         </td>
         <td>
           <div class="product-cell">
-            <strong>${safeName}</strong>
+            <div class="product-cell__header">
+              ${variantToggleButtonHtml}
+              <strong>${safeName}</strong>
+            </div>
             ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
             <div class="product-status-mobile">${mekariStatusHtml}</div>
@@ -6764,7 +6973,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         <td class="col-status">${mekariStatusHtml}</td>
         <td class="col-actions">${actionsHtml}</td>
       `;
+      const detailRow = document.createElement('tr');
+      detailRow.className = 'product-variant-row';
+      detailRow.dataset.variantRowFor = variantAnchorId;
+      detailRow.hidden = true;
+      detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
+        regionId: detailRegionId,
+        toggleId: variantAnchorId
+      })}</td>`;
+
       tbody.appendChild(row);
+      tbody.appendChild(detailRow);
+      syncVariantToggleButtons(tbody, variantAnchorId, false);
     });
   }
 
@@ -6871,7 +7091,16 @@ function handleProductActions() {
   };
 
   tbody.addEventListener('click', async event => {
-    const target = event.target.closest('button');
+    const variantToggle = event.target.closest('[data-variant-toggle]');
+    if (variantToggle) {
+      const productId = variantToggle.dataset.variantToggle;
+      if (productId) {
+        toggleProductVariantRow(tbody, productId);
+      }
+      return;
+    }
+
+    const target = event.target.closest('button[data-action]');
     if (!target) return;
 
     const id = target.dataset.id;
@@ -6906,15 +7135,6 @@ function handleProductActions() {
         toast.show('Gagal menghapus produk, coba lagi.');
       }
       return;
-    }
-
-    if (target.dataset.action === 'view-variants') {
-      const product = products[productIndex];
-      const normalizedVariants = normalizeVariants(product.variants);
-      const variantText = normalizedVariants.length
-        ? normalizedVariants.map(v => `• ${v.name}: ${v.options.join(', ')}`).join('\n')
-        : 'Belum ada varian yang disimpan.';
-      alert(`Varian ${product.name}:\n${variantText}`);
     }
   });
 
