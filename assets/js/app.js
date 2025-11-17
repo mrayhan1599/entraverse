@@ -6883,6 +6883,10 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           <span data-variant-toggle-label>Lihat SKU</span>
         </button>
       `;
+      const variantToggleButtonMobileHtml = variantToggleButtonHtml.replace(
+        'class="product-expand-toggle"',
+        'class="product-expand-toggle product-expand-toggle--mobile"'
+      );
 
       const normalizedMekariStatus = normalizeMekariStatus(product.mekariStatus);
       const statusState = normalizedMekariStatus.state ?? 'pending';
@@ -6952,6 +6956,12 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const actionsHtml = actionMenu
         ? `<div class="table-actions">${actionMenu}</div>`
         : '<div class="table-actions"><span class="table-note">Tidak ada aksi</span></div>';
+      const mobileControlsHtml = `
+        <div class="product-mobile-controls">
+          ${actionMenu || ''}
+          ${variantToggleButtonMobileHtml}
+        </div>
+      `;
 
       row.innerHTML = `
         <td class="col-photo">
@@ -6967,7 +6977,10 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             </div>
             ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
-            <div class="product-status-mobile">${mekariStatusHtml}</div>
+            <div class="product-status-mobile">
+              ${mekariStatusHtml}
+              ${mobileControlsHtml}
+            </div>
           </div>
         </td>
         <td class="col-status">${mekariStatusHtml}</td>
