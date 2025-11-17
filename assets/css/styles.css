@@ -2770,11 +2770,62 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   min-width: 0;
 }
 
+.product-cell__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .product-cell strong {
   font-weight: 600;
   word-break: break-word;
   display: block;
   line-height: 1.35;
+}
+
+.product-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.product-expand-toggle__icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+
+.product-expand-toggle__icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.product-expand-toggle:is(:hover, :focus-visible) {
+  background: var(--color-accent-soft);
+  border-color: var(--color-border);
+}
+
+.product-expand-toggle.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.product-expand-toggle.is-active .product-expand-toggle__icon {
+  transform: rotate(90deg);
 }
 
 .product-status-mobile {
@@ -2791,6 +2842,122 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-muted-strong, var(--color-muted));
+}
+
+.product-variant-row td {
+  padding: 0;
+  background: var(--color-surface-alt);
+  border-bottom: none;
+}
+
+.product-variant-content {
+  padding: 24px 28px 28px;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-border);
+}
+
+.product-variant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.product-variant-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.product-variant-subtitle {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.sku-collapse-btn {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sku-collapse-btn:is(:hover, :focus-visible) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.sku-table-wrapper {
+  overflow-x: auto;
+}
+
+.sku-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+
+.sku-table th,
+.sku-table td {
+  text-align: left;
+  padding: 12px 0;
+}
+
+.sku-table thead th {
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sku-table tbody td {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sku-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sku-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sku-code {
+  font-weight: 600;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.sku-meta {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.sku-empty-state {
+  padding: 20px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(37, 99, 235, 0.04);
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.sku-empty-state strong {
+  display: block;
+  color: var(--color-text);
+  margin-bottom: 4px;
 }
 
 .photo-preview img {
