@@ -6667,6 +6667,39 @@ function resolveOfflinePriceValue(entry = {}) {
   return null;
 }
 
+function resolveEntraversePriceValue(entry = {}) {
+  const keys = ['entraversePrice', 'entraverse_price', 'priceEntraverse', 'price_entraverse', 'entraverse_price_idr'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function resolveTokopediaPriceValue(entry = {}) {
+  const keys = ['tokopediaPrice', 'tokopedia_price', 'priceTokopedia', 'price_tokopedia'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function resolveShopeePriceValue(entry = {}) {
+  const keys = ['shopeePrice', 'shopee_price', 'priceShopee', 'price_shopee'];
+  for (const key of keys) {
+    const value = entry[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
 function buildProductSkuTable(product) {
   const variantPricing = Array.isArray(product?.variantPricing) ? product.variantPricing : [];
   if (!variantPricing.length) {
@@ -6686,9 +6719,18 @@ function buildProductSkuTable(product) {
         formatVariantCombination(entry?.variants) || (entry?.variantLabel ?? '');
       const stockValue = parseNumericValue(resolveStockValue(entry));
       const priceValue = parseNumericValue(resolveOfflinePriceValue(entry));
+      const entraversePriceValue = parseNumericValue(resolveEntraversePriceValue(entry));
+      const tokopediaPriceValue = parseNumericValue(resolveTokopediaPriceValue(entry));
+      const shopeePriceValue = parseNumericValue(resolveShopeePriceValue(entry));
 
       const stockDisplay = stockValue !== null ? formatNumber(stockValue) : '—';
       const priceDisplay = priceValue !== null ? formatCurrency(priceValue) : '—';
+      const entraversePriceDisplay =
+        entraversePriceValue !== null ? formatCurrency(entraversePriceValue) : '—';
+      const tokopediaPriceDisplay =
+        tokopediaPriceValue !== null ? formatCurrency(tokopediaPriceValue) : '—';
+      const shopeePriceDisplay =
+        shopeePriceValue !== null ? formatCurrency(shopeePriceValue) : '—';
 
       return `
         <tr>
@@ -6700,6 +6742,9 @@ function buildProductSkuTable(product) {
           </td>
           <td>${stockDisplay}</td>
           <td>${priceDisplay}</td>
+          <td>${entraversePriceDisplay}</td>
+          <td>${tokopediaPriceDisplay}</td>
+          <td>${shopeePriceDisplay}</td>
         </tr>
       `;
     })
@@ -6712,7 +6757,10 @@ function buildProductSkuTable(product) {
           <tr>
             <th>SKU Penjual & Varian</th>
             <th>Stok</th>
-            <th>Harga jual Offline</th>
+            <th>Harga Jual Offline</th>
+            <th>Harga Jual Entraverse.id</th>
+            <th>Harga Jual Tokopedia</th>
+            <th>Harga Jual Shopee</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
