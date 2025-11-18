@@ -6774,6 +6774,11 @@ function toggleProductVariantRow(tableBody, productId, forceExpanded) {
   );
   if (!detailRow) return;
   const region = detailRow.querySelector('.product-variant-content');
+  const expandRow = detailRow.previousElementSibling;
+  const expandRowElement =
+    expandRow && expandRow.classList && expandRow.classList.contains('product-expand-row')
+      ? expandRow
+      : null;
   const isExpanded = !detailRow.hidden;
   const nextExpanded = typeof forceExpanded === 'boolean' ? forceExpanded : !isExpanded;
 
@@ -6781,6 +6786,9 @@ function toggleProductVariantRow(tableBody, productId, forceExpanded) {
   detailRow.classList.toggle('is-expanded', nextExpanded);
   if (region) {
     region.setAttribute('aria-hidden', String(!nextExpanded));
+  }
+  if (expandRowElement) {
+    expandRowElement.classList.toggle('is-expanded', nextExpanded);
   }
   syncVariantToggleButtons(tableBody, productId, nextExpanded);
 }
@@ -6844,6 +6852,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     tbody.innerHTML = '';
     items.forEach(product => {
       const row = document.createElement('tr');
+      row.className = 'product-row';
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
       const safeName = escapeHtml(product.name ?? '');
       const variantAnchorId = (product?.id ?? crypto.randomUUID()).toString();
@@ -6966,9 +6975,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             </div>
             ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
-            <div class="product-expand-section">
-              ${variantToggleButtonHtml}
-            </div>
             <div class="product-status-mobile">
               ${mekariStatusHtml}
               ${mobileControlsHtml}
@@ -6977,6 +6983,15 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         </td>
         <td class="col-status">${mekariStatusHtml}</td>
         <td class="col-actions">${actionsHtml}</td>
+      `;
+      const expandRow = document.createElement('tr');
+      expandRow.className = 'product-expand-row';
+      expandRow.innerHTML = `
+        <td colspan="4">
+          <div class="product-expand-section">
+            ${variantToggleButtonHtml}
+          </div>
+        </td>
       `;
       const detailRow = document.createElement('tr');
       detailRow.className = 'product-variant-row';
@@ -6987,6 +7002,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       })}</td>`;
 
       tbody.appendChild(row);
+      tbody.appendChild(expandRow);
       tbody.appendChild(detailRow);
       syncVariantToggleButtons(tbody, variantAnchorId, false);
     });
