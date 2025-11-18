@@ -4116,9 +4116,16 @@ body.modal-open {
 
   .sku-table th,
   .sku-table td {
-    padding: 10px 0;
+    padding: 12px 8px;
     font-size: 13px;
     word-break: break-word;
+    text-align: center;
+  }
+
+  .sku-cell {
+    align-items: center;
+    text-align: center;
+    gap: 6px;
   }
 
   .auth-form,
