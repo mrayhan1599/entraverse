@@ -2608,11 +2608,19 @@ function extractProductNameParts(name) {
     return { baseName: '', variantName: '' };
   }
 
-  const segments = name.split(',');
-  const baseName = segments.shift()?.trim() ?? '';
-  const variantName = segments.join(',').trim();
+  const normalized = name.trim();
+  if (!normalized) {
+    return { baseName: '', variantName: '' };
+  }
 
-  return { baseName, variantName };
+  const dashMatch = normalized.match(/^(.*?)\s*-\s*(.+)$/);
+  if (dashMatch) {
+    const baseName = dashMatch[1]?.trim() ?? '';
+    const variantName = dashMatch[2]?.trim() ?? '';
+    return { baseName, variantName };
+  }
+
+  return { baseName: normalized, variantName: '' };
 }
 
 function getPrimarySku(product) {
@@ -14782,7 +14790,7 @@ async function initProductMappingManualPage() {
       selectionInfo.textContent = count ? `${count} produk dipilih.` : 'Belum ada produk dipilih.';
     }
     if (mergeButton) {
-      const hasSpu = Boolean(normalizeSpuValue(spuInput?.value ?? ''));
+      const hasSpu = Boolean(normalizeSpuValue(spuInput?.value ?? '', { ensurePrefix: false }));
       mergeButton.disabled = !(count >= 2 && hasSpu);
     }
   };
@@ -14980,7 +14988,7 @@ async function initProductMappingManualPage() {
         toast.show('Pilih minimal 2 produk untuk digabungkan.');
         return;
       }
-      const targetSpu = normalizeSpuValue(spuInput?.value ?? '');
+      const targetSpu = normalizeSpuValue(spuInput?.value ?? '', { ensurePrefix: false });
       if (!targetSpu) {
         toast.show('Masukkan nomor SPU baru.');
         return;
@@ -14991,7 +14999,10 @@ async function initProductMappingManualPage() {
       }
 
       try {
-        const { updated } = await mergeProductsIntoSpu(ids, targetSpu, { reason: 'manual-mapping' });
+        const { updated } = await mergeProductsIntoSpu(ids, targetSpu, {
+          reason: 'manual-mapping',
+          ensureSpuPrefix: false
+        });
         if (!updated.length) {
           toast.show('Produk yang dipilih sudah memiliki SPU tersebut.');
         } else {
