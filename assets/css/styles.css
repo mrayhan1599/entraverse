@@ -2772,12 +2772,22 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 
 .product-expand-row td {
   padding: 0;
-  border-bottom: none;
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-surface, #fff);
+}
+
+.product-expand-row.is-expanded td {
+  border-bottom: none;
 }
 
 .product-expand-section {
   padding: 4px 18px 0;
+}
+
+@media (min-width: 961px) {
+  .product-row > td {
+    border-bottom: none;
+  }
 }
 
 .product-cell__header {
@@ -2800,7 +2810,6 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   justify-content: space-between;
   width: 100%;
   border: none;
-  border-top: 1px solid var(--color-border-soft, var(--color-border));
   background: var(--color-surface, #fff);
   color: var(--color-text);
   border-radius: 0;
@@ -2877,6 +2886,10 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   padding: 0;
   background: var(--color-surface-alt);
   border-bottom: none;
+}
+
+.product-variant-row.is-expanded td {
+  border-bottom: 1px solid var(--color-border);
 }
 
 .product-variant-content {

@@ -6774,6 +6774,11 @@ function toggleProductVariantRow(tableBody, productId, forceExpanded) {
   );
   if (!detailRow) return;
   const region = detailRow.querySelector('.product-variant-content');
+  const expandRow = detailRow.previousElementSibling;
+  const expandRowElement =
+    expandRow && expandRow.classList && expandRow.classList.contains('product-expand-row')
+      ? expandRow
+      : null;
   const isExpanded = !detailRow.hidden;
   const nextExpanded = typeof forceExpanded === 'boolean' ? forceExpanded : !isExpanded;
 
@@ -6781,6 +6786,9 @@ function toggleProductVariantRow(tableBody, productId, forceExpanded) {
   detailRow.classList.toggle('is-expanded', nextExpanded);
   if (region) {
     region.setAttribute('aria-hidden', String(!nextExpanded));
+  }
+  if (expandRowElement) {
+    expandRowElement.classList.toggle('is-expanded', nextExpanded);
   }
   syncVariantToggleButtons(tableBody, productId, nextExpanded);
 }
@@ -6844,6 +6852,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     tbody.innerHTML = '';
     items.forEach(product => {
       const row = document.createElement('tr');
+      row.className = 'product-row';
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
       const safeName = escapeHtml(product.name ?? '');
       const variantAnchorId = (product?.id ?? crypto.randomUUID()).toString();
