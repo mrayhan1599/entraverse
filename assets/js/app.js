@@ -6960,10 +6960,13 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const mobileActionsHtml = mobileActionMenu
         ? `<div class="product-mobile-actions">${mobileActionMenu}</div>`
         : '';
-      const mobileControlsHtml = variantToggleButtonMobileHtml
+      const mobileControlsContent = [mobileActionsHtml, variantToggleButtonMobileHtml]
+        .filter(Boolean)
+        .join('');
+      const mobileControlsHtml = mobileControlsContent
         ? `
           <div class="product-mobile-controls">
-            ${variantToggleButtonMobileHtml}
+            ${mobileControlsContent}
           </div>
         `
         : '';
@@ -6973,7 +6976,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
           </div>
-          ${mobileActionsHtml}
         </td>
         <td>
           <div class="product-cell">

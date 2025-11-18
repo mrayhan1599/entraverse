@@ -2868,7 +2868,7 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 
 .product-mobile-actions {
   display: none;
-  width: 100%;
+  width: auto;
 }
 
 .product-expand-toggle--mobile {
@@ -2955,7 +2955,8 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 .sku-table th,
 .sku-table td {
   text-align: left;
-  padding: 12px 0;
+  padding: 10px 0;
+  font-size: 13px;
 }
 
 .sku-table thead th {
@@ -2982,12 +2983,12 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 
 .sku-code {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   word-break: break-all;
 }
 
 .sku-meta {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-muted);
 }
 
@@ -4113,14 +4114,19 @@ body.modal-open {
 
   .product-mobile-controls {
     display: flex;
-    align-items: stretch;
+    align-items: center;
+    gap: 12px;
     width: 100%;
+  }
+
+  .product-mobile-controls .product-expand-toggle--mobile {
+    flex: 1;
   }
 
   .product-mobile-actions {
     display: flex;
-    justify-content: center;
-    margin-top: 8px;
+    justify-content: flex-start;
+    margin-top: 0;
   }
 
   .product-mobile-actions .action-menu {
@@ -4128,8 +4134,8 @@ body.modal-open {
   }
 
   .product-mobile-actions .action-menu__trigger {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     border-radius: 16px;
     font-size: 24px;
   }
@@ -4162,8 +4168,8 @@ body.modal-open {
 
   .sku-table th,
   .sku-table td {
-    padding: 12px 8px;
-    font-size: 13px;
+    padding: 10px 6px;
+    font-size: 12px;
     word-break: break-word;
     text-align: center;
   }
