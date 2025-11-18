@@ -93,6 +93,35 @@ serve .
 
 Pastikan koneksi internet aktif agar library Supabase dapat dimuat dari CDN.
 
+### Menambahkan kolom ID produk Mekari di varian
+
+Setiap varian produk kini menyimpan `mekariProductId` sebagai referensi ke ID produk
+asli di Mekari Jurnal. Untuk dataset lama yang belum memiliki kolom baru tersebut,
+jalankan skrip berikut melalui **Supabase SQL Editor** agar tiap entri `variant_pricing`
+mendapatkan field `mekariProductId` (diinisialisasi `null`). Nilai ini akan terisi
+otomatis ketika sinkronisasi produk Mekari dijalankan.
+
+```sql
+update public.products
+set variant_pricing = coalesce(
+  (
+    select jsonb_agg(
+      case
+        when entry ? 'mekariProductId' then entry
+        else entry || jsonb_build_object('mekariProductId', null)
+      end
+    )
+    from jsonb_array_elements(variant_pricing) as entry
+  ),
+  '[]'::jsonb
+)
+where exists (
+  select 1
+  from jsonb_array_elements(variant_pricing) as entry
+  where not (entry ? 'mekariProductId')
+);
+```
+
 ### Konfigurasi fungsi `jurnal-pnl`
 
 Supabase Edge Function `jurnal-pnl` kini langsung meneruskan permintaan ke API Mekari Jurnal. Sebelum melakukan deploy, set variabel lingkungan berikut pada project Supabase Anda:

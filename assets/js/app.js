@@ -773,6 +773,42 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     updatedProductsMap.set(updatedProduct.id, updatedProduct);
   };
 
+  const assignVariantMekariProductId = (productIndex, variantIndex, mekariProductId) => {
+    const normalizedId = normalizeMekariProductId(mekariProductId);
+    if (!normalizedId) {
+      return false;
+    }
+
+    if (!Number.isInteger(productIndex) || productIndex < 0 || !Number.isInteger(variantIndex)) {
+      return false;
+    }
+
+    const product = cachedProducts[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const pricingRows = Array.isArray(product.variantPricing) ? [...product.variantPricing] : [];
+    const currentRow = pricingRows?.[variantIndex];
+    if (!currentRow) {
+      return false;
+    }
+
+    const currentValue = normalizeMekariProductId(
+      currentRow.mekariProductId ?? currentRow.mekari_product_id ?? null
+    );
+    if (currentValue === normalizedId) {
+      return false;
+    }
+
+    const updatedVariant = { ...currentRow, mekariProductId: normalizedId };
+    pricingRows[variantIndex] = updatedVariant;
+    const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
   if (!Array.isArray(mekariRecords) || mekariRecords.length === 0) {
     productIndicesWithSku.forEach(productIndex => {
       applyProductMekariStatus(productIndex, {
@@ -878,6 +914,9 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     }
 
     const stockValue = extractMekariStock(record);
+    const mekariProductId = normalizeMekariProductId(
+      record.id ?? record.product?.id ?? record.product_id ?? record.productId ?? null
+    );
     const existingMatches = existingSkuMap.get(normalizedSku);
     if (existingMatches && existingMatches.length) {
       existingMatches.forEach(({ productIndex, variantIndex }) => {
@@ -893,6 +932,12 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
           }
         }
       });
+
+      if (mekariProductId) {
+        existingMatches.forEach(({ productIndex, variantIndex }) => {
+          assignVariantMekariProductId(productIndex, variantIndex, mekariProductId);
+        });
+      }
 
       if (stockValue !== null) {
         let skuChanged = false;
@@ -11483,6 +11528,29 @@ function extractMekariStock(record) {
   return null;
 }
 
+function normalizeMekariProductId(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      return '';
+    }
+    return value.toString();
+  }
+
+  try {
+    return value.toString().trim();
+  } catch (error) {
+    return '';
+  }
+}
+
 function mapMekariProductRecord(record) {
   if (!record || typeof record !== 'object') {
     return null;
@@ -11572,6 +11640,10 @@ function mapMekariProductRecord(record) {
   const stockValue = extractMekariStock(record);
   const stock = stockValue !== null ? stockValue : '';
 
+  const mekariProductId = normalizeMekariProductId(
+    record.id ?? record.product?.id ?? record.product_id ?? record.productId ?? null
+  );
+
   const imageCandidates = [
     record.image?.url,
     record.image?.mini_url,
@@ -11638,7 +11710,8 @@ function mapMekariProductRecord(record) {
         stock,
         dailyAverageSales: '',
         sellerSku: sku,
-        weight: ''
+        weight: '',
+        mekariProductId: mekariProductId || null
       }
     ],
     stock,
