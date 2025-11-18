@@ -2793,32 +2793,33 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  border: 1px solid var(--color-border-soft, var(--color-border));
-  background: var(--color-surface-alt);
+  border: none;
+  border-top: 1px solid var(--color-border-soft, var(--color-border));
+  background: var(--color-surface, #fff);
   color: var(--color-text);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
+  border-radius: 0;
+  padding: 12px 0;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   text-align: left;
   gap: 12px;
 }
 
 .product-expand-toggle__info {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
 }
 
 .product-expand-toggle__label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-muted);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-text);
+  font-weight: 500;
 }
 
 .product-expand-toggle__count {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
 }
@@ -2826,21 +2827,19 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 .product-expand-toggle__cta {
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-text);
 }
 
 .product-expand-toggle:is(:hover, :focus-visible) {
-  border-color: var(--color-border);
-  background: var(--color-accent-soft);
+  background: var(--color-surface, #fff);
 }
 
 .product-expand-toggle.is-active {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft, rgba(67, 97, 238, 0.08));
+  background: var(--color-surface, #fff);
 }
 
 .product-expand-toggle.is-active .product-expand-toggle__cta {
-  color: var(--color-primary);
+  color: var(--color-text);
 }
 
 .product-status-mobile {
