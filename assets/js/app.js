@@ -6721,30 +6721,17 @@ function buildProductSkuTable(product) {
   `;
 }
 
-function buildProductVariantPanel(product, { regionId, toggleId } = {}) {
+function buildProductVariantPanel(product, { regionId } = {}) {
   const skuCount = getProductVariantCount(product);
   const safeRegionId = escapeHtml(regionId || `product-variant-panel-${product?.id ?? crypto.randomUUID()}`);
   const safeProductName = escapeHtml(product?.name ?? 'produk');
   const skuLabel = skuCount === 0 ? 'Belum ada SKU' : `${skuCount} SKU tersedia`;
-  const toggleTargetId = toggleId ?? product?.id ?? '';
 
   return `
     <div class="product-variant-content" id="${safeRegionId}" role="region" aria-hidden="true" aria-label="Daftar SKU untuk ${safeProductName}">
       <div class="product-variant-header">
-        <div>
-          <p class="product-variant-title">${skuLabel}</p>
-          <p class="product-variant-subtitle">Pantau stok dan harga jual offline setiap SKU.</p>
-        </div>
-        <button
-          type="button"
-          class="sku-collapse-btn"
-          data-variant-toggle="${escapeHtml(toggleTargetId)}"
-          data-variant-count="${skuCount}"
-          aria-controls="${safeRegionId}"
-          aria-expanded="false"
-        >
-          <span data-variant-toggle-label>Lihat SKU</span>
-        </button>
+        <p class="product-variant-title">${skuLabel}</p>
+        <p class="product-variant-subtitle">Pantau stok dan harga jual offline setiap SKU.</p>
       </div>
       ${buildProductSkuTable(product)}
     </div>
@@ -6991,8 +6978,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       detailRow.dataset.variantRowFor = variantAnchorId;
       detailRow.hidden = true;
       detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
-        regionId: detailRegionId,
-        toggleId: variantAnchorId
+        regionId: detailRegionId
       })}</td>`;
 
       tbody.appendChild(row);
