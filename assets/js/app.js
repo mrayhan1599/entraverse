@@ -6754,13 +6754,15 @@ function syncVariantToggleButtons(tableBody, productId, expanded) {
     button.classList.toggle('is-active', expanded);
     const count = Number(button.dataset.variantCount) || 0;
     const countText = count === 0 ? '0 SKU' : count === 1 ? '1 SKU' : `${count} SKU`;
-    const collapsedLabel = count ? `Lihat SKU (${countText})` : 'Lihat SKU';
     const labelTarget = button.querySelector('[data-variant-toggle-label]');
-    const labelText = expanded ? 'Sembunyikan SKU' : collapsedLabel;
+    const countTarget = button.querySelector('[data-variant-toggle-count]');
     if (labelTarget) {
-      labelTarget.textContent = labelText;
+      labelTarget.textContent = expanded ? 'Tutup' : 'Buka';
     } else {
-      button.textContent = labelText;
+      button.textContent = expanded ? 'Tutup' : 'Buka';
+    }
+    if (countTarget) {
+      countTarget.textContent = countText;
     }
   });
 }
@@ -6853,6 +6855,8 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const safeStock = hasStockValue ? escapeHtml(totalStockValue) : '';
       const variantCount = getProductVariantCount(product);
       const detailRegionId = `product-variant-panel-${variantAnchorId}`;
+      const variantCountLabel =
+        variantCount === 0 ? '0 SKU' : variantCount === 1 ? '1 SKU' : `${variantCount} SKU`;
       const variantToggleButtonHtml = `
         <button
           class="product-expand-toggle"
@@ -6862,12 +6866,11 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           aria-controls="${escapeHtml(detailRegionId)}"
           aria-expanded="false"
         >
-          <span class="product-expand-toggle__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-            </svg>
+          <span class="product-expand-toggle__info">
+            <span class="product-expand-toggle__label">Jumlah SKU</span>
+            <span class="product-expand-toggle__count" data-variant-toggle-count>${variantCountLabel}</span>
           </span>
-          <span data-variant-toggle-label>Lihat SKU</span>
+          <span class="product-expand-toggle__cta" data-variant-toggle-label>Buka</span>
         </button>
       `;
       const variantToggleButtonMobileHtml = variantToggleButtonHtml.replace(
@@ -6959,11 +6962,13 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         <td>
           <div class="product-cell">
             <div class="product-cell__header">
-              ${variantToggleButtonHtml}
               <strong>${safeName}</strong>
             </div>
             ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
+            <div class="product-expand-section">
+              ${variantToggleButtonHtml}
+            </div>
             <div class="product-status-mobile">
               ${mekariStatusHtml}
               ${mobileControlsHtml}
