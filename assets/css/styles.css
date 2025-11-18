@@ -2866,6 +2866,11 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   width: 100%;
 }
 
+.product-mobile-actions {
+  display: none;
+  width: 100%;
+}
+
 .product-expand-toggle--mobile {
   display: none;
 }
@@ -4108,32 +4113,39 @@ body.modal-open {
 
   .product-mobile-controls {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    align-items: stretch;
     width: 100%;
   }
 
-  .product-mobile-controls .action-menu {
-    flex: 0 0 48px;
+  .product-mobile-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
   }
 
-  .product-mobile-controls .action-menu__trigger {
+  .product-mobile-actions .action-menu {
+    flex: 0 0 auto;
+  }
+
+  .product-mobile-actions .action-menu__trigger {
     width: 48px;
     height: 48px;
     border-radius: 16px;
     font-size: 24px;
   }
 
-  .product-mobile-controls .action-menu__list {
-    left: 0;
+  .product-mobile-actions .action-menu__list {
+    left: 50%;
     right: auto;
-    min-width: calc(100vw - 72px);
+    transform: translateX(-50%);
+    min-width: max-content;
     max-width: calc(100vw - 40px);
   }
 
   .product-expand-toggle--mobile {
     display: inline-flex;
     flex: 1;
+    width: 100%;
   }
 
   .product-cell strong {

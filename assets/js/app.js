@@ -6951,22 +6951,29 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         `);
       }
 
-      const actionMenu = createActionMenu(actionItems, { label: `Menu tindakan untuk ${product.name ?? 'produk'}` });
-      const actionsHtml = actionMenu
-        ? `<div class="table-actions">${actionMenu}</div>`
+      const actionMenuLabel = `Menu tindakan untuk ${product.name ?? 'produk'}`;
+      const desktopActionMenu = createActionMenu(actionItems, { label: actionMenuLabel });
+      const mobileActionMenu = actionItems.length ? createActionMenu(actionItems, { label: actionMenuLabel }) : '';
+      const actionsHtml = desktopActionMenu
+        ? `<div class="table-actions">${desktopActionMenu}</div>`
         : '<div class="table-actions"><span class="table-note">Tidak ada aksi</span></div>';
-      const mobileControlsHtml = `
-        <div class="product-mobile-controls">
-          ${actionMenu || ''}
-          ${variantToggleButtonMobileHtml}
-        </div>
-      `;
+      const mobileActionsHtml = mobileActionMenu
+        ? `<div class="product-mobile-actions">${mobileActionMenu}</div>`
+        : '';
+      const mobileControlsHtml = variantToggleButtonMobileHtml
+        ? `
+          <div class="product-mobile-controls">
+            ${variantToggleButtonMobileHtml}
+          </div>
+        `
+        : '';
 
       row.innerHTML = `
         <td class="col-photo">
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
           </div>
+          ${mobileActionsHtml}
         </td>
         <td>
           <div class="product-cell">
