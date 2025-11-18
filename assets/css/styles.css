@@ -2770,8 +2770,14 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   min-width: 0;
 }
 
+.product-expand-row td {
+  padding: 0;
+  border-bottom: none;
+  background: var(--color-surface, #fff);
+}
+
 .product-expand-section {
-  padding-top: 4px;
+  padding: 4px 18px 0;
 }
 
 .product-cell__header {
@@ -4080,6 +4086,10 @@ body.modal-open {
   }
 
   .product-expand-section {
+    display: none;
+  }
+
+  .product-expand-row {
     display: none;
   }
 

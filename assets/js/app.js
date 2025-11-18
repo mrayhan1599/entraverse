@@ -6966,9 +6966,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             </div>
             ${safeSku ? `<span class="product-meta product-sku">SPU/SKU: ${safeSku}</span>` : ''}
             ${safeStock ? `<span class="product-meta product-stock">Total Stok: ${safeStock}</span>` : ''}
-            <div class="product-expand-section">
-              ${variantToggleButtonHtml}
-            </div>
             <div class="product-status-mobile">
               ${mekariStatusHtml}
               ${mobileControlsHtml}
@@ -6977,6 +6974,15 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         </td>
         <td class="col-status">${mekariStatusHtml}</td>
         <td class="col-actions">${actionsHtml}</td>
+      `;
+      const expandRow = document.createElement('tr');
+      expandRow.className = 'product-expand-row';
+      expandRow.innerHTML = `
+        <td colspan="4">
+          <div class="product-expand-section">
+            ${variantToggleButtonHtml}
+          </div>
+        </td>
       `;
       const detailRow = document.createElement('tr');
       detailRow.className = 'product-variant-row';
@@ -6987,6 +6993,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       })}</td>`;
 
       tbody.appendChild(row);
+      tbody.appendChild(expandRow);
       tbody.appendChild(detailRow);
       syncVariantToggleButtons(tbody, variantAnchorId, false);
     });
