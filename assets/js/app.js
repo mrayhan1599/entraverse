@@ -691,22 +691,13 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
 
   let cachedProducts = getProductsFromCache();
   cachedProducts = Array.isArray(cachedProducts) ? [...cachedProducts] : [];
-  const { map: existingSkuMap, set: existingSkus } = collectExistingSkuDetails(cachedProducts);
-  const productIndicesWithSku = new Set();
-  const productSkuStats = new Map();
-  existingSkuMap.forEach(matches => {
-    if (!Array.isArray(matches)) {
-      return;
-    }
-    matches.forEach(entry => {
-      if (entry && Number.isInteger(entry.productIndex) && entry.productIndex >= 0) {
-        productIndicesWithSku.add(entry.productIndex);
-        const stats = productSkuStats.get(entry.productIndex) ?? { total: 0, matched: 0 };
-        stats.total += 1;
-        productSkuStats.set(entry.productIndex, stats);
-      }
-    });
-  });
+  const {
+    map: existingSkuMap,
+    set: existingSkus,
+    mekariIdMap,
+    productStats: productSkuStats,
+    productIndices: productIndicesWithSku
+  } = collectExistingSkuDetails(cachedProducts);
 
   let mekariRecords = [];
   let integration = null;
@@ -733,8 +724,8 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
   const newProducts = [];
   const matchedVariantKeys = new Set();
 
-  const missingStatusMessage = 'SKU produk tidak ditemukan di Mekari Jurnal.';
-  const syncedStatusMessage = 'SKU ditemukan di Mekari Jurnal.';
+  const missingStatusMessage = 'ID produk Mekari tidak ditemukan di Jurnal.';
+  const syncedStatusMessage = 'Produk Mekari ditemukan di Jurnal.';
 
   const applyProductMekariStatus = (productIndex, statusOverride = {}) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
@@ -899,6 +890,115 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     return true;
   };
 
+  const updateVariantSku = (productIndex, variantIndex, nextSku) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return false;
+    }
+
+    const normalizedSku = nextSku === null || nextSku === undefined ? '' : nextSku.toString().trim();
+    if (!normalizedSku) {
+      return false;
+    }
+
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const pricingRows = Array.isArray(product.variantPricing) ? [...product.variantPricing] : [];
+    const currentRow = pricingRows?.[variantIndex];
+    if (!currentRow) {
+      return false;
+    }
+
+    const currentSkuValue = (currentRow.sellerSku ?? currentRow.sku ?? '').toString().trim();
+    if (currentSkuValue === normalizedSku) {
+      return false;
+    }
+
+    const updatedVariant = { ...currentRow, sellerSku: normalizedSku };
+    pricingRows[variantIndex] = updatedVariant;
+    const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
+  const updateProductName = (productIndex, nextName) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return false;
+    }
+
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const normalizedName = (nextName ?? '').toString().trim();
+    if (!normalizedName) {
+      return false;
+    }
+
+    const currentName = (product.name ?? '').toString().trim();
+    if (currentName === normalizedName) {
+      return false;
+    }
+
+    const updatedProduct = { ...product, name: normalizedName, updatedAt: Date.now() };
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
+  const syncProductNameFromVariant = (productIndex, variantIndex, sourceName) => {
+    if (!sourceName && sourceName !== 0) {
+      return false;
+    }
+
+    const normalizedSource = sourceName.toString().trim();
+    if (!normalizedSource) {
+      return false;
+    }
+
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+    const hasSingleVariant = pricingRows.length <= 1;
+    const variantRow = hasSingleVariant
+      ? pricingRows[0]
+      : pricingRows?.[variantIndex];
+    const variantLabel = hasSingleVariant ? (variantRow?.variantLabel ?? '').toString().trim() : '';
+    if (!variantLabel) {
+      return updateProductName(productIndex, normalizedSource);
+    }
+
+    const { baseName } = extractProductNameParts(normalizedSource);
+    if (!baseName) {
+      return updateProductName(productIndex, normalizedSource);
+    }
+
+    return updateProductName(productIndex, `${baseName} - ${variantLabel}`);
+  };
+
+  const markVariantMatched = (productIndex, variantIndex) => {
+    if (!Number.isInteger(productIndex) || !Number.isInteger(variantIndex)) {
+      return;
+    }
+    const key = `${productIndex}:${variantIndex}`;
+    if (matchedVariantKeys.has(key)) {
+      return;
+    }
+    matchedVariantKeys.add(key);
+    const stats = productSkuStats.get(productIndex);
+    if (stats) {
+      stats.matched += 1;
+      productSkuStats.set(productIndex, stats);
+    }
+  };
+
   mekariRecords.forEach(record => {
     if (!record) {
       return;
@@ -909,33 +1009,51 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     }
 
     const normalizedSku = normalizeSku(record.product_code ?? record.productCode ?? record.sku);
-    if (!normalizedSku) {
+    const mekariProductId = normalizeMekariProductId(
+      record.id ?? record.product?.id ?? record.product_id ?? record.productId ?? null
+    );
+
+    if (!normalizedSku && !mekariProductId) {
       return;
     }
 
     const stockValue = extractMekariStock(record);
-    const mekariProductId = normalizeMekariProductId(
-      record.id ?? record.product?.id ?? record.product_id ?? record.productId ?? null
-    );
-    const existingMatches = existingSkuMap.get(normalizedSku);
+
+    const matchesById = mekariProductId ? mekariIdMap.get(mekariProductId) : null;
+    if (matchesById && matchesById.length) {
+      let variantChanged = false;
+      matchesById.forEach(({ productIndex, variantIndex }) => {
+        markVariantMatched(productIndex, variantIndex);
+        assignVariantMekariProductId(productIndex, variantIndex, mekariProductId);
+        const stockUpdated =
+          stockValue !== null ? updateVariantStock(productIndex, variantIndex, stockValue) : false;
+        const skuUpdated = normalizedSku
+          ? updateVariantSku(productIndex, variantIndex, normalizedSku)
+          : false;
+        syncProductNameFromVariant(productIndex, variantIndex, record.name ?? '');
+        if (stockUpdated || skuUpdated) {
+          variantChanged = true;
+        }
+      });
+      if (variantChanged && normalizedSku) {
+        updatedSkuSet.add(normalizedSku);
+      }
+      if (normalizedSku) {
+        existingSkus.add(normalizedSku);
+      }
+      return;
+    }
+
+    const existingMatches = normalizedSku ? existingSkuMap.get(normalizedSku) : null;
     if (existingMatches && existingMatches.length) {
       existingMatches.forEach(({ productIndex, variantIndex }) => {
-        if (Number.isInteger(productIndex) && Number.isInteger(variantIndex)) {
-          const key = `${productIndex}:${variantIndex}`;
-          if (!matchedVariantKeys.has(key)) {
-            matchedVariantKeys.add(key);
-            const stats = productSkuStats.get(productIndex);
-            if (stats) {
-              stats.matched += 1;
-              productSkuStats.set(productIndex, stats);
-            }
-          }
-        }
+        markVariantMatched(productIndex, variantIndex);
       });
 
       if (mekariProductId) {
         existingMatches.forEach(({ productIndex, variantIndex }) => {
           assignVariantMekariProductId(productIndex, variantIndex, mekariProductId);
+          syncProductNameFromVariant(productIndex, variantIndex, record.name ?? '');
         });
       }
 
@@ -958,7 +1076,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return;
     }
 
-    if (existingSkus.has(normalizedSku)) {
+    if (normalizedSku && existingSkus.has(normalizedSku)) {
       return;
     }
 
@@ -1238,29 +1356,60 @@ function getCurrentProductFilterValue() {
 function collectExistingSkuDetails(products) {
   const map = new Map();
   const set = new Set();
+  const mekariIdMap = new Map();
+  const mekariIdSet = new Set();
+  const productStats = new Map();
+  const productIndices = new Set();
 
   if (!Array.isArray(products)) {
-    return { map, set };
+    return { map, set, mekariIdMap, mekariIdSet, productStats, productIndices };
   }
+
+  const registerVariant = productIndex => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return;
+    }
+    productIndices.add(productIndex);
+    const stats = productStats.get(productIndex) ?? { total: 0, matched: 0 };
+    stats.total += 1;
+    productStats.set(productIndex, stats);
+  };
 
   products.forEach((product, productIndex) => {
     if (!product) return;
     const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
     pricingRows.forEach((row, variantIndex) => {
       if (!row) return;
-      const normalized = normalizeSku(row.sellerSku ?? row.sku);
-      if (!normalized) return;
-      set.add(normalized);
-      const existing = map.get(normalized);
-      if (existing) {
-        existing.push({ productIndex, variantIndex });
-      } else {
-        map.set(normalized, [{ productIndex, variantIndex }]);
+      const normalizedSku = normalizeSku(row.sellerSku ?? row.sku);
+      const mekariProductId = normalizeMekariProductId(
+        row.mekariProductId ?? row.mekari_product_id ?? null
+      );
+      if (!normalizedSku && !mekariProductId) {
+        return;
+      }
+      registerVariant(productIndex);
+      if (normalizedSku) {
+        set.add(normalizedSku);
+        const skuMatches = map.get(normalizedSku);
+        if (skuMatches) {
+          skuMatches.push({ productIndex, variantIndex });
+        } else {
+          map.set(normalizedSku, [{ productIndex, variantIndex }]);
+        }
+      }
+      if (mekariProductId) {
+        mekariIdSet.add(mekariProductId);
+        const idMatches = mekariIdMap.get(mekariProductId);
+        if (idMatches) {
+          idMatches.push({ productIndex, variantIndex });
+        } else {
+          mekariIdMap.set(mekariProductId, [{ productIndex, variantIndex }]);
+        }
       }
     });
   });
 
-  return { map, set };
+  return { map, set, mekariIdMap, mekariIdSet, productStats, productIndices };
 }
 
 function getDailyInventorySyncThreshold(now = new Date()) {
