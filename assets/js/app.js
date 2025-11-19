@@ -15261,14 +15261,17 @@ async function initProductMappingAutoPage() {
       .map(group => {
         const rows = group.skus
           .map(entry => {
-            const variantLabel = entry.variantSummary
-              ? `<span class="manual-product-meta">${escapeHtml(entry.variantSummary)}</span>`
+            const { baseName, variantName } = extractProductNameParts(entry.productName);
+            const productTitle = baseName || entry.productName || 'Produk';
+            const variantSourceLabel = entry.variantSummary || variantName || extractVariantOptionFromSku(entry.sku);
+            const variantLabel = variantSourceLabel
+              ? `<span class="manual-product-meta">Opsi Varian: ${escapeHtml(variantSourceLabel)}</span>`
               : '';
             return `
               <tr>
                 <td>${escapeHtml(entry.sku)}</td>
                 <td>
-                  <p class="manual-product-name">${escapeHtml(entry.productName ?? 'Produk')}</p>
+                  <p class="manual-product-name">${escapeHtml(productTitle)}</p>
                   ${variantLabel}
                 </td>
               </tr>
