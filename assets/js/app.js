@@ -924,7 +924,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     return true;
   };
 
-  const updateProductName = (productIndex, nextName) => {
+  const updateProductName = (productIndex, nextName, { syncSpuFromName = false } = {}) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
       return false;
     }
@@ -940,11 +940,25 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     }
 
     const currentName = (product.name ?? '').toString().trim();
-    if (currentName === normalizedName) {
+    const updatedProduct = { ...product, name: normalizedName, updatedAt: Date.now() };
+
+    if (syncSpuFromName) {
+      const currentSpu = (product.spu ?? '').toString().trim();
+      if (currentSpu) {
+        const { baseName: currentBaseName } = extractProductNameParts(currentName);
+        const { baseName: nextBaseName } = extractProductNameParts(normalizedName);
+        const normalizedCurrentBase = currentBaseName?.trim().toLowerCase() || '';
+        const normalizedNextBase = nextBaseName?.trim().toLowerCase() || '';
+        if (normalizedNextBase && normalizedNextBase !== normalizedCurrentBase) {
+          updatedProduct.spu = nextBaseName || normalizedName;
+        }
+      }
+    }
+
+    if (currentName === normalizedName && updatedProduct.spu === product.spu) {
       return false;
     }
 
-    const updatedProduct = { ...product, name: normalizedName, updatedAt: Date.now() };
     cachedProducts[productIndex] = updatedProduct;
     updatedProductsMap.set(updatedProduct.id, updatedProduct);
     return true;
@@ -960,27 +974,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return false;
     }
 
-    const product = cachedProducts?.[productIndex];
-    if (!product) {
-      return false;
-    }
-
-    const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
-    const hasSingleVariant = pricingRows.length <= 1;
-    const variantRow = hasSingleVariant
-      ? pricingRows[0]
-      : pricingRows?.[variantIndex];
-    const variantLabel = hasSingleVariant ? (variantRow?.variantLabel ?? '').toString().trim() : '';
-    if (!variantLabel) {
-      return updateProductName(productIndex, normalizedSource);
-    }
-
-    const { baseName } = extractProductNameParts(normalizedSource);
-    if (!baseName) {
-      return updateProductName(productIndex, normalizedSource);
-    }
-
-    return updateProductName(productIndex, `${baseName} - ${variantLabel}`);
+    return updateProductName(productIndex, normalizedSource, { syncSpuFromName: true });
   };
 
   const markVariantMatched = (productIndex, variantIndex) => {
@@ -1008,7 +1002,9 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return;
     }
 
-    const normalizedSku = normalizeSku(record.product_code ?? record.productCode ?? record.sku);
+    const rawSkuValue = record.product_code ?? record.productCode ?? record.sku;
+    const exactSku = rawSkuValue === null || rawSkuValue === undefined ? '' : rawSkuValue.toString().trim();
+    const normalizedSku = normalizeSku(exactSku);
     const mekariProductId = normalizeMekariProductId(
       record.id ?? record.product?.id ?? record.product_id ?? record.productId ?? null
     );
@@ -1027,8 +1023,8 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
         assignVariantMekariProductId(productIndex, variantIndex, mekariProductId);
         const stockUpdated =
           stockValue !== null ? updateVariantStock(productIndex, variantIndex, stockValue) : false;
-        const skuUpdated = normalizedSku
-          ? updateVariantSku(productIndex, variantIndex, normalizedSku)
+        const skuUpdated = exactSku
+          ? updateVariantSku(productIndex, variantIndex, exactSku)
           : false;
         syncProductNameFromVariant(productIndex, variantIndex, record.name ?? '');
         if (stockUpdated || skuUpdated) {
@@ -1057,20 +1053,31 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
         });
       }
 
+      let variantDataChanged = false;
+      if (exactSku) {
+        existingMatches.forEach(({ productIndex, variantIndex }) => {
+          const changed = updateVariantSku(productIndex, variantIndex, exactSku);
+          if (changed) {
+            variantDataChanged = true;
+          }
+        });
+      }
+
       if (stockValue !== null) {
-        let skuChanged = false;
+        let stockChanged = false;
         existingMatches.forEach(({ productIndex, variantIndex }) => {
           if (!Number.isInteger(variantIndex)) {
             return;
           }
           const changed = updateVariantStock(productIndex, variantIndex, stockValue);
           if (changed) {
-            skuChanged = true;
+            stockChanged = true;
           }
         });
-        if (skuChanged) {
-          updatedSkuSet.add(normalizedSku);
-        }
+        variantDataChanged = variantDataChanged || stockChanged;
+      }
+      if (variantDataChanged && normalizedSku) {
+        updatedSkuSet.add(normalizedSku);
       }
       existingSkus.add(normalizedSku);
       return;
