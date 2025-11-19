@@ -953,10 +953,13 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     if (normalizedLabel) {
       if (existingVariants.length) {
         const targetIndex = existingVariants.findIndex(entry =>
-          (entry?.name ?? '').toString().trim().toLowerCase() === 'varian'
+          isSimpleVariantFieldName(entry?.name)
         );
         if (targetIndex === -1) {
-          nextVariants = [...existingVariants, { name: 'Varian', value: normalizedLabel }];
+          nextVariants = [
+            ...existingVariants,
+            { name: SIMPLE_VARIANT_FALLBACK_NAME, value: normalizedLabel }
+          ];
           variantsChanged = true;
         } else {
           const variantValue = (existingVariants[targetIndex]?.value ?? '').toString().trim();
@@ -968,7 +971,7 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
           }
         }
       } else {
-        nextVariants = [{ name: 'Varian', value: normalizedLabel }];
+        nextVariants = [{ name: SIMPLE_VARIANT_FALLBACK_NAME, value: normalizedLabel }];
         variantsChanged = true;
       }
     }
@@ -2850,6 +2853,32 @@ function extractSkuPrefix(sku) {
   return value.slice(0, lastDash).trim();
 }
 
+function extractVariantOptionFromSku(sku) {
+  if (!sku) {
+    return '';
+  }
+  const value = sku.toString().trim();
+  if (!value) {
+    return '';
+  }
+  const prefix = extractSkuPrefix(value);
+  if (!prefix || prefix.length >= value.length) {
+    return '';
+  }
+  const suffix = value.slice(prefix.length + 1).trim();
+  return suffix || '';
+}
+
+const SIMPLE_VARIANT_FALLBACK_NAME = 'Varian 1';
+
+function isSimpleVariantFieldName(name) {
+  if (!name) {
+    return false;
+  }
+  const normalized = name.toString().trim().toLowerCase();
+  return normalized === 'varian' || normalized === 'varian 1';
+}
+
 function formatVariantCombination(variants) {
   if (!Array.isArray(variants) || !variants.length) {
     return '';
@@ -3043,14 +3072,17 @@ async function mergeProductsIntoSpu(
   }
 
   const nameVotes = new Map();
-  const variantNameByProduct = new Map();
+  const variantLabelByProduct = new Map();
   selectedProducts.forEach(product => {
     const { baseName, variantName } = extractProductNameParts(product.name);
     if (baseName) {
       nameVotes.set(baseName, (nameVotes.get(baseName) ?? 0) + 1);
     }
-    if (variantName) {
-      variantNameByProduct.set(product.id, variantName);
+    const primarySku = getPrimarySku(product);
+    const skuVariantLabel = extractVariantOptionFromSku(primarySku);
+    const resolvedVariantLabel = skuVariantLabel || variantName;
+    if (resolvedVariantLabel) {
+      variantLabelByProduct.set(product.id, resolvedVariantLabel);
     }
   });
 
@@ -3083,7 +3115,7 @@ async function mergeProductsIntoSpu(
 
   const pricingMap = new Map();
   selectedProducts.forEach(product => {
-    const variantLabel = variantNameByProduct.get(product.id) || '';
+    const variantLabel = variantLabelByProduct.get(product.id) || '';
     const rows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
     rows.forEach(row => {
       const sellerSku = (row?.sellerSku ?? '').toString().trim();
@@ -3101,7 +3133,10 @@ async function mergeProductsIntoSpu(
             if (hasVariant) {
               return existingVariants;
             }
-            return [...existingVariants, { name: 'Varian', value: variantLabel }];
+            return [
+              ...existingVariants,
+              { name: SIMPLE_VARIANT_FALLBACK_NAME, value: variantLabel }
+            ];
           })()
         : existingVariants;
       const safeVariants = normalizedVariants === existingVariants ? [...normalizedVariants] : normalizedVariants;
@@ -3110,16 +3145,18 @@ async function mergeProductsIntoSpu(
   });
 
   const combinedVariantPricing = Array.from(pricingMap.values());
-  const variantOptions = Array.from(new Set(Array.from(variantNameByProduct.values()).filter(Boolean)));
+  const variantOptions = Array.from(new Set(Array.from(variantLabelByProduct.values()).filter(Boolean)));
   const baseVariants = Array.isArray(primaryProduct.variants) ? primaryProduct.variants.filter(Boolean) : [];
-  const varianIndex = baseVariants.findIndex(entry => (entry?.name ?? '').toString().toLowerCase() === 'varian');
+  const varianIndex = baseVariants.findIndex(entry => isSimpleVariantFieldName(entry?.name));
   let mergedVariants = baseVariants;
   if (variantOptions.length) {
     if (varianIndex === -1) {
-      mergedVariants = [...baseVariants, { name: 'Varian', options: variantOptions }];
+      mergedVariants = [...baseVariants, { name: SIMPLE_VARIANT_FALLBACK_NAME, options: variantOptions }];
     } else {
       mergedVariants = baseVariants.map((entry, index) =>
-        index === varianIndex ? { ...entry, options: variantOptions } : entry
+        index === varianIndex
+          ? { ...entry, name: SIMPLE_VARIANT_FALLBACK_NAME, options: variantOptions }
+          : entry
       );
     }
   }
