@@ -7251,26 +7251,34 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         badgeLabelParts.push(statusError);
       }
 
+      const missingTooltip = 'Produk tidak aktif di Mekari Jurnal';
+      const tooltipText =
+        resolveMekariStatusTooltip(normalizedMekariStatus) ||
+        (statusState === 'missing' ? missingTooltip : '');
+      const badgeClassNames = ['mekari-status__badge'];
+      const shouldShowTooltip = Boolean(tooltipText);
+      if (shouldShowTooltip) {
+        badgeClassNames.push('has-tooltip');
+      }
+      badgeClassNames.push(`mekari-status__badge--${statusState}`);
+
+      if (tooltipText && (!statusMessage || tooltipText !== statusMessage)) {
+        badgeLabelParts.push(tooltipText);
+      }
+
       const badgeAriaLabel =
         badgeLabelParts.length > 0
           ? badgeLabelParts.join('. ')
           : 'Status sinkronisasi Mekari tidak tersedia';
 
-      const missingTooltip = 'Produk tidak aktif di Mekari Jurnal';
-      const badgeClassNames = ['mekari-status__badge'];
-      if (statusState === 'missing') {
-        badgeClassNames.push('has-tooltip');
-      }
-      badgeClassNames.push(`mekari-status__badge--${statusState}`);
-
-      const tooltipAttributes =
-        statusState === 'missing'
-          ? ` data-tooltip="${escapeHtml(missingTooltip)}" tabindex="0"`
-          : '';
+      const tooltipAttributes = shouldShowTooltip
+        ? ` data-tooltip="${escapeHtml(tooltipText)}" tabindex="0"`
+        : '';
 
       const mekariStatusHtml = `
         <div class="mekari-status" data-state="${escapeHtml(statusState)}">
           <span class="${badgeClassNames.join(' ')}" role="img" aria-label="${escapeHtml(badgeAriaLabel)}"${tooltipAttributes}>
+            <span class="mekari-status__indicator" aria-hidden="true"></span>
             <img src="${escapeHtml(mekariLogoUrl)}" alt="" aria-hidden="true">
           </span>
         </div>
@@ -9326,6 +9334,13 @@ async function handleAddProductForm() {
         weight: getValue('[data-field="weight"]')
       };
 
+      const mekariProductId = normalizeMekariProductId(
+        row.dataset.mekariProductId ?? row.dataset.mekari_product_id ?? null
+      );
+      if (mekariProductId) {
+        data.mekariProductId = mekariProductId;
+      }
+
       if (variantDefs.length) {
         data.variants = variantDefs.map((variant, index) => {
           const select = row.querySelector(`[data-variant-select="${index}"]`);
@@ -9348,6 +9363,15 @@ async function handleAddProductForm() {
 
     if (initialData.id) {
       row.dataset.pricingId = initialData.id;
+    }
+
+    const initialMekariProductId = normalizeMekariProductId(
+      initialData.mekariProductId ?? initialData.mekari_product_id ?? null
+    );
+    if (initialMekariProductId) {
+      row.dataset.mekariProductId = initialMekariProductId;
+    } else {
+      delete row.dataset.mekariProductId;
     }
 
     if (variantDefs.length) {
@@ -10231,6 +10255,13 @@ async function handleAddProductForm() {
         normalized.id = row.id;
       }
 
+      const normalizedMekariId = normalizeMekariProductId(
+        row.mekariProductId ?? row.mekari_product_id ?? null
+      );
+      if (normalizedMekariId) {
+        normalized.mekariProductId = normalizedMekariId;
+      }
+
       if (variantDefs.length) {
         normalized.variants = variantDefs.map((variant, index) => {
           const source = row.variants?.[index];
@@ -10286,6 +10317,10 @@ async function handleAddProductForm() {
       }
     });
 
+    const hasMekariIds = filteredPricing.some(row =>
+      Boolean(normalizeMekariProductId(row?.mekariProductId ?? row?.mekari_product_id))
+    );
+
     const isEditing = Boolean(form.dataset.editingId);
     const timestamp = Date.now();
     const productId = isEditing ? form.dataset.editingId : crypto.randomUUID();
@@ -10300,6 +10335,17 @@ async function handleAddProductForm() {
       }
     }
 
+    const shouldSyncMekari = !isEditing || hasMekariIds;
+    const syncingStatus = shouldSyncMekari
+      ? normalizeMekariStatus({
+          state: 'syncing',
+          lastSyncedAt: new Date().toISOString(),
+          message: isEditing
+            ? 'Memperbarui produk di Mekari Jurnal...'
+            : 'Mengirim produk ke Mekari Jurnal...'
+        })
+      : existingProduct?.mekariStatus ?? null;
+
     const productPayload = {
       id: productId,
       name: (formData.get('name') ?? '').toString().trim(),
@@ -10313,6 +10359,10 @@ async function handleAddProductForm() {
       variants,
       variantPricing: filteredPricing
     };
+
+    if (syncingStatus) {
+      productPayload.mekariStatus = syncingStatus;
+    }
 
     if (isEditing) {
       productPayload.createdAt = existingProduct?.createdAt ?? timestamp;
@@ -10338,11 +10388,7 @@ async function handleAddProductForm() {
         description: productPayload.description
       };
 
-      const hasMekariIds = filteredPricing.some(row =>
-        Boolean(normalizeMekariProductId(row?.mekariProductId ?? row?.mekari_product_id))
-      );
-
-      if (!isEditing || hasMekariIds) {
+      if (shouldSyncMekari) {
         try {
           if (isEditing && hasMekariIds) {
             mekariResult = await updateMekariProductsById(mekariSyncPayload);
@@ -10359,6 +10405,51 @@ async function handleAddProductForm() {
             updatedCount: 0,
             errors: [{ message: mekariError?.message || 'Permintaan ke Mekari gagal.' }]
           };
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      let finalMekariStatus = null;
+
+      if (shouldSyncMekari) {
+        if (!mekariResult || mekariResult.skipped) {
+          finalMekariStatus = normalizeMekariStatus({
+            state: 'pending',
+            lastSyncedAt: nowIso,
+            message: 'Sinkronisasi Mekari Jurnal dilewati.'
+          });
+        } else if (Array.isArray(mekariResult.errors) && mekariResult.errors.length) {
+          const combinedError = mekariResult.errors
+            .map(error => (error?.message ?? '').toString().trim())
+            .filter(Boolean)
+            .join(' ');
+          finalMekariStatus = normalizeMekariStatus({
+            state: 'error',
+            lastSyncedAt: nowIso,
+            message: 'Gagal sinkronisasi ke Mekari Jurnal.',
+            error: combinedError || 'Gagal sinkronisasi ke Mekari Jurnal.'
+          });
+        } else if (mekariResult.updatedCount > 0 || mekariResult.createdCount > 0) {
+          finalMekariStatus = normalizeMekariStatus({
+            state: 'synced',
+            lastSyncedAt: nowIso,
+            message: 'Produk Mekari ditemukan di Jurnal.'
+          });
+        }
+      }
+
+      if (finalMekariStatus) {
+        const previousStatusSnapshot = productPayload.mekariStatus ?? existingProduct?.mekariStatus ?? null;
+        const previousJson = JSON.stringify(previousStatusSnapshot || null);
+        const nextJson = JSON.stringify(finalMekariStatus);
+        if (previousJson !== nextJson) {
+          const statusUpdatePayload = {
+            ...productPayload,
+            mekariStatus: finalMekariStatus,
+            updatedAt: Date.now()
+          };
+          await upsertProductToSupabase(statusUpdatePayload);
+          await refreshProductsFromSupabase();
         }
       }
 
