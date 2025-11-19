@@ -924,6 +924,71 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     return true;
   };
 
+  const updateVariantLabel = (productIndex, variantIndex, nextLabel) => {
+    if (!Number.isInteger(productIndex) || productIndex < 0) {
+      return false;
+    }
+
+    const normalizedLabel = (nextLabel ?? '').toString().trim();
+    if (!normalizedLabel) {
+      return false;
+    }
+
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const pricingRows = Array.isArray(product.variantPricing) ? [...product.variantPricing] : [];
+    const currentRow = pricingRows?.[variantIndex];
+    if (!currentRow) {
+      return false;
+    }
+
+    const currentLabel = (currentRow.variantLabel ?? '').toString().trim();
+    const existingVariants = Array.isArray(currentRow.variants) ? currentRow.variants : [];
+    let nextVariants = existingVariants;
+    let variantsChanged = false;
+
+    if (normalizedLabel) {
+      if (existingVariants.length) {
+        const targetIndex = existingVariants.findIndex(entry =>
+          (entry?.name ?? '').toString().trim().toLowerCase() === 'varian'
+        );
+        if (targetIndex === -1) {
+          nextVariants = [...existingVariants, { name: 'Varian', value: normalizedLabel }];
+          variantsChanged = true;
+        } else {
+          const variantValue = (existingVariants[targetIndex]?.value ?? '').toString().trim();
+          if (variantValue !== normalizedLabel) {
+            nextVariants = existingVariants.map((entry, index) =>
+              index === targetIndex ? { ...entry, value: normalizedLabel } : entry
+            );
+            variantsChanged = true;
+          }
+        }
+      } else {
+        nextVariants = [{ name: 'Varian', value: normalizedLabel }];
+        variantsChanged = true;
+      }
+    }
+
+    if (currentLabel === normalizedLabel && !variantsChanged) {
+      return false;
+    }
+
+    const updatedVariant = { ...currentRow, variantLabel: normalizedLabel };
+    if (variantsChanged) {
+      updatedVariant.variants = nextVariants;
+    }
+
+    pricingRows[variantIndex] = updatedVariant;
+    const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
+    cachedProducts[productIndex] = updatedProduct;
+    updatedProductsMap.set(updatedProduct.id, updatedProduct);
+    return true;
+  };
+
   const updateProductName = (productIndex, nextName, { syncSpuFromName = false } = {}) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
       return false;
@@ -974,7 +1039,24 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return false;
     }
 
-    return updateProductName(productIndex, normalizedSource, { syncSpuFromName: true });
+    const product = cachedProducts?.[productIndex];
+    if (!product) {
+      return false;
+    }
+
+    const hasSpu = (product.spu ?? '').toString().trim().length > 0;
+    if (!hasSpu) {
+      return updateProductName(productIndex, normalizedSource, { syncSpuFromName: true });
+    }
+
+    const { baseName, variantName } = extractProductNameParts(normalizedSource);
+    const targetName = baseName || normalizedSource;
+    let changed = updateProductName(productIndex, targetName, { syncSpuFromName: true });
+    if (variantName) {
+      changed = updateVariantLabel(productIndex, variantIndex, variantName) || changed;
+    }
+
+    return changed;
   };
 
   const markVariantMatched = (productIndex, variantIndex) => {
