@@ -1044,12 +1044,16 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return false;
     }
 
+    const { baseName, variantName } = extractProductNameParts(normalizedSource);
+    const normalizedVariantName = (variantName ?? '').toString().trim();
+    const isDefaultVariantLabel = normalizedVariantName.toLowerCase() === 'default';
+
     const hasSpu = (product.spu ?? '').toString().trim().length > 0;
     if (!hasSpu) {
-      return updateProductName(productIndex, normalizedSource, { syncSpuFromName: true });
+      const fallbackName = isDefaultVariantLabel && baseName ? baseName : normalizedSource;
+      return updateProductName(productIndex, fallbackName, { syncSpuFromName: true });
     }
 
-    const { baseName, variantName } = extractProductNameParts(normalizedSource);
     const targetName = baseName || normalizedSource;
     let changed = updateProductName(productIndex, targetName, { syncSpuFromName: true });
     if (variantName) {
@@ -11245,7 +11249,7 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
 
   const basePayload = {
     name,
-    description: sanitizedDescription || name,
+    description: sanitizedDescription || '',
     buy_price_per_unit: buyPrice,
     sell_price_per_unit: sellPrice
   };
