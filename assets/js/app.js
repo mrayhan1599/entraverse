@@ -9516,7 +9516,7 @@ async function handleAddProductForm() {
 
     const row = document.createElement('tr');
     row.className = 'pricing-row';
-    const { lockVariantSelection = false } = options;
+    const { lockVariantSelection = false, showVariantLabelInput = false } = options;
     let purchasePriceInput = null;
     let currencySelect = null;
     let exchangeRateInput = null;
@@ -9544,7 +9544,7 @@ async function handleAddProductForm() {
       });
     }
 
-    if (!variantDefs.length) {
+    if (!variantDefs.length && showVariantLabelInput) {
       const cell = document.createElement('td');
       const input = document.createElement('input');
       input.type = 'text';
@@ -9789,6 +9789,11 @@ async function handleAddProductForm() {
     const sourceData = Array.isArray(externalData) ? externalData : collectPricingRows(variantDefs);
     const combinations = generateVariantCombinations(variantDefs);
     const hasAutoCombinations = combinations.length > 0;
+    const shouldRenderManualVariantLabel = !variantDefs.length && sourceData.some(row => {
+      const label = (row?.variantLabel ?? '').toString().trim();
+      if (!label) return false;
+      return label.toLowerCase() !== 'default';
+    });
 
     if (addPricingRowBtn) {
       addPricingRowBtn.classList.add('is-hidden');
@@ -9802,6 +9807,10 @@ async function handleAddProductForm() {
         th.textContent = variant.name;
         pricingHeaderRow.appendChild(th);
       });
+    } else if (shouldRenderManualVariantLabel) {
+      const th = document.createElement('th');
+      th.textContent = 'Varian';
+      pricingHeaderRow.appendChild(th);
     }
 
     const staticHeaders = [
@@ -9821,10 +9830,6 @@ async function handleAddProductForm() {
       'Berat Barang',
       ''
     ];
-
-    if (!variantDefs.length) {
-      staticHeaders.unshift('Varian');
-    }
 
     staticHeaders.forEach(label => {
       const th = document.createElement('th');
@@ -9860,7 +9865,7 @@ async function handleAddProductForm() {
 
     const fallbackData = sourceData.length ? sourceData : [{}];
     fallbackData.forEach(data => {
-      createPricingRow(data, variantDefs);
+      createPricingRow(data, variantDefs, { showVariantLabelInput: shouldRenderManualVariantLabel });
     });
     updateAllArrivalCosts();
     refreshWarehouseAveragesForPricing();
@@ -10274,7 +10279,10 @@ async function handleAddProductForm() {
           return { name: variantName, value };
         });
       } else {
-        normalized.variantLabel = (row.variantLabel ?? '').toString().trim();
+        const normalizedLabel = (row.variantLabel ?? '').toString().trim();
+        if (normalizedLabel && normalizedLabel.toLowerCase() !== 'default') {
+          normalized.variantLabel = normalizedLabel;
+        }
       }
 
       return normalized;
@@ -10304,7 +10312,7 @@ async function handleAddProductForm() {
         return hasDetails || hasVariantValue;
       }
 
-      return hasDetails || (row.variantLabel ?? '').toString().trim();
+      return hasDetails;
     });
 
     if (variantDefs.length) {
@@ -12196,7 +12204,6 @@ function mapMekariProductRecord(record) {
     variantPricing: [
       {
         id: createUuid(),
-        variantLabel: 'Default',
         purchasePrice,
         purchaseCurrency,
         exchangeRate: '1',
