@@ -4177,6 +4177,15 @@ body.modal-open {
     text-align: center;
   }
 
+  .sku-table th:nth-child(4),
+  .sku-table th:nth-child(5),
+  .sku-table th:nth-child(6),
+  .sku-table td:nth-child(4),
+  .sku-table td:nth-child(5),
+  .sku-table td:nth-child(6) {
+    display: none;
+  }
+
   .sku-cell {
     align-items: center;
     text-align: center;
