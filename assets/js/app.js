@@ -2919,6 +2919,24 @@ function collectProductVariantSkus(product) {
     .filter(Boolean);
 }
 
+function sanitizeVariantName(value) {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  let normalized = value.trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const skuSuffixPattern = /\s*\((?:SKU|sku)[^)]*\)\s*$/i;
+  if (skuSuffixPattern.test(normalized)) {
+    normalized = normalized.replace(skuSuffixPattern, '').trim();
+  }
+
+  return normalized || value.trim();
+}
+
 function extractProductNameParts(name) {
   if (!name || typeof name !== 'string') {
     return { baseName: '', variantName: '' };
@@ -2932,17 +2950,107 @@ function extractProductNameParts(name) {
   const dashMatch = normalized.match(/^(.*?)\s*-\s*(.+)$/);
   if (dashMatch) {
     const baseName = dashMatch[1]?.trim() ?? '';
-    const variantName = dashMatch[2]?.trim() ?? '';
+    const variantName = sanitizeVariantName(dashMatch[2]?.trim() ?? '');
     return { baseName, variantName };
   }
 
   return { baseName: normalized, variantName: '' };
 }
 
+function resolveSellerSku(row, product) {
+  const inventory = product?.inventory ?? {};
+  const candidates = [
+    row?.sellerSku,
+    row?.sku,
+    inventory?.sellerSku,
+    inventory?.seller_sku,
+    inventory?.sku,
+    inventory?.productSku,
+    inventory?.product_sku,
+    inventory?.parentSku,
+    inventory?.parent_sku,
+    product?.sellerSku,
+    product?.sku
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate && candidate !== 0) {
+      continue;
+    }
+    const value = candidate.toString().trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function pickFirstAvailable(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate === null || typeof candidate === 'undefined') {
+      continue;
+    }
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+      continue;
+    }
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate.toString();
+    }
+    const value = candidate.toString().trim();
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+}
+
+function buildVariantPricingRowsFromInventory(product) {
+  const inventory = product?.inventory ?? {};
+  const fallbackSku = resolveSellerSku(inventory, product);
+  if (!fallbackSku) {
+    return [];
+  }
+
+  const pickInventoryValue = (...keys) => pickFirstAvailable(...keys.map(key => inventory?.[key]));
+
+  return [
+    {
+      id: createUuid(),
+      variants: [],
+      purchasePrice: pickInventoryValue('purchasePrice', 'purchase_price'),
+      purchaseCurrency: pickInventoryValue('purchaseCurrency', 'purchase_currency') || 'IDR',
+      exchangeRate: pickInventoryValue('exchangeRate', 'exchange_rate'),
+      purchasePriceIdr: pickInventoryValue('purchasePriceIdr', 'purchase_price_idr'),
+      offlinePrice: pickInventoryValue('offlinePrice', 'offline_price'),
+      entraversePrice: pickInventoryValue('entraversePrice', 'entraverse_price'),
+      tokopediaPrice: pickInventoryValue('tokopediaPrice', 'tokopedia_price'),
+      shopeePrice: pickInventoryValue('shopeePrice', 'shopee_price'),
+      stock: pickFirstAvailable(
+        inventory.stock,
+        inventory.qty,
+        inventory.quantity,
+        inventory.availableStock,
+        inventory.available_stock,
+        inventory.available_qty,
+        product?.stock
+      ),
+      dailyAverageSales: pickInventoryValue('dailyAverageSales', 'daily_average_sales'),
+      sellerSku: fallbackSku,
+      weight: pickInventoryValue('weightGrams', 'weight_grams', 'weight')
+    }
+  ];
+}
+
 function getPrimarySku(product) {
   const skus = collectProductVariantSkus(product);
   if (!skus.length) {
-    return '';
+    const inventorySku = resolveSellerSku(product?.inventory ?? {}, product);
+    return inventorySku;
   }
   return skus[0].sku;
 }
@@ -3080,7 +3188,7 @@ async function mergeProductsIntoSpu(
     }
     const primarySku = getPrimarySku(product);
     const skuVariantLabel = extractVariantOptionFromSku(primarySku);
-    const resolvedVariantLabel = skuVariantLabel || variantName;
+    const resolvedVariantLabel = variantName || skuVariantLabel;
     if (resolvedVariantLabel) {
       variantLabelByProduct.set(product.id, resolvedVariantLabel);
     }
@@ -3116,13 +3224,18 @@ async function mergeProductsIntoSpu(
   const pricingMap = new Map();
   selectedProducts.forEach(product => {
     const variantLabel = variantLabelByProduct.get(product.id) || '';
-    const rows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+    const rows = Array.isArray(product.variantPricing) && product.variantPricing.length
+      ? product.variantPricing
+      : buildVariantPricingRowsFromInventory(product);
     rows.forEach(row => {
-      const sellerSku = (row?.sellerSku ?? '').toString().trim();
+      const sellerSku = resolveSellerSku(row, product);
       if (!sellerSku) {
         return;
       }
-      const existingVariants = Array.isArray(row.variants) ? row.variants.filter(Boolean) : [];
+      const normalizedRow = row?.sellerSku === sellerSku ? row : { ...row, sellerSku };
+      const existingVariants = Array.isArray(normalizedRow.variants)
+        ? normalizedRow.variants.filter(Boolean)
+        : [];
       const normalizedVariants = variantLabel
         ? (() => {
             const target = variantLabel.toLowerCase();
@@ -3140,7 +3253,7 @@ async function mergeProductsIntoSpu(
           })()
         : existingVariants;
       const safeVariants = normalizedVariants === existingVariants ? [...normalizedVariants] : normalizedVariants;
-      pricingMap.set(sellerSku, { ...row, variants: safeVariants });
+      pricingMap.set(sellerSku, { ...normalizedRow, variants: safeVariants });
     });
   });
 
