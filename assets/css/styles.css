@@ -3069,7 +3069,9 @@ input:checked + .slider:before {
 .table-actions {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
 }
 
 .action-menu {
