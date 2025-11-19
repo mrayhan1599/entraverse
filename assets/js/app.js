@@ -11239,17 +11239,24 @@ function resolveMekariPriceStrings(row) {
   return { buyPrice, sellPrice };
 }
 
-function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description }) {
+function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description, mode = 'create' }) {
   const sanitizedDescription = (description ?? '').toString().trim();
+  const normalizedSku = (sku ?? '').toString().trim();
 
-  return {
-    product: {
-      name,
-      custom_id: sku,
-      product_code: sku,
-      description: sanitizedDescription || name,
-      buy_price_per_unit: buyPrice,
-      sell_price_per_unit: sellPrice,
+  const basePayload = {
+    name,
+    description: sanitizedDescription || name,
+    buy_price_per_unit: buyPrice,
+    sell_price_per_unit: sellPrice
+  };
+
+  if (normalizedSku) {
+    basePayload.custom_id = normalizedSku;
+    basePayload.product_code = normalizedSku;
+  }
+
+  if (mode === 'create') {
+    Object.assign(basePayload, {
       taxable_buy: true,
       taxable_sell: true,
       sell_tax_id: 26,
@@ -11264,8 +11271,10 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
       sell_account_name: 'Service Revenue',
       inventory_asset_account_id: 2631,
       inventory_asset_account_name: 'Inventory'
-    }
-  };
+    });
+  }
+
+  return { product: basePayload };
 }
 
 async function extractMekariErrorMessage(response) {
@@ -11393,7 +11402,8 @@ async function syncProductVariantsToMekari({ baseName, variantPricing, descripti
       sku: rawSku,
       buyPrice,
       sellPrice,
-      description
+      description,
+      mode: 'create'
     });
 
     try {
@@ -11498,7 +11508,8 @@ async function updateMekariProductsById({ baseName, variantPricing, description 
       sku: skuForPayload,
       buyPrice,
       sellPrice,
-      description
+      description,
+      mode: 'update'
     });
 
     try {
