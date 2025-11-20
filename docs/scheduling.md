@@ -56,12 +56,7 @@ ingin mengganti kredensial default yang sudah tertanam di workflow:
 - `SUPABASE_URL`: URL proyek Supabase.
 - `SUPABASE_SERVICE_ROLE_KEY`: service role key agar Edge Function bisa melewati
   RLS ketika perlu akses penuh.
-- `SUPABASE_FUNCTION_NAME` (opsional): nama fungsi, default `jurnal-pnl`.
-- `SUPABASE_FUNCTION_PATH` (opsional): path fungsi penuh; jika kosong, workflow
-  otomatis membangun `/functions/v1/<nama-fungsi>` dan memastikan ada awalan
-  `/`. Bisa juga diisi **URL penuh** (mis. `https://<project>.functions.supabase.co/<fn>`)
-  bila Anda memakai domain functions khusus; base URL akan dibersihkan dari
-  trailing slash sebelum digabung.
+- `SUPABASE_FUNCTION_PATH` (opsional): path fungsi, default `/functions/v1/jurnal-pnl`.
 - `JURNAL_SYNC_START_DATE` dan `JURNAL_SYNC_END_DATE` (opsional): tanggal `YYYY-MM-DD`
   jika ingin memaksa rentang tertentu; jika kosong, workflow memakai tanggal UTC hari ini.
 
