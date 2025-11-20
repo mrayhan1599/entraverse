@@ -12,13 +12,18 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://wnewbuwmdrnjfjsxoybs.supabase.co' }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InduZXdidXdtZHJuamZqc3hveWJzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTE2Njc4NiwiZXhwIjoyMDc2NzQyNzg2fQ.KxUCA-GPmwluL0GYtZVv_kd1M9E8mh0hqkjQWX40vu4' }}
-      FUNCTION_PATH: ${{ secrets.SUPABASE_FUNCTION_PATH || '/functions/v1/jurnal-pnl' }}
+      FUNCTION_NAME: ${{ secrets.SUPABASE_FUNCTION_NAME || 'jurnal-pnl' }}
+      FUNCTION_PATH: ${{ secrets.SUPABASE_FUNCTION_PATH || '' }}
       START_DATE: ${{ secrets.JURNAL_SYNC_START_DATE || '' }}
       END_DATE: ${{ secrets.JURNAL_SYNC_END_DATE || '' }}
     steps:
       - name: Trigger Supabase Edge Function for Mekari sync
         run: |
           set -euo pipefail
+
+          : "${SUPABASE_URL:?SUPABASE_URL secret is not configured}"
+          : "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY secret is not configured}"
+          : "${FUNCTION_NAME:?FUNCTION_NAME is not configured}"
 
           # Default date range: the current UTC date
           if [ -z "$START_DATE" ]; then
@@ -28,7 +33,32 @@ jobs:
             END_DATE="$START_DATE"
           fi
 
-          curl -sSf -X POST "${SUPABASE_URL}${FUNCTION_PATH}" \
+          # Trim trailing slash from base URL to avoid double slashes
+          SUPABASE_URL="${SUPABASE_URL%/}"
+
+          # Normalize function path: allow either full path or just a name
+          if [ -z "$FUNCTION_PATH" ]; then
+            FUNCTION_PATH="/functions/v1/${FUNCTION_NAME}"
+          fi
+          # Allow full override with a complete URL (e.g. https://<project>.functions.supabase.co/<fn>)
+          case "$FUNCTION_PATH" in
+            http://*|https://*)
+              INVOKE_URL="$FUNCTION_PATH"
+              ;;
+            *)
+              # Ensure the path starts with a leading slash
+              case "$FUNCTION_PATH" in
+                /*) ;;  # already normalized
+                *) FUNCTION_PATH="/${FUNCTION_PATH}" ;;
+              esac
+              INVOKE_URL="${SUPABASE_URL}${FUNCTION_PATH}"
+              ;;
+          esac
+
+          echo "Triggering Mekari sync for ${START_DATE} to ${END_DATE}" >&2
+          echo "Resolved Supabase function URL: ${INVOKE_URL}" >&2
+
+          curl --fail-with-body -sS -X POST "${INVOKE_URL}" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -d "{\"start_date\":\"${START_DATE}\",\"end_date\":\"${END_DATE}\"}"
