@@ -20,6 +20,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          : "${SUPABASE_URL:?SUPABASE_URL secret is not configured}"
+          : "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY secret is not configured}"
+          : "${FUNCTION_PATH:?FUNCTION_PATH is not configured}"
+
           # Default date range: the current UTC date
           if [ -z "$START_DATE" ]; then
             START_DATE=$(date -u +"%Y-%m-%d")
@@ -28,7 +32,9 @@ jobs:
             END_DATE="$START_DATE"
           fi
 
-          curl -sSf -X POST "${SUPABASE_URL}${FUNCTION_PATH}" \
+          echo "Triggering Mekari sync for ${START_DATE} to ${END_DATE}"
+
+          curl --fail-with-body -sS -X POST "${SUPABASE_URL}${FUNCTION_PATH}" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -d "{\"start_date\":\"${START_DATE}\",\"end_date\":\"${END_DATE}\"}"
