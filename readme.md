@@ -132,3 +132,15 @@ Supabase Edge Function `jurnal-pnl` kini langsung meneruskan permintaan ke API M
 
 Function akan meneruskan parameter `start_date` dan `end_date` yang dikirimkan dari aplikasi ke endpoint tersebut dan mengembalikan payload JSON dari Mekari Jurnal kepada frontend.
 
+
+### Workflow sinkronisasi produk Mekari (GitHub Actions)
+
+Untuk menjadwalkan sinkronisasi Mekari Jurnal tanpa harus membuka dashboard, repositori ini kini memiliki workflow GitHub Actions `Mekari Jurnal Product Sync` (`.github/workflows/mekari-sync.yml`). Jadwal defaultnya setiap hari pukul **00:01 WIB** (17:01 UTC) dan bisa dijalankan manual via **Run workflow**.
+
+Sebelum dijalankan, setel secret berikut di repository Settings → Secrets → Actions:
+
+- `MEKARI_SYNC_ENDPOINT` (opsional): endpoint HTTP yang akan memicu sinkronisasi produk (misalnya webhook Supabase Edge Function/Cloud Run Anda). Jika tidak diisi, workflow akan memakai endpoint produk Mekari default `https://api.jurnal.id/partner/core/api/v1/products` dari konfigurasi aplikasi.
+- `MEKARI_SYNC_TOKEN` (opsional): token Bearer yang akan dikirimkan di header Authorization.
+- `MEKARI_SYNC_HEADERS` (opsional): header tambahan, pisahkan setiap baris dengan newline.
+
+Payload permintaan yang dikirim: `{"trigger":"github-actions","reason":"<event>","source":"entraverse"}`. Sesuaikan handler webhook Anda agar menjalankan proses sinkronisasi produk Mekari saat permintaan ini diterima.
