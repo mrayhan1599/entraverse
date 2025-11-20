@@ -8,6 +8,19 @@ pukul 00:01 WIB tanpa mengandalkan tab browser pengguna:
 2. **Supabase Scheduler** untuk memanggil fungsi yang sama langsung dari proyek
    Supabase (tidak perlu GitHub runner).
 
+## Ringkas: apa yang perlu disiapkan supaya otomatis jalan?
+
+- **Di GitHub** (kalau memakai GitHub Actions): isi secrets `SUPABASE_URL` dan
+  `SUPABASE_SERVICE_ROLE_KEY`. Tanpa secrets ini workflow ter-skip dan tidak ada
+  pemanggilan ke Supabase.
+- **Di Supabase**: pastikan Edge Function `jurnal-pnl` sudah dideploy dan
+  memiliki env `JURNAL_API_TOKEN` (plus opsional `JURNAL_API_BASE_URL` dan
+  `JURNAL_API_PATH`). Jika memakai Supabase Scheduler, jadwal dibuat langsung
+  di sini tanpa perlu GitHub.
+
+PR atau commit baru tidak otomatis menyalakan jadwal; yang mengaktifkan adalah
+pengisian secrets (GitHub Actions) atau pembuatan Scheduler (Supabase).
+
 ## 1) GitHub Actions: trigger harian 00:01 WIB
 
 Repository kini menyertakan workflow `.github/workflows/mekari-sync.yml` yang
