@@ -132,3 +132,14 @@ Supabase Edge Function `jurnal-pnl` kini langsung meneruskan permintaan ke API M
 
 Function akan meneruskan parameter `start_date` dan `end_date` yang dikirimkan dari aplikasi ke endpoint tersebut dan mengembalikan payload JSON dari Mekari Jurnal kepada frontend.
 
+#### Penjadwalan sinkronisasi 00:01 WIB
+
+Gunakan salah satu dari dua opsi berikut agar sinkronisasi Mekari berjalan otomatis tanpa membuka browser:
+
+1. **GitHub Actions**: Workflow `.github/workflows/mekari-sync.yml` menjadwalkan pemanggilan fungsi `jurnal-pnl` setiap hari pukul 00:01 WIB (cron `1 17 * * *` dalam UTC). Workflow memerlukan `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` di GitHub Secrets.
+2. **Supabase Scheduler**: Buat jadwal langsung di Supabase untuk memanggil fungsi `jurnal-pnl` pada jam yang sama jika tidak ingin bergantung pada runner GitHub.
+
+> Catatan: Kedua opsi baru aktif setelah Anda mengisi secrets Supabase di GitHub atau menyetel Scheduler di proyek Supabase. Tanpa konfigurasi tersebut, tidak ada sinkronisasi otomatis yang berjalan.
+
+Lihat panduan lengkapnya di `docs/scheduling.md`.
+
