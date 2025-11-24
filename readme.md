@@ -132,3 +132,44 @@ Supabase Edge Function `jurnal-pnl` kini langsung meneruskan permintaan ke API M
 
 Function akan meneruskan parameter `start_date` dan `end_date` yang dikirimkan dari aplikasi ke endpoint tersebut dan mengembalikan payload JSON dari Mekari Jurnal kepada frontend.
 
+### Sinkronisasi produk Mekari di backend (Supabase Edge Function)
+
+Jika ingin menjadwalkan sinkronisasi produk tanpa membuka dashboard, deploy fungsi Edge berikut dan jalankan terjadwal melalui Supabase cron schedule:
+
+1. Pastikan variabel environment berikut tersedia pada project Supabase Anda:
+   - `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` (sudah diisi otomatis oleh Supabase saat deploy fungsi).
+   - `MEKARI_ACCESS_TOKEN` (wajib jika tidak menyimpan token pada tabel `api_integrations`).
+   - `MEKARI_BASE_URL` (opsional, default: `https://api.jurnal.id`).
+
+2. Deploy fungsi:
+   ```bash
+   supabase functions deploy mekari-products-sync --no-verify-jwt
+   ```
+
+3. (Opsional) Jalankan terjadwal setiap hari pukul 00:01 WIB:
+   ```bash
+   supabase functions deploy mekari-products-sync --no-verify-jwt --schedule "1 0 * * *"
+   ```
+
+Fungsi `mekari-products-sync` akan mengambil token Mekari Jurnal dari tabel `api_integrations` (nama integrasi `Mekari Jurnal`) atau environment `MEKARI_ACCESS_TOKEN`, menarik daftar produk dari Mekari, lalu melakukan upsert ke tabel `products` Supabase. Status sinkronisasi terakhir akan diperbarui pada kolom `last_sync` di tabel `api_integrations`.
+
+Jika Anda menyimpan token Mekari di tabel `api_integrations`, pastikan barisnya sudah ada sebelum menjalankan fungsi:
+
+```sql
+create table if not exists public.api_integrations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  api_base_url text,
+  access_token text,
+  last_sync timestamptz
+);
+
+insert into public.api_integrations (name, api_base_url, access_token)
+values ('Mekari Jurnal', 'https://api.jurnal.id', 'Bearer <token Anda>')
+on conflict (name) do update
+set api_base_url = excluded.api_base_url,
+    access_token = excluded.access_token;
+```
+
+Masukkan token tanpa awalan "Bearer" pun tetap diterima—fungsi akan menambahkan awalan tersebut secara otomatis saat memanggil API Mekari.
+
