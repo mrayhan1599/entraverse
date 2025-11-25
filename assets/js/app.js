@@ -11405,11 +11405,14 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
   const sanitizedDescription = (description ?? '').toString().trim();
   const normalizedSku = (sku ?? '').toString().trim();
 
+  const normalizedBuyPrice = Number.isFinite(Number(buyPrice)) ? Number(buyPrice) : 0;
+  const normalizedSellPrice = Number.isFinite(Number(sellPrice)) ? Number(sellPrice) : 0;
+
   const basePayload = {
     name,
     description: sanitizedDescription || '',
-    buy_price_per_unit: buyPrice,
-    sell_price_per_unit: sellPrice
+    buy_price_per_unit: normalizedBuyPrice,
+    sell_price_per_unit: normalizedSellPrice
   };
 
   if (normalizedSku) {
@@ -11424,7 +11427,7 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
       sell_tax_id: 26,
       buy_tax_id: 18,
       unit_name: 'Unit',
-      track_inventory: 'true',
+      track_inventory: true,
       is_bought: true,
       buy_account_number: '5-50000',
       buy_account_name: 'Cost of Sales',
