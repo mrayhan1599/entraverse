@@ -603,6 +603,8 @@ const DEFAULT_SALES_REPORTS = Object.freeze([
 
 const MEKARI_INTEGRATION_NAME = 'Mekari Jurnal';
 const MEKARI_DEFAULT_LOGO_URL = 'assets/img/integrations/mekari-jurnal.svg';
+const BRAND_LOGO_STORAGE_KEY = 'entraverse:brand-logo';
+const DEFAULT_BRAND_LOGO = 'assets/img/logo-entraverse.svg';
 let mekariIntegrationCache = null;
 let mekariIntegrationFetchPromise = null;
 const TARGET_WAREHOUSE_NAME = 'Display';
@@ -1447,6 +1449,56 @@ function updateDailyInventorySyncState(updater) {
 function getCurrentProductFilterValue() {
   const input = document.getElementById('search-input');
   return (input?.value ?? '').toString();
+}
+
+function applyBrandLogo(src) {
+  const resolvedSrc = src || DEFAULT_BRAND_LOGO;
+  document.querySelectorAll('[data-brand-image]').forEach(img => {
+    if (img instanceof HTMLImageElement) {
+      img.src = resolvedSrc;
+    }
+  });
+
+  const preview = document.querySelector('[data-brand-preview]');
+  if (preview instanceof HTMLImageElement) {
+    preview.src = resolvedSrc;
+  }
+}
+
+function loadStoredBrandLogo() {
+  try {
+    return localStorage.getItem(BRAND_LOGO_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Gagal membaca logo kustom.', error);
+    return null;
+  }
+}
+
+function initBrandingSettings() {
+  applyBrandLogo(loadStoredBrandLogo());
+
+  const uploadInput = document.querySelector('[data-logo-upload]');
+  if (!(uploadInput instanceof HTMLInputElement)) {
+    return;
+  }
+
+  uploadInput.addEventListener('change', () => {
+    const file = uploadInput.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null;
+      if (!result) return;
+      try {
+        localStorage.setItem(BRAND_LOGO_STORAGE_KEY, result);
+      } catch (error) {
+        console.warn('Gagal menyimpan logo kustom.', error);
+      }
+      applyBrandLogo(result);
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function collectExistingSkuDetails(products) {
@@ -7336,6 +7388,8 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
 
   updateProductSortIndicator();
 
+  const startIndex = totalFiltered ? (clampedPage - 1) * pageSize : 0;
+
   if (!items.length) {
     renderProductTableMessage(
       tbody,
@@ -7343,7 +7397,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     );
   } else {
     tbody.innerHTML = '';
-    items.forEach(product => {
+    items.forEach((product, index) => {
       const row = document.createElement('tr');
       row.className = 'product-row';
       const firstPhoto = Array.isArray(product.photos) && product.photos.length ? product.photos[0] : null;
@@ -7472,12 +7526,10 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         `
         : '';
 
+      const displayIndex = startIndex + index + 1;
+
       row.innerHTML = `
-        <td class="col-photo">
-          <div class="photo-preview">
-            ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
-          </div>
-        </td>
+        <td class="col-index" aria-label="Nomor urut">${displayIndex}</td>
         <td>
           <div class="product-cell">
             <div class="product-cell__header">
@@ -7491,13 +7543,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             </div>
           </div>
         </td>
+        <td class="col-photo">
+          <div class="photo-preview">
+            ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
+          </div>
+        </td>
         <td class="col-status">${mekariStatusHtml}</td>
         <td class="col-actions">${actionsHtml}</td>
       `;
       const expandRow = document.createElement('tr');
       expandRow.className = 'product-expand-row';
       expandRow.innerHTML = `
-        <td colspan="4">
+        <td colspan="5">
           <div class="product-expand-section">
             ${variantToggleButtonHtml}
           </div>
@@ -7507,7 +7564,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       detailRow.className = 'product-variant-row';
       detailRow.dataset.variantRowFor = variantAnchorId;
       detailRow.hidden = true;
-      detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
+      detailRow.innerHTML = `<td colspan="5">${buildProductVariantPanel(product, {
         regionId: detailRegionId
       })}</td>`;
 
@@ -7521,7 +7578,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
   const countEl = document.getElementById('product-count');
   const metaEl = document.getElementById('table-meta');
   const overallTotal = PRODUCT_PAGINATION_STATE.totalItems || totalFiltered;
-  const startIndex = totalFiltered ? (clampedPage - 1) * pageSize : 0;
   const lastItemIndex = totalFiltered ? Math.min(totalFiltered, startIndex + items.length) : 0;
 
   if (countEl) {
@@ -15801,6 +15857,7 @@ function initPage() {
     topbarAuth.update(initialUser ?? getGuestUser());
     setupThemeControls();
     setupActionMenus();
+    initBrandingSettings();
 
     if (page === 'login') {
       const existingUser = getCurrentUser();
