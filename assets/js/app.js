@@ -11422,20 +11422,17 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
 
   if (mode === 'create') {
     Object.assign(basePayload, {
-      taxable_buy: true,
-      taxable_sell: true,
-      sell_tax_id: 26,
-      buy_tax_id: 18,
+      taxable_buy: false,
+      taxable_sell: false,
       unit_name: 'Unit',
       track_inventory: true,
       is_bought: true,
       buy_account_number: '5-50000',
-      buy_account_name: 'Cost of Sales',
+      buy_account_name: 'Beban Pokok Pendapatan',
       is_sold: true,
       sell_account_number: '4-40000',
-      sell_account_name: 'Service Revenue',
-      inventory_asset_account_id: 2631,
-      inventory_asset_account_name: 'Inventory'
+      sell_account_name: 'Pendapatan',
+      inventory_asset_account_name: 'Persediaan Barang'
     });
   }
 
