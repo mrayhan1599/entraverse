@@ -10570,6 +10570,43 @@ async function handleAddProductForm() {
         }
       }
 
+      if (mekariResult?.createdVariants?.length) {
+        const skuToMekariId = new Map();
+        mekariResult.createdVariants.forEach(entry => {
+          const normalizedSku = normalizeSku(entry?.sku ?? '');
+          const normalizedId = normalizeMekariProductId(entry?.mekariProductId ?? entry?.id ?? null);
+          if (normalizedSku && normalizedId) {
+            skuToMekariId.set(normalizedSku, normalizedId);
+          }
+        });
+
+        let hasNewIds = false;
+        filteredPricing.forEach(row => {
+          const normalizedSku = normalizeSku(row?.sellerSku ?? row?.sku ?? '');
+          const existingId = normalizeMekariProductId(row?.mekariProductId ?? row?.mekari_product_id);
+          if (!normalizedSku || existingId) {
+            return;
+          }
+
+          const mappedId = skuToMekariId.get(normalizedSku);
+          if (mappedId) {
+            row.mekariProductId = mappedId;
+            hasNewIds = true;
+          }
+        });
+
+        if (hasNewIds) {
+          const payloadWithMekariIds = {
+            ...productPayload,
+            variantPricing: filteredPricing,
+            updatedAt: Date.now()
+          };
+
+          await upsertProductToSupabase(payloadWithMekariIds);
+          await refreshProductsFromSupabase();
+        }
+      }
+
       const nowIso = new Date().toISOString();
       let finalMekariStatus = null;
 
@@ -11536,7 +11573,8 @@ async function syncProductVariantsToMekari({ baseName, variantPricing, descripti
     attempted: 0,
     createdCount: 0,
     updatedCount: 0,
-    errors: []
+    errors: [],
+    createdVariants: []
   };
 
   const seenSkus = new Set();
@@ -11556,7 +11594,7 @@ async function syncProductVariantsToMekari({ baseName, variantPricing, descripti
     result.attempted += 1;
 
     const variantSuffix = resolveVariantSuffix(row);
-    const mekariName = variantSuffix ? `${sanitizedName} ${variantSuffix}` : sanitizedName;
+    const mekariName = variantSuffix ? `${sanitizedName} - ${variantSuffix}` : sanitizedName;
 
     const { buyPrice, sellPrice } = resolveMekariPriceStrings(row);
     const payload = buildMekariProductPayload({
@@ -11584,6 +11622,16 @@ async function syncProductVariantsToMekari({ baseName, variantPricing, descripti
         result.errors.push({ sku: rawSku, message });
         result.success = false;
         continue;
+      }
+
+      try {
+        const body = await response.json();
+        const mekariProductId = normalizeMekariProductId(body?.product?.id ?? body?.id ?? null);
+        if (mekariProductId) {
+          result.createdVariants.push({ sku: rawSku, mekariProductId });
+        }
+      } catch (error) {
+        console.warn('Gagal membaca respons sukses Mekari.', error);
       }
 
       result.createdCount += 1;
@@ -11660,7 +11708,7 @@ async function updateMekariProductsById({ baseName, variantPricing, description 
 
     const variantSuffix = resolveVariantSuffix(row);
     const baseNameForVariant = sanitizedBaseName || fallbackName;
-    const mekariName = variantSuffix ? `${baseNameForVariant} ${variantSuffix}` : baseNameForVariant;
+    const mekariName = variantSuffix ? `${baseNameForVariant} - ${variantSuffix}` : baseNameForVariant;
     const normalizedSku = (row?.sellerSku ?? row?.sku ?? '').toString().trim();
     const skuForPayload = normalizedSku || mekariProductId;
     const { buyPrice, sellPrice } = resolveMekariPriceStrings(row);
