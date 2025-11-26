@@ -231,18 +231,52 @@
           </table>
         </div>
         <footer class="card-footer">
-          <div class="table-controls">
-            <label class="page-size-selector" for="product-page-size">
-              <span>Tampilkan</span>
-              <select id="product-page-size" aria-label="Jumlah baris per halaman">
-                <option value="10">10</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-            </label>
+          <div class="table-footer">
+            <div class="table-controls">
+              <label class="page-size-selector" for="product-page-size">
+                <span>Tampilkan</span>
+                <select id="product-page-size" aria-label="Jumlah baris per halaman">
+                  <option value="10">10</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-footer__pagination">
+              <nav class="table-pagination" id="product-pagination" aria-label="Navigasi halaman produk" hidden>
+                <button
+                  type="button"
+                  class="btn ghost-btn small"
+                  data-pagination="prev"
+                  aria-label="Sebelumnya"
+                >
+                  ‹
+                </button>
+                <div class="table-pagination__jump">
+                  <label class="visually-hidden" for="product-pagination-input">Loncat ke halaman produk</label>
+                  <input
+                    type="number"
+                    id="product-pagination-input"
+                    class="table-pagination__input"
+                    min="1"
+                    inputmode="numeric"
+                    data-pagination-input
+                    aria-label="Loncat ke halaman tertentu"
+                  />
+                </div>
+                <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                <button
+                  type="button"
+                  class="btn ghost-btn small"
+                  data-pagination="next"
+                  aria-label="Berikutnya"
+                >
+                  ›
+                </button>
+              </nav>
+              <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
+            </div>
           </div>
-          <nav class="pagination" id="product-pagination" aria-label="Navigasi halaman produk" hidden></nav>
-          <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
         </footer>
       </section>
     </main>

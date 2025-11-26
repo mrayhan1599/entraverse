@@ -6703,59 +6703,59 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   const container = document.getElementById('product-pagination');
   if (!container) return;
 
-  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
-  if (!totalFiltered || totalFiltered <= pageSize) {
-    container.innerHTML = '';
-    container.hidden = true;
-    return;
-  }
+  const info = container.querySelector('[data-pagination-info]');
+  const input = container.querySelector('[data-pagination-input]');
+  const prevButton = container.querySelector('[data-pagination="prev"]');
+  const nextButton = container.querySelector('[data-pagination="next"]');
 
+  const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
   const maxPages = Math.max(1, Math.floor(totalPages));
   const currentPage = clampProductPage(PRODUCT_PAGINATION_STATE.currentPage, maxPages);
   PRODUCT_PAGINATION_STATE.currentPage = currentPage;
 
+  const hasMultiplePages = totalFiltered && totalFiltered > pageSize;
+
+  if (!hasMultiplePages) {
+    container.hidden = true;
+    if (info) {
+      info.textContent = 'Halaman 1 dari 1';
+    }
+    if (prevButton) {
+      prevButton.disabled = true;
+    }
+    if (nextButton) {
+      nextButton.disabled = true;
+    }
+    if (input) {
+      input.value = '1';
+      input.disabled = true;
+      input.setAttribute('aria-disabled', 'true');
+      input.removeAttribute('max');
+    }
+    return;
+  }
+
   container.hidden = false;
-  container.innerHTML = '';
 
-  const createButton = (label, page, { disabled = false, ariaLabel = null } = {}) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'pagination__button';
-    if (ariaLabel) {
-      button.setAttribute('aria-label', ariaLabel);
-    }
-    if (disabled) {
-      button.disabled = true;
-    } else {
-      button.addEventListener('click', () => {
-        goToProductPage(page);
-      });
-    }
-    button.textContent = label;
-    return button;
-  };
+  if (info) {
+    info.textContent = `dari ${formatNumber(maxPages)} halaman`;
+  }
 
-  const prevPage = Math.max(1, currentPage - 1);
-  container.appendChild(
-    createButton('‹', prevPage, {
-      disabled: currentPage === 1,
-      ariaLabel: 'Halaman sebelumnya'
-    })
-  );
+  if (prevButton) {
+    prevButton.disabled = currentPage <= 1;
+  }
 
-  const currentLabel = document.createElement('span');
-  currentLabel.className = 'pagination__current';
-  currentLabel.setAttribute('aria-live', 'polite');
-  currentLabel.textContent = String(currentPage);
-  container.appendChild(currentLabel);
+  if (nextButton) {
+    nextButton.disabled = currentPage >= maxPages;
+  }
 
-  const nextPage = Math.min(maxPages, currentPage + 1);
-  container.appendChild(
-    createButton('›', nextPage, {
-      disabled: currentPage >= maxPages,
-      ariaLabel: 'Halaman berikutnya'
-    })
-  );
+  if (input) {
+    input.disabled = false;
+    input.removeAttribute('aria-disabled');
+    input.min = '1';
+    input.max = String(maxPages);
+    input.value = String(currentPage);
+  }
 }
 
 function compareProductNames(nameA, nameB) {
@@ -7700,6 +7700,43 @@ function handleProductActions() {
       PRODUCT_PAGINATION_STATE.currentPage = 1;
       renderProducts(getCurrentFilter(), { resetPage: true });
     });
+  }
+
+  const productPagination = document.getElementById('product-pagination');
+
+  if (productPagination) {
+    productPagination.addEventListener('click', event => {
+      const button = event.target.closest('[data-pagination]');
+      if (!button) {
+        return;
+      }
+
+      event.preventDefault();
+      const action = button.dataset.pagination;
+
+      if (action === 'prev') {
+        goToProductPage(PRODUCT_PAGINATION_STATE.currentPage - 1);
+      } else if (action === 'next') {
+        goToProductPage(PRODUCT_PAGINATION_STATE.currentPage + 1);
+      }
+    });
+
+    const paginationInput = productPagination.querySelector('[data-pagination-input]');
+
+    if (paginationInput) {
+      paginationInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') {
+          return;
+        }
+
+        event.preventDefault();
+        goToProductPage(event.target.value);
+      });
+
+      paginationInput.addEventListener('change', event => {
+        goToProductPage(event.target.value);
+      });
+    }
   }
 
   const deleteProductsByIds = async ids => {
