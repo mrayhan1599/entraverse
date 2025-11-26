@@ -152,6 +152,15 @@
                 <h2>Daftar Produk</h2>
                 <span id="product-count" class="count-pill">0 produk</span>
               </div>
+              <div class="product-bulk-controls" aria-live="polite">
+                <button type="button" class="btn ghost-btn" id="product-bulk-toggle" aria-pressed="false">
+                  Edit massal
+                </button>
+                <div class="product-bulk-actions" id="product-bulk-actions" hidden>
+                  <span class="product-bulk-count" id="product-bulk-count">0 produk dipilih</span>
+                  <button type="button" class="btn danger-btn" id="product-bulk-delete" disabled>Hapus produk</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="card-actions card-actions--stacked">
@@ -165,6 +174,9 @@
           <table class="product-table">
             <thead>
               <tr>
+                <th class="col-select" data-product-bulk-column data-product-bulk-header hidden>
+                  <input type="checkbox" id="product-bulk-select-all" aria-label="Pilih semua produk di halaman ini" hidden>
+                </th>
                 <th class="col-photo">Foto</th>
                 <th>
                   <button
