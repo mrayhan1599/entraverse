@@ -1434,6 +1434,15 @@ body[data-theme="dark"] .logo-badge {
   flex-wrap: wrap;
 }
 
+.table-footer__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
 .table-pagination {
   display: flex;
   align-items: center;
