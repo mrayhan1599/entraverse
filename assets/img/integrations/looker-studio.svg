@@ -8,5 +8,5 @@
     </linearGradient>
   </defs>
   <rect x="6" y="10" width="68" height="60" rx="18" fill="url(#lsGradient)" />
-  <text x="50%" y="55%" text-anchor="middle" font-family="'Poppins', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">LS</text>
+  <text x="50%" y="55%" text-anchor="middle" font-family="'DM Sans', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">LS</text>
 </svg>
