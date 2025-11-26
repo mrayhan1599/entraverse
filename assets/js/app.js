@@ -6868,7 +6868,7 @@ function syncProductBulkControls() {
   }
 
   if (actions) {
-    actions.hidden = !bulkActive || selectionCount === 0;
+    actions.hidden = !bulkActive;
   }
 
   if (deleteBtn) {

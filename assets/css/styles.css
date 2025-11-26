@@ -3443,12 +3443,12 @@ input:checked + .slider:before {
 
 .action-menu__item {
   width: 100%;
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: transparent;
   border: none;
   color: var(--color-text);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
   display: flex;
