@@ -1286,6 +1286,11 @@ body[data-theme="dark"] .logo-badge {
   flex-wrap: wrap;
 }
 
+.product-bulk-controls .btn svg {
+  width: 20px;
+  height: 20px;
+}
+
 .product-bulk-actions {
   display: inline-flex;
   align-items: center;

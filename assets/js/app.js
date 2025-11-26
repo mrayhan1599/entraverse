@@ -6872,7 +6872,9 @@ function syncProductBulkControls() {
   }
 
   if (deleteBtn) {
-    deleteBtn.disabled = selectionCount === 0;
+    const noSelection = selectionCount === 0;
+    deleteBtn.disabled = noSelection;
+    deleteBtn.hidden = noSelection;
   }
 }
 
