@@ -37,9 +37,9 @@
 
 body[data-theme="dark"] {
   color-scheme: dark;
-  --color-bg: #0f1424;
-  --color-surface: #1f2435;
-  --color-surface-alt: #282e42;
+  --color-bg: #2a2f3d;
+  --color-surface: #1e1e2d;
+  --color-surface-alt: #252838;
   --color-primary: #93c5fd;
   --color-primary-dark: #bfdbfe;
   --color-on-primary: #07122b;
@@ -1414,7 +1414,7 @@ body[data-theme="dark"] .variant-table,
 body[data-theme="dark"] .variant-pricing-table,
 body[data-theme="dark"] .mapping-table,
 body[data-theme="dark"] .integrations-table {
-  background: var(--color-navbar);
+  background: var(--color-surface);
 }
 
 .product-table {
