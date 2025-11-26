@@ -1410,6 +1410,16 @@ body[data-theme="dark"] .logo-badge {
   font-size: 14px;
 }
 
+@media (max-width: 640px) {
+  .page-size-selector {
+    gap: 0;
+  }
+
+  .page-size-selector .page-size-label {
+    display: none;
+  }
+}
+
 .count-pill {
   background: var(--color-icon-bg);
   color: var(--color-text);
