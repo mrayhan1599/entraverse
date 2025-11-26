@@ -1292,9 +1292,13 @@ body[data-theme="dark"] .logo-badge {
 }
 
 .product-bulk-actions {
-  display: inline-flex;
+  display: none;
   align-items: center;
   gap: 10px;
+}
+
+.product-bulk-actions.is-visible {
+  display: inline-flex;
 }
 
 .product-bulk-count {

@@ -6865,16 +6865,18 @@ function syncProductBulkControls() {
 
   if (countEl) {
     countEl.textContent = `${selectionCount} produk dipilih`;
+    countEl.hidden = !bulkActive;
   }
 
   if (actions) {
     actions.hidden = !bulkActive;
+    actions.classList.toggle('is-visible', bulkActive);
   }
 
   if (deleteBtn) {
     const noSelection = selectionCount === 0;
     deleteBtn.disabled = noSelection;
-    deleteBtn.hidden = noSelection;
+    deleteBtn.hidden = noSelection || !bulkActive;
   }
 }
 
