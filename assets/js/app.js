@@ -6708,6 +6708,10 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   const prevButton = container.querySelector('[data-pagination="prev"]');
   const nextButton = container.querySelector('[data-pagination="next"]');
 
+  const isCompactPagination = window.matchMedia('(max-width: 640px)').matches;
+  const formatPaginationInfo = pages =>
+    isCompactPagination ? `dari ${formatNumber(pages)}` : `dari ${formatNumber(pages)} halaman`;
+
   const pageSize = PRODUCT_PAGINATION_STATE.pageSize;
   const maxPages = Math.max(1, Math.floor(totalPages));
   const currentPage = clampProductPage(PRODUCT_PAGINATION_STATE.currentPage, maxPages);
@@ -6718,7 +6722,7 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   if (!hasMultiplePages) {
     container.hidden = true;
     if (info) {
-      info.textContent = 'Halaman 1 dari 1';
+      info.textContent = isCompactPagination ? '1 dari 1' : 'Halaman 1 dari 1';
     }
     if (prevButton) {
       prevButton.disabled = true;
@@ -6738,7 +6742,7 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   container.hidden = false;
 
   if (info) {
-    info.textContent = `dari ${formatNumber(maxPages)} halaman`;
+    info.textContent = formatPaginationInfo(maxPages);
   }
 
   if (prevButton) {

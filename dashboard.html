@@ -232,15 +232,18 @@
         </div>
         <footer class="card-footer">
           <div class="table-footer">
-            <div class="table-controls">
-              <label class="page-size-selector" for="product-page-size">
-                <span>Tampilkan</span>
-                <select id="product-page-size" aria-label="Jumlah baris per halaman">
-                  <option value="10">10</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </label>
+            <div class="table-footer__meta">
+              <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
+              <div class="table-controls">
+                <label class="page-size-selector" for="product-page-size">
+                  <span>Tampilkan</span>
+                  <select id="product-page-size" aria-label="Jumlah baris per halaman">
+                    <option value="10">10</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                </label>
+              </div>
             </div>
             <div class="table-footer__pagination">
               <nav class="table-pagination" id="product-pagination" aria-label="Navigasi halaman produk" hidden>
@@ -264,7 +267,6 @@
                     aria-label="Loncat ke halaman tertentu"
                   />
                 </div>
-                <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
                 <button
                   type="button"
                   class="btn ghost-btn small"
@@ -273,8 +275,8 @@
                 >
                   ›
                 </button>
+                <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
               </nav>
-              <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
             </div>
           </div>
         </footer>
