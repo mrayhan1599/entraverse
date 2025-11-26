@@ -1279,6 +1279,28 @@ body[data-theme="dark"] .logo-badge {
   gap: 8px;
 }
 
+.product-bulk-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.product-bulk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.product-bulk-count {
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.product-bulk-controls .btn.is-active {
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
 .card-title-row {
   display: inline-flex;
   align-items: center;
@@ -1543,6 +1565,11 @@ body[data-theme="dark"] .integrations-table {
   width: 100%;
   border-collapse: collapse;
   min-width: 760px;
+}
+
+.product-table .col-select {
+  width: 52px;
+  text-align: center;
 }
 
 .product-table .col-photo {
@@ -4346,6 +4373,10 @@ body.modal-open {
     vertical-align: top;
   }
 
+  .product-bulk-controls {
+    display: none;
+  }
+
   .product-mobile-controls {
     flex-direction: column;
     align-items: stretch;
@@ -4436,6 +4467,11 @@ body.modal-open {
   .product-table .col-status,
   .product-table .col-photo {
     width: auto;
+  }
+
+  .product-table .col-select,
+  .product-table td.col-select {
+    display: none;
   }
 
   .product-table .col-actions,

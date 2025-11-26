@@ -407,6 +407,11 @@ const PRODUCT_SORT_STATE = {
   direction: 'asc'
 };
 
+const PRODUCT_BULK_VIEW_QUERY = '(max-width: 640px)';
+let productBulkMediaQuery = null;
+let productBulkEditEnabled = false;
+const productBulkSelection = new Set();
+
 const PRODUCT_NAME_COLLATOR = typeof Intl !== 'undefined' && typeof Intl.Collator === 'function'
   ? new Intl.Collator('id-ID', { sensitivity: 'base', numeric: true })
   : null;
@@ -6808,6 +6813,69 @@ function updateProductSortIndicator() {
   }
 }
 
+function ensureProductBulkMediaQuery() {
+  if (!productBulkMediaQuery && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    productBulkMediaQuery = window.matchMedia(PRODUCT_BULK_VIEW_QUERY);
+  }
+  return productBulkMediaQuery;
+}
+
+function isProductBulkColumnVisible() {
+  const query = ensureProductBulkMediaQuery();
+  if (query && query.matches) {
+    return false;
+  }
+  return productBulkEditEnabled;
+}
+
+function getProductTableColumnCount() {
+  return isProductBulkColumnVisible() ? 5 : 4;
+}
+
+function syncProductBulkControls() {
+  const bulkActive = isProductBulkColumnVisible();
+  const toggleBtn = document.getElementById('product-bulk-toggle');
+  const actions = document.getElementById('product-bulk-actions');
+  const countEl = document.getElementById('product-bulk-count');
+  const deleteBtn = document.getElementById('product-bulk-delete');
+  const selectAll = document.getElementById('product-bulk-select-all');
+  const bulkHeaders = document.querySelectorAll('[data-product-bulk-column]');
+
+  const visibleIds = Array.isArray(currentProductPageItems)
+    ? currentProductPageItems.map(item => item?.id).filter(Boolean)
+    : [];
+  const selectedOnPage = visibleIds.filter(id => productBulkSelection.has(id));
+  const selectionCount = productBulkSelection.size;
+
+  bulkHeaders.forEach(cell => {
+    cell.hidden = !bulkActive;
+  });
+
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('is-active', bulkActive);
+    toggleBtn.setAttribute('aria-pressed', String(bulkActive));
+  }
+
+  if (selectAll) {
+    selectAll.hidden = !bulkActive;
+    selectAll.checked = bulkActive && visibleIds.length > 0 && selectedOnPage.length === visibleIds.length;
+    selectAll.indeterminate =
+      bulkActive && selectedOnPage.length > 0 && selectedOnPage.length < visibleIds.length;
+  }
+
+  if (countEl) {
+    countEl.textContent = `${selectionCount} produk dipilih`;
+  }
+
+  if (actions) {
+    actions.hidden = !bulkActive || selectionCount === 0;
+  }
+
+  if (deleteBtn) {
+    deleteBtn.disabled = selectionCount === 0;
+  }
+}
+
 function renderProductTableMessage(tbody, message, { className = 'empty-state' } = {}) {
   if (!tbody) {
     return;
@@ -6818,7 +6886,7 @@ function renderProductTableMessage(tbody, message, { className = 'empty-state' }
     row.className = className;
   }
   const cell = document.createElement('td');
-    cell.colSpan = 4;
+  cell.colSpan = getProductTableColumnCount();
   cell.textContent = message;
   row.appendChild(cell);
   tbody.innerHTML = '';
@@ -7256,6 +7324,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
   const canManage = canManageCatalog();
   const items = Array.isArray(result?.items) ? result.items : [];
   const errorMessage = result?.error ? String(result.error).trim() : '';
+  const bulkEnabled = isProductBulkColumnVisible();
+  const columnCount = getProductTableColumnCount();
+
+  const cachedProducts = getProductsFromCache();
+  if (Array.isArray(cachedProducts) && cachedProducts.length) {
+    const validIds = new Set(cachedProducts.map(product => product?.id).filter(Boolean));
+    Array.from(productBulkSelection).forEach(id => {
+      if (!validIds.has(id)) {
+        productBulkSelection.delete(id);
+      }
+    });
+  }
 
   if (errorMessage) {
     currentProductPageItems = [];
@@ -7264,6 +7344,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     PRODUCT_PAGINATION_STATE.totalPages = 1;
     renderProductTableMessage(tbody, errorMessage, { className: 'error-state' });
     renderProductPaginationControls(0, 1);
+    syncProductBulkControls();
     return;
   }
 
@@ -7401,6 +7482,18 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             Edit
           </button>
         `);
+        actionItems.push(`
+          <button
+            class="action-menu__item action-menu__item--danger"
+            type="button"
+            role="menuitem"
+            data-action-menu-item
+            data-action="delete"
+            data-id="${product.id}"
+          >
+            Hapus
+          </button>
+        `);
       }
 
       const actionMenuLabel = `Menu tindakan untuk ${product.name ?? 'produk'}`;
@@ -7422,8 +7515,23 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           </div>
         `
         : '';
-      
+
+      const selectionCellHtml = bulkEnabled
+        ? `
+        <td class="col-select" data-product-bulk-column>
+          <input
+            type="checkbox"
+            class="product-bulk-checkbox"
+            data-product-bulk-checkbox
+            value="${safeProductId}"
+            ${productBulkSelection.has(product.id) ? 'checked' : ''}
+            aria-label="Pilih ${safeName}"
+          >
+        </td>`
+        : '';
+
       row.innerHTML = `
+        ${selectionCellHtml}
         <td class="col-photo">
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
@@ -7448,7 +7556,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const expandRow = document.createElement('tr');
       expandRow.className = 'product-expand-row';
       expandRow.innerHTML = `
-        <td colspan="4">
+        <td colspan="${columnCount}">
           <div class="product-expand-section">
             ${variantToggleButtonHtml}
           </div>
@@ -7458,7 +7566,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       detailRow.className = 'product-variant-row';
       detailRow.dataset.variantRowFor = variantAnchorId;
       detailRow.hidden = true;
-      detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
+      detailRow.innerHTML = `<td colspan="${columnCount}">${buildProductVariantPanel(product, {
         regionId: detailRegionId
       })}</td>`;
 
@@ -7469,6 +7577,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     });
   }
 
+  syncProductBulkControls();
   syncProductPageSizeControl(pageSize);
 
   const countEl = document.getElementById('product-count');
@@ -7547,6 +7656,7 @@ function renderProducts(filterText = '', options = {}) {
       PRODUCT_PAGINATION_STATE.totalPages = 1;
       renderProductTableMessage(tbody, 'Gagal memuat produk. Coba lagi.');
       renderProductPaginationControls(0, 1);
+      syncProductBulkControls();
     });
 }
 
@@ -7588,6 +7698,140 @@ function handleProductActions() {
     });
   }
 
+  const deleteProductsByIds = async ids => {
+    const idSet = new Set((ids ?? []).filter(Boolean));
+    if (!idSet.size) {
+      return { supabaseFailed: false };
+    }
+
+    const products = getProductsFromCache();
+    const remaining = Array.isArray(products)
+      ? products.filter(product => !idSet.has(product?.id))
+      : [];
+
+    let supabaseFailed = false;
+
+    if (isSupabaseConfigured()) {
+      try {
+        await Promise.all(Array.from(idSet).map(id => deleteProductFromSupabase(id)));
+      } catch (error) {
+        supabaseFailed = true;
+        console.error('Gagal menghapus produk dari Supabase.', error);
+      }
+    }
+
+    setProductCache(remaining);
+    idSet.forEach(id => productBulkSelection.delete(id));
+
+    return { supabaseFailed };
+  };
+
+  const resetBulkEditState = () => {
+    productBulkEditEnabled = false;
+    productBulkSelection.clear();
+    syncProductBulkControls();
+  };
+
+  const mediaQuery = ensureProductBulkMediaQuery();
+  if (mediaQuery) {
+    mediaQuery.addEventListener('change', event => {
+      if (event.matches && productBulkEditEnabled) {
+        resetBulkEditState();
+        renderProducts(getCurrentFilter(), { resetPage: false });
+      }
+    });
+  }
+
+  const bulkToggleBtn = document.getElementById('product-bulk-toggle');
+  if (bulkToggleBtn) {
+    bulkToggleBtn.addEventListener('click', () => {
+      const query = ensureProductBulkMediaQuery();
+      if (query && query.matches) {
+        toast.show('Edit massal hanya tersedia di desktop.');
+        resetBulkEditState();
+        return;
+      }
+
+      productBulkEditEnabled = !productBulkEditEnabled;
+      if (!productBulkEditEnabled) {
+        productBulkSelection.clear();
+      }
+      syncProductBulkControls();
+      renderProducts(getCurrentFilter(), { resetPage: false });
+    });
+  }
+
+  const bulkSelectAll = document.getElementById('product-bulk-select-all');
+  if (bulkSelectAll) {
+    bulkSelectAll.addEventListener('change', event => {
+      if (!isProductBulkColumnVisible()) {
+        event.target.checked = false;
+        event.target.indeterminate = false;
+        return;
+      }
+
+      const products = getCurrentPageProducts();
+      const ids = Array.isArray(products) ? products.map(product => product?.id).filter(Boolean) : [];
+
+      if (event.target.checked) {
+        ids.forEach(id => productBulkSelection.add(id));
+      } else {
+        ids.forEach(id => productBulkSelection.delete(id));
+      }
+
+      syncProductBulkControls();
+    });
+  }
+
+  const bulkDeleteBtn = document.getElementById('product-bulk-delete');
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', async () => {
+      if (!productBulkSelection.size) {
+        toast.show('Pilih produk untuk dihapus.');
+        return;
+      }
+
+      if (!requireCatalogManager('Silakan login untuk menghapus produk.')) {
+        return;
+      }
+
+      if (!confirm(`Hapus ${productBulkSelection.size} produk terpilih?`)) {
+        return;
+      }
+
+      const { supabaseFailed } = await deleteProductsByIds(Array.from(productBulkSelection));
+      renderProducts(getCurrentFilter(), { resetPage: true });
+      syncProductBulkControls();
+
+      if (supabaseFailed) {
+        toast.show('Produk dihapus, namun tidak semua tersinkron ke Supabase.');
+      } else {
+        toast.show('Produk terpilih berhasil dihapus.');
+      }
+    });
+  }
+
+  tbody.addEventListener('change', event => {
+    const checkbox = event.target.closest('[data-product-bulk-checkbox]');
+    if (!checkbox) return;
+
+    if (!isProductBulkColumnVisible()) {
+      checkbox.checked = false;
+      return;
+    }
+
+    const id = checkbox.value;
+    if (!id) return;
+
+    if (checkbox.checked) {
+      productBulkSelection.add(id);
+    } else {
+      productBulkSelection.delete(id);
+    }
+
+    syncProductBulkControls();
+  });
+
   tbody.addEventListener('click', async event => {
     const variantToggle = event.target.closest('[data-variant-toggle]');
     if (variantToggle) {
@@ -7614,6 +7858,27 @@ function handleProductActions() {
       }
       window.location.href = `add-product.html?id=${id}`;
       return;
+    }
+
+    if (target.dataset.action === 'delete') {
+      if (!requireCatalogManager('Silakan login untuk menghapus produk.')) {
+        return;
+      }
+
+      const productName = products[productIndex]?.name ?? 'produk';
+      if (!confirm(`Hapus ${productName}?`)) {
+        return;
+      }
+
+      const { supabaseFailed } = await deleteProductsByIds([id]);
+      renderProducts(getCurrentFilter(), { resetPage: products.length <= 1 });
+      syncProductBulkControls();
+
+      if (supabaseFailed) {
+        toast.show('Produk dihapus, namun tidak tersinkron ke Supabase.');
+      } else {
+        toast.show('Produk berhasil dihapus.');
+      }
     }
   });
 }
