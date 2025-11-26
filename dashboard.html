@@ -150,15 +150,30 @@
             <h2>Daftar Produk</h2>
             <span id="product-count" class="count-pill">0 produk</span>
           </div>
-          <form class="search-bar card-search" role="search">
-            <span class="search-icon" aria-hidden="true">🔍</span>
-            <input type="search" id="search-input" placeholder="Search" aria-label="Pencarian produk">
-          </form>
+          <div class="card-actions">
+            <button
+              type="button"
+              class="btn danger-btn card-bulk-action"
+              id="bulk-delete-btn"
+              aria-label="Hapus produk terpilih"
+              disabled
+            >
+              Hapus terpilih
+            </button>
+            <form class="search-bar card-search" role="search">
+              <span class="search-icon" aria-hidden="true">🔍</span>
+              <input type="search" id="search-input" placeholder="Search" aria-label="Pencarian produk">
+            </form>
+          </div>
         </header>
         <div class="table-wrapper">
           <table class="product-table">
             <thead>
               <tr>
+                <th class="col-select">
+                  <label class="visually-hidden" for="select-all-products">Pilih semua produk</label>
+                  <input type="checkbox" id="select-all-products" aria-label="Pilih semua produk di halaman ini">
+                </th>
                 <th class="col-photo">Foto</th>
                 <th>
                   <button
@@ -182,6 +197,16 @@
           </table>
         </div>
         <footer class="card-footer">
+          <div class="table-controls">
+            <label class="page-size-selector" for="product-page-size">
+              <span>Tampilkan</span>
+              <select id="product-page-size" aria-label="Jumlah baris per halaman">
+                <option value="10">10 per halaman</option>
+                <option value="50">50 per halaman</option>
+                <option value="100">100 per halaman</option>
+              </select>
+            </label>
+          </div>
           <nav class="pagination" id="product-pagination" aria-label="Navigasi halaman produk" hidden></nav>
           <span class="table-meta" id="table-meta">Menampilkan 0 produk</span>
         </footer>
