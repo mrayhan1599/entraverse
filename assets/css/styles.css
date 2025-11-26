@@ -37,9 +37,9 @@
 
 body[data-theme="dark"] {
   color-scheme: dark;
-  --color-bg: #070d1a;
-  --color-surface: #111827;
-  --color-surface-alt: #16213b;
+  --color-bg: #2a2f3d;
+  --color-surface: #1e1e2d;
+  --color-surface-alt: #252838;
   --color-primary: #93c5fd;
   --color-primary-dark: #bfdbfe;
   --color-on-primary: #07122b;
@@ -49,7 +49,7 @@ body[data-theme="dark"] {
   --color-icon-bg: rgba(148, 163, 184, 0.16);
   --color-icon-border: rgba(148, 163, 184, 0.26);
   --color-icon-hover: rgba(148, 163, 184, 0.3);
-  --color-sidebar: linear-gradient(180deg, #0b1c3f 0%, #0f172a 100%);
+  --color-sidebar: #1e1e2d;
   --color-sidebar-alt: rgba(148, 163, 184, 0.18);
   --color-sidebar-active: rgba(148, 163, 184, 0.24);
   --color-sidebar-text: rgba(255, 255, 255, 0.92);
@@ -1404,6 +1404,17 @@ body[data-theme="dark"] .logo-badge {
 .variant-pricing-table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+body[data-theme="dark"] .product-table,
+body[data-theme="dark"] .category-table,
+body[data-theme="dark"] .report-table,
+body[data-theme="dark"] .sku-table,
+body[data-theme="dark"] .variant-table,
+body[data-theme="dark"] .variant-pricing-table,
+body[data-theme="dark"] .mapping-table,
+body[data-theme="dark"] .integrations-table {
+  background: var(--color-surface);
 }
 
 .product-table {
