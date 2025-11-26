@@ -596,6 +596,12 @@ body.sidebar-collapsed .sidebar-collapse-toggle svg {
   color: var(--color-navbar-text);
 }
 
+.topbar-brand .brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .topbar-brand .brand-title {
   color: var(--color-navbar-text);
   line-height: 1.2;
@@ -4192,6 +4198,10 @@ body.modal-open {
   .topbar-actions {
     margin-left: auto;
     align-self: center;
+  }
+
+  .topbar-brand .brand {
+    display: none;
   }
 
   .auth-buttons {
