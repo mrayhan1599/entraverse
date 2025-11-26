@@ -30,6 +30,12 @@
           </div>
         </div>
         <div class="topbar-actions">
+          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light,dark,system">
+            <button class="theme-switcher__button" type="button" data-theme-trigger aria-label="Ganti mode tampilan">
+              <span class="theme-switcher__icon" aria-hidden="true" data-theme-icon></span>
+              <span class="visually-hidden" data-theme-label aria-live="polite">Auto (System)</span>
+            </button>
+          </div>
           <div class="auth-buttons" data-guest-actions hidden>
             <a class="btn ghost-btn auth-button auth-button--login" href="login.html" aria-label="Login">
               <span class="auth-button__icon" aria-hidden="true">🔑</span>
@@ -80,14 +86,6 @@
             <span class="nav-icon" aria-hidden="true">🔌</span>
             Integrasi Aplikasi API
           </a>
-        </div>
-        <div class="sidebar-theme">
-          <div class="theme-switcher theme-switcher--sidebar" data-theme-control data-theme-cycle="system,light,dark">
-            <button class="theme-switcher__button" type="button" data-theme-trigger aria-label="Ganti mode tampilan">
-              <span class="theme-switcher__icon" aria-hidden="true" data-theme-icon></span>
-              <span class="theme-switcher__label" data-theme-label aria-live="polite">Auto (System)</span>
-            </button>
-          </div>
         </div>
         </nav>
       </aside>
