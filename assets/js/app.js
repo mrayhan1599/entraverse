@@ -398,10 +398,6 @@ const PRODUCT_PAGINATION_STATE = {
   totalPages: 1
 };
 
-const PRODUCT_SELECTION_STATE = {
-  selected: new Set()
-};
-
 let currentProductPageItems = [];
 let productRenderRequestToken = 0;
 let productCacheFallbackNotified = false;
@@ -6677,128 +6673,6 @@ function clampProductPage(page, totalPages) {
   return Math.min(floored, maxPage);
 }
 
-function computeProductPageNumbers(totalPages, currentPage) {
-  const maxPages = Math.max(1, Math.floor(totalPages));
-  const current = clampProductPage(currentPage, maxPages);
-
-  if (maxPages <= 7) {
-    return Array.from({ length: maxPages }, (_, index) => index + 1);
-  }
-
-  const pages = [1];
-  let start = Math.max(2, current - 1);
-  let end = Math.min(maxPages - 1, current + 1);
-
-  if (current <= 3) {
-    start = 2;
-    end = 4;
-  } else if (current >= maxPages - 2) {
-    start = maxPages - 3;
-    end = maxPages - 1;
-  }
-
-  start = Math.max(2, Math.min(start, maxPages - 1));
-  end = Math.max(start, Math.min(end, maxPages - 1));
-
-  if (start > 2) {
-    pages.push('ellipsis');
-  }
-
-  for (let page = start; page <= end; page += 1) {
-    pages.push(page);
-  }
-
-  if (end < maxPages - 1) {
-    pages.push('ellipsis');
-  }
-
-  pages.push(maxPages);
-  return pages;
-}
-
-function getSelectedProductIds() {
-  return Array.from(PRODUCT_SELECTION_STATE.selected);
-}
-
-function clearProductSelection() {
-  PRODUCT_SELECTION_STATE.selected.clear();
-}
-
-function setProductSelected(id, shouldSelect) {
-  if (!id) {
-    return;
-  }
-
-  if (shouldSelect) {
-    PRODUCT_SELECTION_STATE.selected.add(id);
-  } else {
-    PRODUCT_SELECTION_STATE.selected.delete(id);
-  }
-}
-
-function getCurrentPageProductIds() {
-  if (!Array.isArray(currentProductPageItems)) {
-    return [];
-  }
-
-  return currentProductPageItems.map(product => product?.id).filter(Boolean);
-}
-
-function updateBulkDeleteButtonState() {
-  const bulkDeleteButton = document.getElementById('bulk-delete-btn');
-  if (!bulkDeleteButton) {
-    return;
-  }
-
-  const selectedCount = PRODUCT_SELECTION_STATE.selected.size;
-  const hasSelection = selectedCount > 0;
-  const nextLabel = hasSelection
-    ? `Hapus ${selectedCount} produk terpilih`
-    : 'Hapus produk terpilih';
-
-  bulkDeleteButton.hidden = !hasSelection;
-  bulkDeleteButton.disabled = !hasSelection;
-  bulkDeleteButton.setAttribute('aria-label', nextLabel);
-
-  const bulkDeleteLabel = bulkDeleteButton.querySelector('[data-bulk-delete-label]');
-  if (bulkDeleteLabel) {
-    bulkDeleteLabel.textContent = nextLabel;
-  }
-}
-
-function syncProductSelectionControls(tbody = null) {
-  const tableBody = tbody || document.getElementById('product-table-body');
-  const headerCheckbox = document.getElementById('select-all-products');
-  const checkboxes = tableBody ? tableBody.querySelectorAll('[data-product-select]') : [];
-  const visibleIds = [];
-
-  checkboxes.forEach(checkbox => {
-    const productId = checkbox.dataset.productSelect;
-    if (!productId) {
-      return;
-    }
-    const isSelected = PRODUCT_SELECTION_STATE.selected.has(productId);
-    checkbox.checked = isSelected;
-    visibleIds.push(productId);
-  });
-
-  if (headerCheckbox) {
-    headerCheckbox.indeterminate = false;
-    headerCheckbox.checked = false;
-
-    if (visibleIds.length) {
-      const selectedOnPage = visibleIds.filter(id => PRODUCT_SELECTION_STATE.selected.has(id));
-      if (selectedOnPage.length === visibleIds.length) {
-        headerCheckbox.checked = true;
-      } else if (selectedOnPage.length > 0) {
-        headerCheckbox.indeterminate = true;
-      }
-    }
-  }
-
-  updateBulkDeleteButtonState();
-}
-
 function syncProductPageSizeControl(value = PRODUCT_PAGINATION_STATE.pageSize) {
   const control = document.getElementById('product-page-size');
   if (!control) {
@@ -6838,20 +6712,16 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
   container.hidden = false;
   container.innerHTML = '';
 
-  const createButton = (label, page, { disabled = false, active = false, ariaLabel = null } = {}) => {
+  const createButton = (label, page, { disabled = false, ariaLabel = null } = {}) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'pagination__button';
-    if (active) {
-      button.classList.add('pagination__button--active');
-      button.setAttribute('aria-current', 'page');
-    }
     if (ariaLabel) {
       button.setAttribute('aria-label', ariaLabel);
     }
     if (disabled) {
       button.disabled = true;
-    } else if (!active) {
+    } else {
       button.addEventListener('click', () => {
         goToProductPage(page);
       });
@@ -6868,24 +6738,11 @@ function renderProductPaginationControls(totalFiltered, totalPages) {
     })
   );
 
-  const pageEntries = computeProductPageNumbers(maxPages, currentPage);
-  pageEntries.forEach(entry => {
-    if (entry === 'ellipsis') {
-      const span = document.createElement('span');
-      span.className = 'pagination__ellipsis';
-      span.textContent = '…';
-      container.appendChild(span);
-      return;
-    }
-
-    const pageNumber = Number(entry);
-    container.appendChild(
-      createButton(String(pageNumber), pageNumber, {
-        active: pageNumber === currentPage,
-        ariaLabel: `Halaman ${pageNumber}`
-      })
-    );
-  });
+  const currentLabel = document.createElement('span');
+  currentLabel.className = 'pagination__current';
+  currentLabel.setAttribute('aria-live', 'polite');
+  currentLabel.textContent = String(currentPage);
+  container.appendChild(currentLabel);
 
   const nextPage = Math.min(maxPages, currentPage + 1);
   container.appendChild(
@@ -6961,7 +6818,7 @@ function renderProductTableMessage(tbody, message, { className = 'empty-state' }
     row.className = className;
   }
   const cell = document.createElement('td');
-  cell.colSpan = 5;
+    cell.colSpan = 4;
   cell.textContent = message;
   row.appendChild(cell);
   tbody.innerHTML = '';
@@ -7544,11 +7401,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             Edit
           </button>
         `);
-        actionItems.push(`
-          <button class="action-menu__item action-menu__item--danger" type="button" role="menuitem" data-action-menu-item data-action="delete" data-id="${product.id}">
-            Hapus
-          </button>
-        `);
       }
 
       const actionMenuLabel = `Menu tindakan untuk ${product.name ?? 'produk'}`;
@@ -7571,18 +7423,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
         `
         : '';
       
-      const isSelected = PRODUCT_SELECTION_STATE.selected.has(product.id);
-
       row.innerHTML = `
-        <td class="col-select">
-          <input
-            type="checkbox"
-            class="product-checkbox"
-            data-product-select="${safeProductId}"
-            aria-label="Pilih ${safeName || 'produk'}"
-            ${isSelected ? 'checked' : ''}
-          >
-        </td>
         <td class="col-photo">
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
@@ -7607,7 +7448,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const expandRow = document.createElement('tr');
       expandRow.className = 'product-expand-row';
       expandRow.innerHTML = `
-        <td colspan="5">
+        <td colspan="4">
           <div class="product-expand-section">
             ${variantToggleButtonHtml}
           </div>
@@ -7617,7 +7458,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       detailRow.className = 'product-variant-row';
       detailRow.dataset.variantRowFor = variantAnchorId;
       detailRow.hidden = true;
-      detailRow.innerHTML = `<td colspan="5">${buildProductVariantPanel(product, {
+      detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
         regionId: detailRegionId
       })}</td>`;
 
@@ -7628,7 +7469,6 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
     });
   }
 
-  syncProductSelectionControls(tbody);
   syncProductPageSizeControl(pageSize);
 
   const countEl = document.getElementById('product-count');
@@ -7733,8 +7573,6 @@ function handleProductActions() {
     return currentProductPageItems;
   };
 
-  const headerSelectAll = document.getElementById('select-all-products');
-  const bulkDeleteButton = document.getElementById('bulk-delete-btn');
   const pageSizeControl = document.getElementById('product-page-size');
 
   if (pageSizeControl) {
@@ -7748,45 +7586,6 @@ function handleProductActions() {
       PRODUCT_PAGINATION_STATE.currentPage = 1;
       renderProducts(getCurrentFilter(), { resetPage: true });
     });
-  }
-
-  const handleBulkDelete = async () => {
-    if (!bulkDeleteButton) return;
-    const selectedIds = getSelectedProductIds();
-    if (!selectedIds.length) return;
-
-    if (!requireCatalogManager('Silakan login untuk menghapus produk.')) {
-      return;
-    }
-
-    if (!confirm(`Hapus ${selectedIds.length} produk terpilih?`)) {
-      return;
-    }
-
-    bulkDeleteButton.disabled = true;
-    const previousLabel = bulkDeleteButton.innerHTML;
-    bulkDeleteButton.innerHTML = '<span class="icon-btn__loader">Menghapus...</span>';
-
-    try {
-      for (const id of selectedIds) {
-        await deleteProductFromSupabase(id);
-      }
-      await refreshProductsFromSupabase();
-      clearProductSelection();
-      toast.show(`${selectedIds.length} produk dihapus.`);
-      renderProducts(getCurrentFilter(), { resetPage: true });
-    } catch (error) {
-      console.error('Gagal menghapus produk terpilih.', error);
-      toast.show('Gagal menghapus produk terpilih, coba lagi.');
-    } finally {
-      bulkDeleteButton.innerHTML = previousLabel;
-      updateBulkDeleteButtonState();
-    }
-  };
-
-  if (bulkDeleteButton) {
-    bulkDeleteButton.addEventListener('click', handleBulkDelete);
-    updateBulkDeleteButtonState();
   }
 
   tbody.addEventListener('click', async event => {
@@ -7816,48 +7615,7 @@ function handleProductActions() {
       window.location.href = `add-product.html?id=${id}`;
       return;
     }
-
-    if (target.dataset.action === 'delete') {
-      if (!requireCatalogManager('Silakan login untuk menghapus produk.')) {
-        return;
-      }
-      if (!confirm('Hapus produk ini?')) {
-        return;
-      }
-      try {
-        await deleteProductFromSupabase(id);
-        await refreshProductsFromSupabase();
-        toast.show('Produk berhasil dihapus.');
-        setProductSelected(id, false);
-        updateBulkDeleteButtonState();
-        renderProducts(getCurrentFilter());
-      } catch (error) {
-        console.error('Gagal menghapus produk.', error);
-        toast.show('Gagal menghapus produk, coba lagi.');
-      }
-      return;
-    }
   });
-
-  tbody.addEventListener('change', event => {
-    const checkbox = event.target.closest('[data-product-select]');
-    if (checkbox) {
-      const productId = checkbox.dataset.productSelect;
-      if (productId) {
-        setProductSelected(productId, checkbox.checked);
-        syncProductSelectionControls(tbody);
-      }
-    }
-  });
-
-  if (headerSelectAll) {
-    headerSelectAll.addEventListener('change', event => {
-      const shouldSelectAll = event.target.checked;
-      const visibleIds = getCurrentPageProducts().map(product => product?.id).filter(Boolean);
-      visibleIds.forEach(id => setProductSelected(id, shouldSelectAll));
-      syncProductSelectionControls(tbody);
-    });
-  }
 }
 
 function handleCategoryActions() {
