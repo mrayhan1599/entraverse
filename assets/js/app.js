@@ -398,6 +398,10 @@ const PRODUCT_PAGINATION_STATE = {
   totalPages: 1
 };
 
+const PRODUCT_SELECTION_STATE = {
+  selected: new Set()
+};
+
 let currentProductPageItems = [];
 let productRenderRequestToken = 0;
 let productCacheFallbackNotified = false;
@@ -6712,6 +6716,90 @@ function computeProductPageNumbers(totalPages, currentPage) {
   return pages;
 }
 
+function getSelectedProductIds() {
+  return Array.from(PRODUCT_SELECTION_STATE.selected);
+}
+
+function clearProductSelection() {
+  PRODUCT_SELECTION_STATE.selected.clear();
+}
+
+function setProductSelected(id, shouldSelect) {
+  if (!id) {
+    return;
+  }
+
+  if (shouldSelect) {
+    PRODUCT_SELECTION_STATE.selected.add(id);
+  } else {
+    PRODUCT_SELECTION_STATE.selected.delete(id);
+  }
+}
+
+function getCurrentPageProductIds() {
+  if (!Array.isArray(currentProductPageItems)) {
+    return [];
+  }
+
+  return currentProductPageItems.map(product => product?.id).filter(Boolean);
+}
+
+function updateBulkDeleteButtonState() {
+  const bulkDeleteButton = document.getElementById('bulk-delete-btn');
+  if (!bulkDeleteButton) {
+    return;
+  }
+
+  const selectedCount = PRODUCT_SELECTION_STATE.selected.size;
+  bulkDeleteButton.disabled = selectedCount === 0;
+  bulkDeleteButton.textContent = selectedCount ? `Hapus (${selectedCount})` : 'Hapus terpilih';
+}
+
+function syncProductSelectionControls(tbody = null) {
+  const tableBody = tbody || document.getElementById('product-table-body');
+  const headerCheckbox = document.getElementById('select-all-products');
+  const checkboxes = tableBody ? tableBody.querySelectorAll('[data-product-select]') : [];
+  const visibleIds = [];
+
+  checkboxes.forEach(checkbox => {
+    const productId = checkbox.dataset.productSelect;
+    if (!productId) {
+      return;
+    }
+    const isSelected = PRODUCT_SELECTION_STATE.selected.has(productId);
+    checkbox.checked = isSelected;
+    visibleIds.push(productId);
+  });
+
+  if (headerCheckbox) {
+    headerCheckbox.indeterminate = false;
+    headerCheckbox.checked = false;
+
+    if (visibleIds.length) {
+      const selectedOnPage = visibleIds.filter(id => PRODUCT_SELECTION_STATE.selected.has(id));
+      if (selectedOnPage.length === visibleIds.length) {
+        headerCheckbox.checked = true;
+      } else if (selectedOnPage.length > 0) {
+        headerCheckbox.indeterminate = true;
+      }
+    }
+  }
+
+  updateBulkDeleteButtonState();
+}
+
+function syncProductPageSizeControl(value = PRODUCT_PAGINATION_STATE.pageSize) {
+  const control = document.getElementById('product-page-size');
+  if (!control) {
+    return;
+  }
+
+  const normalized = Number.isFinite(value) ? value : PRODUCT_PAGINATION_STATE.pageSize;
+  if (control.value !== String(normalized)) {
+    control.value = String(normalized);
+  }
+}
+
 function goToProductPage(page) {
   const numeric = Number(page);
   if (!Number.isFinite(numeric)) {
@@ -7471,8 +7559,19 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
           </div>
         `
         : '';
+      
+      const isSelected = PRODUCT_SELECTION_STATE.selected.has(product.id);
 
       row.innerHTML = `
+        <td class="col-select">
+          <input
+            type="checkbox"
+            class="product-checkbox"
+            data-product-select="${safeProductId}"
+            aria-label="Pilih ${safeName || 'produk'}"
+            ${isSelected ? 'checked' : ''}
+          >
+        </td>
         <td class="col-photo">
           <div class="photo-preview">
             ${firstPhoto ? `<img src="${firstPhoto}" alt="${safeName}">` : 'No Photo'}
@@ -7497,7 +7596,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       const expandRow = document.createElement('tr');
       expandRow.className = 'product-expand-row';
       expandRow.innerHTML = `
-        <td colspan="4">
+        <td colspan="5">
           <div class="product-expand-section">
             ${variantToggleButtonHtml}
           </div>
@@ -7507,7 +7606,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       detailRow.className = 'product-variant-row';
       detailRow.dataset.variantRowFor = variantAnchorId;
       detailRow.hidden = true;
-      detailRow.innerHTML = `<td colspan="4">${buildProductVariantPanel(product, {
+      detailRow.innerHTML = `<td colspan="5">${buildProductVariantPanel(product, {
         regionId: detailRegionId
       })}</td>`;
 
@@ -7517,6 +7616,9 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
       syncVariantToggleButtons(tbody, variantAnchorId, false);
     });
   }
+
+  syncProductSelectionControls(tbody);
+  syncProductPageSizeControl(pageSize);
 
   const countEl = document.getElementById('product-count');
   const metaEl = document.getElementById('table-meta');
@@ -7620,6 +7722,62 @@ function handleProductActions() {
     return currentProductPageItems;
   };
 
+  const headerSelectAll = document.getElementById('select-all-products');
+  const bulkDeleteButton = document.getElementById('bulk-delete-btn');
+  const pageSizeControl = document.getElementById('product-page-size');
+
+  if (pageSizeControl) {
+    syncProductPageSizeControl();
+    pageSizeControl.addEventListener('change', event => {
+      const nextSize = Number(event.target.value);
+      if (!Number.isFinite(nextSize) || nextSize <= 0) {
+        return;
+      }
+      PRODUCT_PAGINATION_STATE.pageSize = nextSize;
+      PRODUCT_PAGINATION_STATE.currentPage = 1;
+      renderProducts(getCurrentFilter(), { resetPage: true });
+    });
+  }
+
+  const handleBulkDelete = async () => {
+    if (!bulkDeleteButton) return;
+    const selectedIds = getSelectedProductIds();
+    if (!selectedIds.length) return;
+
+    if (!requireCatalogManager('Silakan login untuk menghapus produk.')) {
+      return;
+    }
+
+    if (!confirm(`Hapus ${selectedIds.length} produk terpilih?`)) {
+      return;
+    }
+
+    bulkDeleteButton.disabled = true;
+    const previousLabel = bulkDeleteButton.textContent;
+    bulkDeleteButton.textContent = 'Menghapus...';
+
+    try {
+      for (const id of selectedIds) {
+        await deleteProductFromSupabase(id);
+      }
+      await refreshProductsFromSupabase();
+      clearProductSelection();
+      toast.show(`${selectedIds.length} produk dihapus.`);
+      renderProducts(getCurrentFilter(), { resetPage: true });
+    } catch (error) {
+      console.error('Gagal menghapus produk terpilih.', error);
+      toast.show('Gagal menghapus produk terpilih, coba lagi.');
+    } finally {
+      bulkDeleteButton.textContent = previousLabel;
+      updateBulkDeleteButtonState();
+    }
+  };
+
+  if (bulkDeleteButton) {
+    bulkDeleteButton.addEventListener('click', handleBulkDelete);
+    updateBulkDeleteButtonState();
+  }
+
   tbody.addEventListener('click', async event => {
     const variantToggle = event.target.closest('[data-variant-toggle]');
     if (variantToggle) {
@@ -7659,6 +7817,8 @@ function handleProductActions() {
         await deleteProductFromSupabase(id);
         await refreshProductsFromSupabase();
         toast.show('Produk berhasil dihapus.');
+        setProductSelected(id, false);
+        updateBulkDeleteButtonState();
         renderProducts(getCurrentFilter());
       } catch (error) {
         console.error('Gagal menghapus produk.', error);
@@ -7668,6 +7828,25 @@ function handleProductActions() {
     }
   });
 
+  tbody.addEventListener('change', event => {
+    const checkbox = event.target.closest('[data-product-select]');
+    if (checkbox) {
+      const productId = checkbox.dataset.productSelect;
+      if (productId) {
+        setProductSelected(productId, checkbox.checked);
+        syncProductSelectionControls(tbody);
+      }
+    }
+  });
+
+  if (headerSelectAll) {
+    headerSelectAll.addEventListener('change', event => {
+      const shouldSelectAll = event.target.checked;
+      const visibleIds = getCurrentPageProducts().map(product => product?.id).filter(Boolean);
+      visibleIds.forEach(id => setProductSelected(id, shouldSelectAll));
+      syncProductSelectionControls(tbody);
+    });
+  }
 }
 
 function handleCategoryActions() {

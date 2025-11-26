@@ -1288,6 +1288,33 @@ body[data-theme="dark"] .logo-badge {
   gap: 12px;
 }
 
+.card-bulk-action {
+  white-space: nowrap;
+}
+
+.table-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-size-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.page-size-selector select {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
 .count-pill {
   background: var(--color-icon-bg);
   color: var(--color-text);
@@ -1440,9 +1467,18 @@ body[data-theme="dark"] .integrations-table {
   min-width: 760px;
 }
 
-.product-table th:first-child,
-.product-table td:first-child {
+.product-table .col-select {
+  width: 64px;
+  text-align: center;
+}
+
+.product-table .col-photo {
   width: 140px;
+}
+
+.product-table th.col-select,
+.product-table td.col-select {
+  text-align: center;
 }
 
 .product-table .col-actions {
@@ -4256,9 +4292,8 @@ body.modal-open {
     width: auto;
   }
 
-  .product-table th:first-child,
-  .product-table td:first-child {
-    width: 72px;
+  .product-table .col-select {
+    width: 56px;
   }
 
   .product-table .col-actions,
