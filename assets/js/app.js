@@ -6751,8 +6751,19 @@ function updateBulkDeleteButtonState() {
   }
 
   const selectedCount = PRODUCT_SELECTION_STATE.selected.size;
-  bulkDeleteButton.disabled = selectedCount === 0;
-  bulkDeleteButton.textContent = selectedCount ? `Hapus (${selectedCount})` : 'Hapus terpilih';
+  const hasSelection = selectedCount > 0;
+  const nextLabel = hasSelection
+    ? `Hapus ${selectedCount} produk terpilih`
+    : 'Hapus produk terpilih';
+
+  bulkDeleteButton.hidden = !hasSelection;
+  bulkDeleteButton.disabled = !hasSelection;
+  bulkDeleteButton.setAttribute('aria-label', nextLabel);
+
+  const bulkDeleteLabel = bulkDeleteButton.querySelector('[data-bulk-delete-label]');
+  if (bulkDeleteLabel) {
+    bulkDeleteLabel.textContent = nextLabel;
+  }
 }
 
 function syncProductSelectionControls(tbody = null) {
@@ -7753,8 +7764,8 @@ function handleProductActions() {
     }
 
     bulkDeleteButton.disabled = true;
-    const previousLabel = bulkDeleteButton.textContent;
-    bulkDeleteButton.textContent = 'Menghapus...';
+    const previousLabel = bulkDeleteButton.innerHTML;
+    bulkDeleteButton.innerHTML = '<span class="icon-btn__loader">Menghapus...</span>';
 
     try {
       for (const id of selectedIds) {
@@ -7768,7 +7779,7 @@ function handleProductActions() {
       console.error('Gagal menghapus produk terpilih.', error);
       toast.show('Gagal menghapus produk terpilih, coba lagi.');
     } finally {
-      bulkDeleteButton.textContent = previousLabel;
+      bulkDeleteButton.innerHTML = previousLabel;
       updateBulkDeleteButtonState();
     }
   };
