@@ -7,19 +7,54 @@
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body data-page="categories">
   <div class="app-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-header">
-        <div class="logo">E</div>
-        <div class="brand">
-          <span class="brand-title">Entraverse Supplier</span>
-          <span class="brand-subtitle">Admin</span>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <button class="menu-toggle" type="button" aria-label="Buka navigasi" aria-expanded="false" data-sidebar-toggle>
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div class="topbar-brand">
+            <div class="logo">
+              <img src="assets/img/entraverse-logo.svg" alt="Logo Entraverse" loading="lazy">
+            </div>
+            <div class="brand">
+              <span class="brand-title">Entraverse Supplier</span>
+              <span class="brand-subtitle">Admin</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="auth-buttons" data-guest-actions hidden>
+            <a class="btn ghost-btn auth-button auth-button--login" href="login.html" aria-label="Login">
+              <span class="auth-button__icon" aria-hidden="true">🔑</span>
+              <span class="auth-button__label">Login</span>
+            </a>
+            <a class="btn primary-btn auth-button auth-button--register" href="register.html" aria-label="Register">
+              <span class="auth-button__icon" aria-hidden="true">📝</span>
+              <span class="auth-button__label">Register</span>
+            </a>
+          </div>
+          <div class="profile-menu" data-profile-menu hidden>
+            <button class="avatar-button" type="button" data-profile-toggle aria-haspopup="true" aria-expanded="false">
+              <span class="avatar" data-avatar-initials>AM</span>
+            </button>
+            <div class="profile-dropdown" data-profile-dropdown role="menu" hidden>
+              <p class="profile-greeting">Hai, <span data-profile-name>Pengguna</span></p>
+              <button type="button" class="btn ghost-btn full-width" data-logout>Keluar</button>
+            </div>
+          </div>
         </div>
       </div>
-      <nav class="sidebar-nav">
+    </header>
+    <div class="app-body">
+      <aside class="sidebar" data-sidebar>
+        <nav class="sidebar-nav">
         <div class="nav-section">
           <p class="nav-title">E-Commerce</p>
           <a class="nav-link" href="dashboard.html">
@@ -54,49 +89,15 @@
             </button>
           </div>
         </div>
-      </nav>
-    </aside>
-    <button class="sidebar-collapse-toggle" type="button" aria-label="Sembunyikan navigasi" aria-expanded="true" data-sidebar-collapse>
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="m14.5 6-5 6 5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-      </svg>
-    </button>
-    <div class="sidebar-backdrop" data-sidebar-backdrop></div>
-    <main class="main-content">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button class="menu-toggle" type="button" aria-label="Buka navigasi" aria-expanded="false" data-sidebar-toggle>
-            <span></span>
-            <span></span>
-            <span></span>
-          </button>
-          <form class="search-bar" role="search">
-            <span class="search-icon" aria-hidden="true">🔍</span>
-            <input type="search" id="search-input" placeholder="Search" aria-label="Pencarian kategori">
-          </form>
-        </div>
-        <div class="topbar-actions">
-          <div class="auth-buttons" data-guest-actions hidden>
-            <a class="btn ghost-btn auth-button auth-button--login" href="login.html" aria-label="Login">
-              <span class="auth-button__icon" aria-hidden="true">🔑</span>
-              <span class="auth-button__label">Login</span>
-            </a>
-            <a class="btn primary-btn auth-button auth-button--register" href="register.html" aria-label="Register">
-              <span class="auth-button__icon" aria-hidden="true">📝</span>
-              <span class="auth-button__label">Register</span>
-            </a>
-          </div>
-          <div class="profile-menu" data-profile-menu hidden>
-            <button class="avatar-button" type="button" data-profile-toggle aria-haspopup="true" aria-expanded="false">
-              <span class="avatar" data-avatar-initials>AM</span>
-            </button>
-            <div class="profile-dropdown" data-profile-dropdown role="menu" hidden>
-              <p class="profile-greeting">Hai, <span data-profile-name>Pengguna</span></p>
-              <button type="button" class="btn ghost-btn full-width" data-logout>Keluar</button>
-            </div>
-          </div>
-        </div>
-      </header>
+        </nav>
+      </aside>
+      <button class="sidebar-collapse-toggle" type="button" aria-label="Sembunyikan navigasi" aria-expanded="true" data-sidebar-collapse>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m14.5 6-5 6 5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </button>
+      <div class="sidebar-backdrop" data-sidebar-backdrop></div>
+      <main class="main-content">
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
@@ -183,6 +184,7 @@
           </div>
         </form>
       </div>
+    </div>
     </div>
   </div>
   <script>

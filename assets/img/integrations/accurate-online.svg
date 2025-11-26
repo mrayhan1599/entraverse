@@ -8,5 +8,5 @@
     </linearGradient>
   </defs>
   <rect x="4" y="4" width="72" height="72" rx="18" fill="url(#aoGradient)" />
-  <text x="50%" y="52%" text-anchor="middle" font-family="'Poppins', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">AO</text>
+  <text x="50%" y="52%" text-anchor="middle" font-family="'DM Sans', Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">AO</text>
 </svg>
