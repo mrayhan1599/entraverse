@@ -1504,6 +1504,20 @@ body[data-theme="dark"] .logo-badge {
   padding: 0 6px;
 }
 
+.pagination__current {
+  min-width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text-strong);
+  font-weight: 600;
+}
+
 .variant-table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -1531,23 +1545,8 @@ body[data-theme="dark"] .integrations-table {
   min-width: 760px;
 }
 
-.product-checkbox {
-  width: 18px;
-  height: 18px;
-}
-
-.product-table .col-select {
-  width: 64px;
-  text-align: center;
-}
-
 .product-table .col-photo {
   width: 140px;
-}
-
-.product-table th.col-select,
-.product-table td.col-select {
-  text-align: center;
 }
 
 .product-table .col-actions {
@@ -4437,10 +4436,6 @@ body.modal-open {
   .product-table .col-status,
   .product-table .col-photo {
     width: auto;
-  }
-
-  .product-table .col-select {
-    width: 56px;
   }
 
   .product-table .col-actions,
