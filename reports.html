@@ -386,7 +386,20 @@
     };
   </script>
   <script src="assets/vendor/supabase-js-2.43.4.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous" integrity="sha256-Mzf7pS8drTVGdItsXjwRkrvp6bJYuNRbvdBLba6cDO8="></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+    crossorigin="anonymous"
+    integrity="sha256-Mzf7pS8drTVGdItsXjwRkrvp6bJYuNRbvdBLba6cDO8="
+    onerror="(function(){var s=document.createElement('script');s.src='assets/vendor/xlsx.full.min.js';s.setAttribute('data-xlsx-fallback','true');document.head.appendChild(s);}())"
+  ></script>
+  <script>
+    if (typeof XLSX === 'undefined' || typeof XLSX.read !== 'function') {
+      const script = document.createElement('script');
+      script.src = 'assets/vendor/xlsx.full.min.js';
+      script.setAttribute('data-xlsx-fallback', 'true');
+      document.head.appendChild(script);
+    }
+  </script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
