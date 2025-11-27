@@ -627,6 +627,25 @@ let warehouseMovementsState = {
   lastLoadedAt: null
 };
 
+const WAREHOUSE_SOURCE_AUTO = 'auto';
+const WAREHOUSE_SOURCE_MANUAL = 'manual';
+let warehouseActiveSource = WAREHOUSE_SOURCE_AUTO;
+let warehouseManualState = {
+  rows: [],
+  header: null,
+  totals: null,
+  warehouses: 0,
+  lastSignature: null,
+  loading: false,
+  error: null,
+  currentPage: 1,
+  pageSize: 10,
+  lastFilteredCount: 0,
+  sort: { key: null, direction: 'asc' },
+  lastLoadedAt: null,
+  fileName: null
+};
+
 const WAREHOUSE_MOVEMENTS_CACHE_KEY = 'entraverse_warehouse_movements_cache';
 const WAREHOUSE_MOVEMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const WAREHOUSE_NUMERIC_SORT_KEYS = new Set(['openingBalance', 'qtyIn', 'qtyOut', 'closingBalance']);
@@ -13802,6 +13821,20 @@ function sanitizeWarehouseSort(sort) {
   return { key, direction };
 }
 
+function getWarehouseState(source = warehouseActiveSource) {
+  return source === WAREHOUSE_SOURCE_MANUAL ? warehouseManualState : warehouseMovementsState;
+}
+
+function setWarehouseState(source, value) {
+  if (source === WAREHOUSE_SOURCE_MANUAL) {
+    warehouseManualState = typeof value === 'function' ? value(warehouseManualState) : { ...warehouseManualState, ...value };
+    return warehouseManualState;
+  }
+
+  warehouseMovementsState = typeof value === 'function' ? value(warehouseMovementsState) : { ...warehouseMovementsState, ...value };
+  return warehouseMovementsState;
+}
+
 function getCachedWarehouseMovements(signature) {
   if (!signature) {
     return null;
@@ -13979,7 +14012,8 @@ function sortWarehouseRows(rows, sort) {
 }
 
 function updateWarehouseSortIndicators() {
-  const sortState = sanitizeWarehouseSort(warehouseMovementsState.sort);
+  const state = getWarehouseState();
+  const sortState = sanitizeWarehouseSort(state.sort);
   const buttons = document.querySelectorAll('.table-sort-button[data-sort-key]');
 
   buttons.forEach(button => {
@@ -14008,8 +14042,9 @@ function renderSalesReports({ search = '' } = {}) {
     return;
   }
 
+  const state = getWarehouseState();
   const normalizedSearch = search.toString().trim().toLowerCase();
-  const rows = Array.isArray(warehouseMovementsState.rows) ? warehouseMovementsState.rows : [];
+  const rows = Array.isArray(state.rows) ? state.rows : [];
 
   const filtered = normalizedSearch
     ? rows.filter(row => {
@@ -14020,12 +14055,12 @@ function renderSalesReports({ search = '' } = {}) {
       })
     : rows.slice();
 
-  const sorted = sortWarehouseRows(filtered, warehouseMovementsState.sort);
+  const sorted = sortWarehouseRows(filtered, state.sort);
 
-  warehouseMovementsState.lastFilteredCount = sorted.length;
+  state.lastFilteredCount = sorted.length;
 
-  const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
-  let currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+  const pageSize = Math.max(1, Number(state.pageSize) || 10);
+  let currentPage = Math.max(1, Number(state.currentPage) || 1);
   const totalRows = sorted.length;
   const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
 
@@ -14035,8 +14070,8 @@ function renderSalesReports({ search = '' } = {}) {
     currentPage = totalPages;
   }
 
-  if (warehouseMovementsState.currentPage !== currentPage) {
-    warehouseMovementsState.currentPage = currentPage;
+  if (state.currentPage !== currentPage) {
+    state.currentPage = currentPage;
   }
 
   const startIndex = totalRows ? (currentPage - 1) * pageSize : 0;
@@ -14044,11 +14079,15 @@ function renderSalesReports({ search = '' } = {}) {
   const paginatedRows = totalRows ? sorted.slice(startIndex, endIndex) : [];
 
   if (!totalRows) {
-    const message = warehouseMovementsState.loading
-      ? 'Memuat pergerakan barang dari Mekari Jurnal...'
-      : warehouseMovementsState.error
-        ? warehouseMovementsState.error
-        : 'Tidak ada data pergerakan barang untuk filter saat ini.';
+    const message = state.loading
+      ? warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL
+        ? 'Memproses file unggahan pergerakan barang...'
+        : 'Memuat pergerakan barang dari Mekari Jurnal...'
+      : state.error
+        ? state.error
+        : warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL
+          ? 'Upload file Excel untuk melihat pergerakan barang.'
+          : 'Tidak ada data pergerakan barang untuk filter saat ini.';
     tbody.innerHTML = `<tr class="empty-state"><td colspan="7">${escapeHtml(message)}</td></tr>`;
   } else {
     tbody.innerHTML = paginatedRows
@@ -14083,14 +14122,19 @@ function renderSalesReports({ search = '' } = {}) {
   const metaElement = document.getElementById('warehouse-table-meta');
   if (metaElement) {
     const parts = [];
-    if (warehouseMovementsState.header?.date) {
-      parts.push(`Periode ${warehouseMovementsState.header.date}`);
+    parts.push(
+      warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL
+        ? 'Sumber: Upload manual (Excel)'
+        : 'Sumber: API Mekari Jurnal'
+    );
+    if (state.header?.date) {
+      parts.push(`Periode ${state.header.date}`);
     }
-    if (warehouseMovementsState.header?.currency) {
-      parts.push(warehouseMovementsState.header.currency);
+    if (state.header?.currency) {
+      parts.push(state.header.currency);
     }
-    if (warehouseMovementsState.header?.companyName) {
-      parts.push(`Perusahaan: ${warehouseMovementsState.header.companyName}`);
+    if (state.header?.companyName) {
+      parts.push(`Perusahaan: ${state.header.companyName}`);
     }
     if (totalRows) {
       const startDisplay = startIndex + 1;
@@ -14102,19 +14146,23 @@ function renderSalesReports({ search = '' } = {}) {
     } else if (rows.length) {
       parts.push(`0 produk ditemukan dari ${formatNumber(rows.length)} total produk`);
     }
-    if (warehouseMovementsState.warehouses) {
-      parts.push(`Gudang: ${formatNumber(warehouseMovementsState.warehouses)}`);
+    if (state.warehouses) {
+      parts.push(`Gudang: ${formatNumber(state.warehouses)}`);
     }
-    if (warehouseMovementsState.totals) {
+    if (state.totals) {
       parts.push(
-        `Total Saldo Awal: ${formatNumber(warehouseMovementsState.totals.opening)} • Masuk: ${formatNumber(warehouseMovementsState.totals.in)} • Keluar: ${formatNumber(warehouseMovementsState.totals.out)} • Saldo Akhir: ${formatNumber(warehouseMovementsState.totals.closing)}`
+        `Total Saldo Awal: ${formatNumber(state.totals.opening)} • Masuk: ${formatNumber(state.totals.in)} • Keluar: ${formatNumber(state.totals.out)} • Saldo Akhir: ${formatNumber(state.totals.closing)}`
       );
     }
-    if (warehouseMovementsState.loading) {
-      parts.push('Sedang menyinkronkan data gudang...');
+    if (state.loading) {
+      parts.push(
+        warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL
+          ? 'Memproses unggahan manual...'
+          : 'Sedang menyinkronkan data gudang...'
+      );
     }
-    if (warehouseMovementsState.error && !warehouseMovementsState.loading) {
-      parts.push(`⚠ ${warehouseMovementsState.error}`);
+    if (state.error && !state.loading) {
+      parts.push(`⚠ ${state.error}`);
     }
     metaElement.textContent = parts.filter(Boolean).join(' • ') || 'Data Mekari Jurnal belum dimuat.';
   }
@@ -14130,7 +14178,7 @@ function renderSalesReports({ search = '' } = {}) {
 
   updateWarehouseSortIndicators();
 
-  return { filtered: sorted, rows, header: warehouseMovementsState.header };
+  return { filtered: sorted, rows, header: state.header };
 }
 
 function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPages, start, end }) {
@@ -14200,32 +14248,34 @@ function renderWarehousePagination({ totalRows, pageSize, currentPage, totalPage
 }
 
 function goToWarehousePage(page) {
-  const pageSize = Math.max(1, Number(warehouseMovementsState.pageSize) || 10);
-  const totalRows = warehouseMovementsState.lastFilteredCount || 0;
+  const state = getWarehouseState();
+  const pageSize = Math.max(1, Number(state.pageSize) || 10);
+  const totalRows = state.lastFilteredCount || 0;
   const totalPages = totalRows > 0 ? Math.ceil(totalRows / pageSize) : 0;
 
   if (!totalPages) {
-    warehouseMovementsState.currentPage = 1;
+    state.currentPage = 1;
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
     return;
   }
 
   const nextPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
 
-  if (nextPage === warehouseMovementsState.currentPage) {
+  if (nextPage === state.currentPage) {
     return;
   }
 
-  warehouseMovementsState.currentPage = nextPage;
+  state.currentPage = nextPage;
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
-  if (warehouseMovementsState.lastSignature) {
+  if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO && warehouseMovementsState.lastSignature) {
     setCachedWarehouseMovements(warehouseMovementsState.lastSignature, warehouseMovementsState);
   }
 }
 
 function changeWarehousePage(delta) {
-  const currentPage = Math.max(1, Number(warehouseMovementsState.currentPage) || 1);
+  const state = getWarehouseState();
+  const currentPage = Math.max(1, Number(state.currentPage) || 1);
   goToWarehousePage(currentPage + delta);
 }
 
@@ -14234,15 +14284,16 @@ function setWarehouseSort(sortKey) {
     return;
   }
 
-  const currentSort = sanitizeWarehouseSort(warehouseMovementsState.sort);
+  const state = getWarehouseState();
+  const currentSort = sanitizeWarehouseSort(state.sort);
   const direction = currentSort.key === sortKey && currentSort.direction === 'asc' ? 'desc' : 'asc';
 
-  warehouseMovementsState.sort = { key: sortKey, direction };
-  warehouseMovementsState.currentPage = 1;
+  state.sort = { key: sortKey, direction };
+  state.currentPage = 1;
 
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
-  if (warehouseMovementsState.lastSignature) {
+  if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO && warehouseMovementsState.lastSignature) {
     setCachedWarehouseMovements(warehouseMovementsState.lastSignature, warehouseMovementsState);
   }
 }
@@ -14403,6 +14454,328 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
     }
 
     return { success: false, error };
+  }
+}
+
+const MANUAL_WAREHOUSE_COLUMN_ALIASES = {
+  warehouseName: ['gudang', 'warehouse', 'gudang tujuan', 'gudang asal'],
+  productCode: ['kode produk', 'sku', 'kode produk / sku', 'kode / sku'],
+  productName: ['nama produk', 'produk', 'product name', 'item'],
+  units: ['satuan', 'unit'],
+  openingBalance: ['saldo awal', 'qty awal', 'kuantitas awal'],
+  qtyIn: ['qty masuk', 'kuantitas masuk', 'masuk'],
+  qtyOut: ['qty keluar', 'kuantitas keluar', 'keluar'],
+  closingBalance: ['saldo akhir', 'qty akhir']
+};
+
+const MANUAL_WAREHOUSE_SKIP_KEYWORDS = ['subtotal', 'total', 'grand total'];
+
+function normalizeManualHeaderValue(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return value
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function detectManualWarehouseMapping(row) {
+  if (!Array.isArray(row)) {
+    return null;
+  }
+
+  const mapping = {};
+  row.forEach((cell, index) => {
+    const normalized = normalizeManualHeaderValue(cell);
+    if (!normalized) return;
+
+    Object.entries(MANUAL_WAREHOUSE_COLUMN_ALIASES).forEach(([key, aliases]) => {
+      if (mapping[key] !== undefined) return;
+      if (aliases.includes(normalized)) {
+        mapping[key] = index;
+      }
+    });
+  });
+
+  if (!mapping.productName) {
+    return null;
+  }
+
+  const hasNumericColumn =
+    mapping.openingBalance !== undefined ||
+    mapping.qtyIn !== undefined ||
+    mapping.qtyOut !== undefined ||
+    mapping.closingBalance !== undefined;
+
+  if (!hasNumericColumn) {
+    return null;
+  }
+
+  return mapping;
+}
+
+function normalizeManualWarehouseRows(sheetRows, { fileName } = {}) {
+  if (!Array.isArray(sheetRows) || !sheetRows.length) {
+    throw new Error('File Excel kosong. Pastikan menggunakan laporan Mekari Jurnal.');
+  }
+
+  let headerIndex = -1;
+  let mapping = null;
+
+  for (let i = 0; i < sheetRows.length; i += 1) {
+    const candidate = detectManualWarehouseMapping(sheetRows[i]);
+    if (candidate) {
+      mapping = candidate;
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (!mapping || headerIndex < 0) {
+    throw new Error('Header tidak ditemukan. Pastikan kolom Gudang, Produk, dan Saldo tersedia.');
+  }
+
+  const rows = [];
+  const warehouses = new Set();
+  const totals = { opening: 0, in: 0, out: 0, closing: 0 };
+  let lastWarehouseName = 'Gudang Tidak Diketahui';
+
+  for (let i = headerIndex + 1; i < sheetRows.length; i += 1) {
+    const row = sheetRows[i];
+    if (!Array.isArray(row)) {
+      continue;
+    }
+
+    const rawWarehouse = mapping.warehouseName !== undefined ? row[mapping.warehouseName] : null;
+    const warehouseName = normalizeManualHeaderValue(rawWarehouse) ? rawWarehouse.toString().trim() : lastWarehouseName;
+    if (warehouseName) {
+      lastWarehouseName = warehouseName;
+    }
+
+    const productNameRaw = mapping.productName !== undefined ? row[mapping.productName] : null;
+    const productName = productNameRaw === null || productNameRaw === undefined ? '' : productNameRaw.toString().trim();
+
+    if (!productName) {
+      continue;
+    }
+
+    const isSubtotal = MANUAL_WAREHOUSE_SKIP_KEYWORDS.some(keyword =>
+      productName.toLowerCase().includes(keyword)
+    );
+    if (isSubtotal) {
+      continue;
+    }
+
+    const productCode = mapping.productCode !== undefined && row[mapping.productCode] !== undefined
+      ? row[mapping.productCode].toString().trim()
+      : '';
+    const units = mapping.units !== undefined && row[mapping.units] !== undefined ? row[mapping.units].toString().trim() : '-';
+
+    const opening = parseNumericValue(mapping.openingBalance !== undefined ? row[mapping.openingBalance] : null) ?? 0;
+    const qtyIn = parseNumericValue(mapping.qtyIn !== undefined ? row[mapping.qtyIn] : null) ?? 0;
+    const qtyOut = parseNumericValue(mapping.qtyOut !== undefined ? row[mapping.qtyOut] : null) ?? 0;
+    const closing =
+      parseNumericValue(mapping.closingBalance !== undefined ? row[mapping.closingBalance] : null) ??
+      opening + qtyIn - qtyOut;
+
+    warehouses.add(warehouseName || 'Gudang Tidak Diketahui');
+
+    rows.push({
+      warehouseName: warehouseName || 'Gudang Tidak Diketahui',
+      warehouseUrl: null,
+      productName,
+      productCode,
+      units,
+      openingBalance: opening,
+      qtyIn,
+      qtyOut,
+      closingBalance: closing
+    });
+
+    totals.opening += opening;
+    totals.in += qtyIn;
+    totals.out += qtyOut;
+    totals.closing += closing;
+  }
+
+  if (!rows.length) {
+    throw new Error('Tidak ada baris stok yang valid pada file Excel.');
+  }
+
+  const header = {
+    date: 'Unggahan manual (maks. 30 hari)',
+    companyName: fileName ? `File: ${fileName}` : null,
+    currency: null
+  };
+
+  return {
+    rows,
+    header,
+    totals,
+    warehouses: warehouses.size
+  };
+}
+
+function formatManualUploadedAt(timestamp) {
+  if (!timestamp) {
+    return '';
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function updateManualUploadUI() {
+  const state = warehouseManualState;
+  const statusLabel = document.querySelector('[data-manual-upload-label]');
+  const statusMeta = document.querySelector('[data-manual-upload-meta]');
+  const indicator = document.querySelector('[data-manual-status-indicator]');
+  const resetButton = document.querySelector('[data-warehouse-manual-reset]');
+
+  const hasRows = Boolean(state?.rows?.length);
+
+  if (indicator) {
+    indicator.classList.toggle('is-active', hasRows);
+    indicator.classList.toggle('is-warning', Boolean(state.error));
+  }
+
+  if (statusLabel) {
+    statusLabel.textContent = hasRows
+      ? `Menggunakan upload: ${state.fileName || 'File Excel'}`
+      : 'Belum ada unggahan';
+  }
+
+  if (statusMeta) {
+    const parts = [];
+    if (hasRows) {
+      parts.push(`${formatNumber(state.rows.length)} baris • ${formatNumber(state.warehouses)} gudang`);
+    }
+    const uploadedAt = formatManualUploadedAt(state.lastLoadedAt);
+    if (uploadedAt) {
+      parts.push(`Diupload ${uploadedAt}`);
+    }
+    if (state.error) {
+      parts.push(`⚠ ${state.error}`);
+    }
+    statusMeta.textContent = parts.filter(Boolean).join(' • ') || 'Upload file untuk mengganti data otomatis dalam tabel di bawah.';
+  }
+
+  if (resetButton) {
+    resetButton.hidden = !hasRows;
+  }
+}
+
+function setWarehouseSourceTab(source) {
+  const targetSource = source === WAREHOUSE_SOURCE_MANUAL ? WAREHOUSE_SOURCE_MANUAL : WAREHOUSE_SOURCE_AUTO;
+  warehouseActiveSource = targetSource;
+
+  document.querySelectorAll('[data-warehouse-source-tab]').forEach(button => {
+    const isActive = button.dataset.warehouseSourceTab === targetSource;
+    button.classList.toggle('is-active', isActive);
+  });
+
+  const manualContainer = document.querySelector('[data-warehouse-manual-container]');
+  if (manualContainer) {
+    manualContainer.hidden = targetSource !== WAREHOUSE_SOURCE_MANUAL;
+  }
+
+  const autoActions = document.querySelector('[data-warehouse-auto-actions]');
+  if (autoActions) {
+    autoActions.hidden = targetSource !== WAREHOUSE_SOURCE_AUTO;
+  }
+
+  updateManualUploadUI();
+  renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+}
+
+function clearManualWarehouseData({ silent = false } = {}) {
+  setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
+    rows: [],
+    header: null,
+    totals: null,
+    warehouses: 0,
+    fileName: null,
+    lastLoadedAt: null,
+    error: null,
+    loading: false,
+    currentPage: 1,
+    lastFilteredCount: 0
+  });
+
+  updateManualUploadUI();
+
+  if (warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL) {
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+  }
+
+  if (!silent) {
+    toast.show('Unggahan manual dibersihkan.');
+  }
+}
+
+async function handleManualWarehouseFile(file) {
+  if (!file) {
+    return;
+  }
+
+  if (typeof XLSX === 'undefined' || typeof XLSX.read !== 'function') {
+    toast.show('Pembaca Excel tidak tersedia. Periksa koneksi internet Anda.');
+    return;
+  }
+
+  setWarehouseState(WAREHOUSE_SOURCE_MANUAL, previous => ({
+    ...previous,
+    loading: true,
+    error: null
+  }));
+  updateManualUploadUI();
+  renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheetName = Array.isArray(workbook.SheetNames) ? workbook.SheetNames[0] : null;
+    if (!sheetName) {
+      throw new Error('Sheet pertama tidak ditemukan.');
+    }
+
+    const sheet = workbook.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const normalized = normalizeManualWarehouseRows(matrix, { fileName: file.name });
+
+    const sortState = sanitizeWarehouseSort(getWarehouseState(WAREHOUSE_SOURCE_MANUAL).sort);
+
+    setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
+      ...normalized,
+      fileName: file.name,
+      loading: false,
+      error: null,
+      currentPage: 1,
+      lastFilteredCount: 0,
+      sort: sortState,
+      lastLoadedAt: Date.now()
+    });
+
+    setWarehouseSourceTab(WAREHOUSE_SOURCE_MANUAL);
+    toast.show('Data pergerakan barang diperbarui dari upload manual.');
+  } catch (error) {
+    const message = error?.message ? String(error.message) : 'Gagal membaca file Excel pergerakan barang.';
+    setWarehouseState(WAREHOUSE_SOURCE_MANUAL, previous => ({
+      ...previous,
+      loading: false,
+      error: message
+    }));
+    toast.show(message);
+  } finally {
+    updateManualUploadUI();
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
   }
 }
 
@@ -14753,6 +15126,37 @@ function initReportsPage() {
     requestSignature: null
   };
 
+  const manualInput = document.querySelector('[data-warehouse-manual-input]');
+  const manualResetButton = document.querySelector('[data-warehouse-manual-reset]');
+  const sourceTabs = document.querySelector('[data-warehouse-source-tabs]');
+
+  if (sourceTabs) {
+    sourceTabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-warehouse-source-tab]');
+      if (!button) {
+        return;
+      }
+      setWarehouseSourceTab(button.dataset.warehouseSourceTab);
+    });
+  }
+
+  if (manualInput) {
+    manualInput.addEventListener('change', event => {
+      const file = event.target.files?.[0] || null;
+      handleManualWarehouseFile(file);
+      event.target.value = '';
+    });
+  }
+
+  if (manualResetButton) {
+    manualResetButton.addEventListener('click', () => {
+      clearManualWarehouseData();
+    });
+  }
+
+  updateManualUploadUI();
+  setWarehouseSourceTab(warehouseActiveSource);
+
   const runInitialSync = async () => {
     let supabaseReady = true;
     try {
@@ -14886,20 +15290,23 @@ function initReportsPage() {
 
     currentPeriodSelection = getPeriodSelection();
 
-    warehouseMovementsState.currentPage = 1;
-    warehouseMovementsState.lastFilteredCount = 0;
+    const activeState = getWarehouseState();
+    activeState.currentPage = 1;
+    activeState.lastFilteredCount = 0;
 
     renderSalesReports({
       search: searchInput ? searchInput.value : ''
     });
 
-    syncWarehouseMovements({
-      selection: currentPeriodSelection,
-      force: forceWarehouseSync,
-      showToastOnError: triggerProfitLoss
-    }).catch(error => {
-      console.error('Gagal memuat data pergerakan barang Mekari.', error);
-    });
+    if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO) {
+      syncWarehouseMovements({
+        selection: currentPeriodSelection,
+        force: forceWarehouseSync,
+        showToastOnError: triggerProfitLoss
+      }).catch(error => {
+        console.error('Gagal memuat data pergerakan barang Mekari.', error);
+      });
+    }
 
     if (triggerProfitLoss) {
       const signature = getPeriodSelectionSignature(currentPeriodSelection);

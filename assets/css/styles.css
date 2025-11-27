@@ -3010,6 +3010,108 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   border-color: rgba(37, 99, 235, 0.28);
 }
 
+.report-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.report-source-tab {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  min-width: 180px;
+  text-align: left;
+  font-weight: 700;
+  line-height: 1.3;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.report-source-tab__note {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.report-source-tab.is-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), rgba(37, 99, 235, 0.02));
+}
+
+.warehouse-manual-upload {
+  border: 1px dashed var(--color-border-stronger);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-bottom: 12px;
+}
+
+.warehouse-manual-upload ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--color-text-muted);
+}
+
+.warehouse-manual-upload__info p {
+  margin: 0;
+}
+
+.warehouse-manual-upload__status {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.warehouse-manual-upload__status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border-stronger);
+}
+
+.warehouse-manual-upload__status-dot.is-active {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.warehouse-manual-upload__status-dot.is-warning {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.14);
+}
+
+.warehouse-manual-upload__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stacked-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.helper-text {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
 .report-integration-guide {
   display: grid;
   gap: 16px;
