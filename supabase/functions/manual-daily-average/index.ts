@@ -192,7 +192,9 @@ Deno.serve(async req => {
 
         const normalizedAverage = pickDailyAverageValue(row.dailyAverageSales ?? row.daily_average_sales)
         const targetAverage = Number(matched.average.toFixed(2))
-        if (normalizedAverage !== targetAverage) {
+        const rawAverageValue = row.dailyAverageSales ?? row.daily_average_sales
+
+        if (normalizedAverage !== targetAverage || typeof rawAverageValue !== "number") {
           hasChange = true
           inventoryDailyAverage = inventoryDailyAverage ?? targetAverage
           touchedVariants += 1
@@ -206,8 +208,9 @@ Deno.serve(async req => {
 
       const inventory = normalizeInventory(record.inventory)
       if (inventoryDailyAverage !== null) {
-        const normalized = pickDailyAverageValue(inventory.dailyAverageSales ?? inventory.daily_average_sales)
-        if (normalized !== inventoryDailyAverage) {
+        const rawDailyAverage = inventory.dailyAverageSales ?? inventory.daily_average_sales
+        const normalized = pickDailyAverageValue(rawDailyAverage)
+        if (normalized !== inventoryDailyAverage || typeof rawDailyAverage !== "number") {
           inventory.dailyAverageSales = inventoryDailyAverage
         }
       }
