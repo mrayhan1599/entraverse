@@ -629,6 +629,7 @@ let warehouseMovementsState = {
 
 const WAREHOUSE_SOURCE_AUTO = 'auto';
 const WAREHOUSE_SOURCE_MANUAL = 'manual';
+const MANUAL_WAREHOUSE_SIGNATURE = 'manual-latest';
 let warehouseActiveSource = WAREHOUSE_SOURCE_AUTO;
 let warehouseManualState = {
   rows: [],
@@ -1901,7 +1902,8 @@ const SUPABASE_TABLES = Object.freeze({
   categories: 'categories',
   exchangeRates: 'exchange_rates',
   shippingVendors: 'shipping_vendors',
-  integrations: 'api_integrations'
+  integrations: 'api_integrations',
+  warehouseMovements: 'warehouse_movements'
 });
 
 const SUPABASE_STORAGE_BUCKETS = Object.freeze({
@@ -3486,6 +3488,134 @@ async function upsertShippingVendorToSupabase(vendor) {
   });
 
   return mapSupabaseShippingVendor(data ?? payload);
+}
+
+function mapSupabaseWarehouseMovement(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  return {
+    id: record.id || null,
+    source: record.source || WAREHOUSE_SOURCE_AUTO,
+    periodSignature: record.period_signature || '',
+    periodStart: record.period_start || null,
+    periodEnd: record.period_end || null,
+    header: record.header || null,
+    totals: record.totals || null,
+    rows: Array.isArray(record.rows) ? record.rows : [],
+    warehouses: Number(record.warehouses) || 0,
+    fileName: record.file_name || null,
+    lastLoadedAt: record.last_loaded_at ? new Date(record.last_loaded_at).getTime() : null,
+    createdAt: record.created_at ? new Date(record.created_at).getTime() : null,
+    updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
+  };
+}
+
+function mapWarehouseMovementToRecord(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.rows)) {
+    return null;
+  }
+
+  const toDateOnly = value => {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const iso = date.toISOString();
+    return iso.slice(0, 10);
+  };
+
+  const nowIso = new Date().toISOString();
+
+  return {
+    id: snapshot.id || snapshot.recordId || null,
+    source: snapshot.source || WAREHOUSE_SOURCE_AUTO,
+    period_signature: snapshot.periodSignature || snapshot.signature || '',
+    period_start: toDateOnly(snapshot.periodStart) || null,
+    period_end: toDateOnly(snapshot.periodEnd) || null,
+    header: snapshot.header ?? null,
+    totals: snapshot.totals ?? null,
+    rows: Array.isArray(snapshot.rows) ? snapshot.rows : [],
+    warehouses: Number(snapshot.warehouses) || 0,
+    file_name: snapshot.fileName || null,
+    last_loaded_at: snapshot.lastLoadedAt
+      ? new Date(snapshot.lastLoadedAt).toISOString()
+      : nowIso,
+    created_at: snapshot.createdAt ? new Date(snapshot.createdAt).toISOString() : nowIso,
+    updated_at: snapshot.updatedAt ? new Date(snapshot.updatedAt).toISOString() : nowIso
+  };
+}
+
+async function upsertWarehouseMovementSnapshot(snapshot) {
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const payload = mapWarehouseMovementToRecord(snapshot);
+  if (!payload || !payload.period_signature) {
+    throw new Error('Snapshot pergerakan gudang tidak lengkap.');
+  }
+
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.warehouseMovements,
+    method: 'upsert',
+    payload,
+    options: { onConflict: 'source,period_signature' },
+    transform: builder => builder.select().maybeSingle()
+  });
+
+  return mapSupabaseWarehouseMovement(data ?? payload);
+}
+
+async function fetchWarehouseMovementSnapshot({ source, signature }) {
+  if (!source || !signature) {
+    return null;
+  }
+
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(SUPABASE_TABLES.warehouseMovements)
+    .select('*')
+    .eq('source', source)
+    .eq('period_signature', signature)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (isTableMissingError(error) || isPermissionDeniedError(error)) {
+      return null;
+    }
+    throw error;
+  }
+
+  return mapSupabaseWarehouseMovement(data);
+}
+
+async function persistWarehouseMovementSnapshot(snapshot) {
+  if (!snapshot || !snapshot.periodSignature || !Array.isArray(snapshot.rows) || !snapshot.rows.length) {
+    return null;
+  }
+
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  try {
+    return await upsertWarehouseMovementSnapshot(snapshot);
+  } catch (error) {
+    if (isTableMissingError(error) || isPermissionDeniedError(error)) {
+      console.warn('Tabel pergerakan gudang belum tersedia di Supabase.', error);
+      return null;
+    }
+    console.warn('Gagal menyimpan snapshot pergerakan gudang ke Supabase.', error);
+    return null;
+  }
 }
 
 function sanitizeSessionUser(user) {
@@ -14404,6 +14534,38 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
     }
   }
 
+  if (!force && (!cachedSnapshot || !cachedSnapshot.rows?.length)) {
+    try {
+      const supabaseSnapshot = await fetchWarehouseMovementSnapshot({
+        source: WAREHOUSE_SOURCE_AUTO,
+        signature
+      });
+
+      if (supabaseSnapshot && Array.isArray(supabaseSnapshot.rows) && supabaseSnapshot.rows.length) {
+        warehouseMovementsState = {
+          ...warehouseMovementsState,
+          rows: supabaseSnapshot.rows,
+          header: supabaseSnapshot.header,
+          totals: supabaseSnapshot.totals,
+          warehouses: supabaseSnapshot.warehouses,
+          lastSignature: signature,
+          loading: false,
+          error: null,
+          currentPage: Math.max(1, Number(warehouseMovementsState.currentPage) || 1),
+          pageSize: Math.max(1, Number(warehouseMovementsState.pageSize) || 10),
+          sort: sanitizeWarehouseSort(warehouseMovementsState.sort),
+          lastLoadedAt: supabaseSnapshot.lastLoadedAt || supabaseSnapshot.updatedAt || Date.now(),
+          lastFilteredCount: 0
+        };
+
+        renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+        return { success: true, cached: true, source: 'supabase' };
+      }
+    } catch (error) {
+      console.warn('Gagal memuat snapshot pergerakan gudang dari Supabase.', error);
+    }
+  }
+
   setWarehouseMovementsLoading(true, { preservePage: Boolean(cachedSnapshot) });
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
@@ -14435,6 +14597,20 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
       lastFilteredCount: 0,
       lastLoadedAt: Date.now()
     };
+
+    persistWarehouseMovementSnapshot({
+      source: WAREHOUSE_SOURCE_AUTO,
+      periodSignature: signature,
+      periodStart: range.startDate,
+      periodEnd: range.endDate,
+      header: normalized.header,
+      totals: normalized.totals,
+      rows: normalized.rows,
+      warehouses: normalized.warehouses,
+      lastLoadedAt: Date.now()
+    }).catch(error => {
+      console.warn('Gagal menyimpan pergerakan gudang otomatis ke Supabase.', error);
+    });
 
     setCachedWarehouseMovements(signature, warehouseMovementsState);
 
@@ -14750,6 +14926,7 @@ function clearManualWarehouseData({ silent = false } = {}) {
     warehouses: 0,
     fileName: null,
     lastLoadedAt: null,
+    lastSignature: null,
     error: null,
     loading: false,
     currentPage: 1,
@@ -14811,7 +14988,18 @@ async function handleManualWarehouseFile(file) {
       currentPage: 1,
       lastFilteredCount: 0,
       sort: sortState,
+      lastLoadedAt: Date.now(),
+      lastSignature: MANUAL_WAREHOUSE_SIGNATURE
+    });
+
+    persistWarehouseMovementSnapshot({
+      ...normalized,
+      source: WAREHOUSE_SOURCE_MANUAL,
+      periodSignature: MANUAL_WAREHOUSE_SIGNATURE,
+      fileName: file.name,
       lastLoadedAt: Date.now()
+    }).catch(error => {
+      console.warn('Gagal menyimpan pergerakan gudang manual ke Supabase.', error);
     });
 
     setWarehouseSourceTab(WAREHOUSE_SOURCE_MANUAL);
@@ -15207,6 +15395,48 @@ function initReportsPage() {
 
   updateManualUploadUI();
   setWarehouseSourceTab(warehouseActiveSource);
+
+  const restoreManualWarehouseFromSupabase = async () => {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+
+    if (warehouseManualState.rows.length) {
+      return;
+    }
+
+    try {
+      const snapshot = await fetchWarehouseMovementSnapshot({
+        source: WAREHOUSE_SOURCE_MANUAL,
+        signature: MANUAL_WAREHOUSE_SIGNATURE
+      });
+
+      if (snapshot && Array.isArray(snapshot.rows) && snapshot.rows.length) {
+        setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
+          ...warehouseManualState,
+          rows: snapshot.rows,
+          header: snapshot.header,
+          totals: snapshot.totals,
+          warehouses: snapshot.warehouses,
+          lastSignature: snapshot.periodSignature || MANUAL_WAREHOUSE_SIGNATURE,
+          loading: false,
+          error: null,
+          currentPage: 1,
+          lastFilteredCount: 0,
+          sort: sanitizeWarehouseSort(warehouseManualState.sort),
+          lastLoadedAt: snapshot.lastLoadedAt || snapshot.updatedAt || Date.now(),
+          fileName: snapshot.fileName || null
+        });
+
+        updateManualUploadUI();
+        renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+      }
+    } catch (error) {
+      console.warn('Gagal memuat pergerakan gudang manual dari Supabase.', error);
+    }
+  };
+
+  restoreManualWarehouseFromSupabase();
 
   const runInitialSync = async () => {
     let supabaseReady = true;
