@@ -62,7 +62,9 @@ Halaman admin Entraverse kini menggunakan Supabase sebagai basis data untuk aute
 
 3. Untuk menyimpan pergerakan barang otomatis maupun unggahan Excel ke Supabase, jalankan skrip
    `supabase/warehouse_movements.sql` melalui **SQL Editor**. Skrip tersebut membuat tabel
-   `warehouse_movements` lengkap dengan indeks dan kebijakan RLS untuk akses pengembangan.
+   `warehouse_movements` lengkap dengan indeks, kebijakan RLS untuk akses pengembangan, dan
+   trigger yang terkunci pada `search_path` schema `public` agar permintaan Supabase tidak
+   memicu peringatan keamanan.
 
 4. Aktifkan Row Level Security (RLS) sesuai kebutuhan dan pastikan aturan mengizinkan akses dari `anon` key untuk operasi yang diperlukan selama pengembangan.
 4. Salin **Project URL** dan **Anon public key** dari menu **Project Settings → API**.
