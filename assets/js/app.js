@@ -3597,12 +3597,18 @@ async function fetchWarehouseMovementSnapshot({ source, signature }) {
   return mapSupabaseWarehouseMovement(data);
 }
 
-async function persistWarehouseMovementSnapshot(snapshot) {
+async function persistWarehouseMovementSnapshot(snapshot, { throwOnFailure = false } = {}) {
   if (!snapshot || !snapshot.periodSignature || !Array.isArray(snapshot.rows) || !snapshot.rows.length) {
+    if (throwOnFailure) {
+      throw new Error('Snapshot pergerakan gudang tidak lengkap.');
+    }
     return null;
   }
 
   if (!isSupabaseConfigured()) {
+    if (throwOnFailure) {
+      throw new Error('Supabase belum dikonfigurasi.');
+    }
     return null;
   }
 
@@ -3611,9 +3617,15 @@ async function persistWarehouseMovementSnapshot(snapshot) {
   } catch (error) {
     if (isTableMissingError(error) || isPermissionDeniedError(error)) {
       console.warn('Tabel pergerakan gudang belum tersedia di Supabase.', error);
+      if (throwOnFailure) {
+        throw error;
+      }
       return null;
     }
     console.warn('Gagal menyimpan snapshot pergerakan gudang ke Supabase.', error);
+    if (throwOnFailure) {
+      throw error;
+    }
     return null;
   }
 }
@@ -14979,6 +14991,15 @@ async function handleManualWarehouseFile(file) {
     const normalized = normalizeManualWarehouseRows(matrix, { fileName: file.name });
 
     const sortState = sanitizeWarehouseSort(getWarehouseState(WAREHOUSE_SOURCE_MANUAL).sort);
+    const timestamp = Date.now();
+
+    const snapshot = {
+      ...normalized,
+      source: WAREHOUSE_SOURCE_MANUAL,
+      periodSignature: MANUAL_WAREHOUSE_SIGNATURE,
+      fileName: file.name,
+      lastLoadedAt: timestamp
+    };
 
     setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
       ...normalized,
@@ -14988,22 +15009,19 @@ async function handleManualWarehouseFile(file) {
       currentPage: 1,
       lastFilteredCount: 0,
       sort: sortState,
-      lastLoadedAt: Date.now(),
+      lastLoadedAt: timestamp,
       lastSignature: MANUAL_WAREHOUSE_SIGNATURE
     });
 
-    persistWarehouseMovementSnapshot({
-      ...normalized,
-      source: WAREHOUSE_SOURCE_MANUAL,
-      periodSignature: MANUAL_WAREHOUSE_SIGNATURE,
-      fileName: file.name,
-      lastLoadedAt: Date.now()
-    }).catch(error => {
+    try {
+      await persistWarehouseMovementSnapshot(snapshot, { throwOnFailure: true });
+      toast.show('Data pergerakan barang diperbarui dari upload manual.');
+    } catch (error) {
       console.warn('Gagal menyimpan pergerakan gudang manual ke Supabase.', error);
-    });
+      toast.show('Unggahan manual tersimpan lokal, tetapi gagal disimpan ke Supabase.');
+    }
 
     setWarehouseSourceTab(WAREHOUSE_SOURCE_MANUAL);
-    toast.show('Data pergerakan barang diperbarui dari upload manual.');
   } catch (error) {
     const message = error?.message ? String(error.message) : 'Gagal membaca file Excel pergerakan barang.';
     setWarehouseState(WAREHOUSE_SOURCE_MANUAL, previous => ({
