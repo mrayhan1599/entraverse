@@ -3517,6 +3517,7 @@ function mapWarehouseMovementToRecord(snapshot) {
     return null;
   }
 
+  const id = snapshot.id || snapshot.recordId || null;
   const toDateOnly = value => {
     const date = value ? new Date(value) : null;
     if (!date || Number.isNaN(date.getTime())) {
@@ -3528,8 +3529,7 @@ function mapWarehouseMovementToRecord(snapshot) {
 
   const nowIso = new Date().toISOString();
 
-  return {
-    id: snapshot.id || snapshot.recordId || null,
+  const record = {
     source: snapshot.source || WAREHOUSE_SOURCE_AUTO,
     period_signature: snapshot.periodSignature || snapshot.signature || '',
     period_start: toDateOnly(snapshot.periodStart) || null,
@@ -3545,6 +3545,12 @@ function mapWarehouseMovementToRecord(snapshot) {
     created_at: snapshot.createdAt ? new Date(snapshot.createdAt).toISOString() : nowIso,
     updated_at: snapshot.updatedAt ? new Date(snapshot.updatedAt).toISOString() : nowIso
   };
+
+  if (id) {
+    record.id = id;
+  }
+
+  return record;
 }
 
 async function upsertWarehouseMovementSnapshot(snapshot) {
