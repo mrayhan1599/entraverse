@@ -658,6 +658,7 @@ let warehouseAveragePromise = null;
 let dailyInventorySyncTimer = null;
 let dailyInventorySyncScheduled = false;
 let dailyInventorySyncPromise = null;
+let xlsxLoaderPromise = null;
 
 async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'manual' } = {}) {
   const attempt = attemptTime instanceof Date && !Number.isNaN(attemptTime.getTime()) ? attemptTime : new Date();
@@ -14672,6 +14673,52 @@ function updateManualUploadUI() {
   }
 }
 
+function ensureXlsxReader() {
+  if (typeof XLSX !== 'undefined' && typeof XLSX.read === 'function') {
+    return Promise.resolve();
+  }
+
+  if (!xlsxLoaderPromise) {
+    xlsxLoaderPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-xlsx-fallback]');
+      if (existing) {
+        existing.addEventListener('load', () => {
+          if (typeof XLSX !== 'undefined' && typeof XLSX.read === 'function') {
+            resolve();
+          } else {
+            reject(new Error('Pembaca Excel belum siap setelah memuat ulang.'));
+          }
+        });
+        existing.addEventListener('error', () => {
+          reject(new Error('Gagal memuat pembaca Excel lokal.'));
+        });
+        return;
+      }
+
+      const fallbackScript = document.createElement('script');
+      fallbackScript.src = 'assets/vendor/xlsx.full.min.js';
+      fallbackScript.async = true;
+      fallbackScript.setAttribute('data-xlsx-fallback', 'true');
+      fallbackScript.onload = () => {
+        if (typeof XLSX !== 'undefined' && typeof XLSX.read === 'function') {
+          resolve();
+        } else {
+          reject(new Error('Pembaca Excel belum siap setelah memuat ulang.'));
+        }
+      };
+      fallbackScript.onerror = () => {
+        reject(new Error('Gagal memuat pembaca Excel lokal.'));
+      };
+      document.head.appendChild(fallbackScript);
+    }).catch(error => {
+      xlsxLoaderPromise = null;
+      throw error;
+    });
+  }
+
+  return xlsxLoaderPromise;
+}
+
 function setWarehouseSourceTab(source) {
   const targetSource = source === WAREHOUSE_SOURCE_MANUAL ? WAREHOUSE_SOURCE_MANUAL : WAREHOUSE_SOURCE_AUTO;
   warehouseActiveSource = targetSource;
@@ -14725,8 +14772,12 @@ async function handleManualWarehouseFile(file) {
     return;
   }
 
-  if (typeof XLSX === 'undefined' || typeof XLSX.read !== 'function') {
-    toast.show('Pembaca Excel tidak tersedia. Periksa koneksi internet Anda.');
+  try {
+    await ensureXlsxReader();
+  } catch (error) {
+    const fallbackMessage =
+      error?.message || 'Pembaca Excel tidak tersedia. Periksa koneksi internet atau muat ulang halaman.';
+    toast.show(fallbackMessage);
     return;
   }
 
