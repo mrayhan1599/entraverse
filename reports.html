@@ -375,45 +375,6 @@
           </div>
         </footer>
       </section>
-      <section class="card">
-        <header class="card-header">
-          <div>
-            <h2>Supabase SQL Editor</h2>
-            <p class="card-subtitle">Salin skrip untuk membuat tabel pergerakan gudang beserta RLS di Supabase.</p>
-          </div>
-        </header>
-        <div class="card-body">
-          <p>
-            Buka <strong>SQL Editor</strong> di Supabase lalu jalankan skrip di bawah atau file
-            <code>supabase/warehouse_movements.sql</code> untuk menambahkan tabel <code>warehouse_movements</code>
-            dan kebijakan RLS.
-          </p>
-          <pre class="code-block" aria-label="Skrip SQL Supabase">
-create table if not exists public.warehouse_movements (
-  id uuid primary key default uuid_generate_v4(),
-  source text not null check (source in ('auto', 'manual')),
-  period_signature text not null,
-  period_start date,
-  period_end date,
-  header jsonb,
-  totals jsonb,
-  rows jsonb not null,
-  warehouses integer not null default 0,
-  file_name text,
-  last_loaded_at timestamptz,
-  created_at timestamptz not null default timezone('utc', now()),
-  updated_at timestamptz not null default timezone('utc', now()),
-  constraint warehouse_movements_source_signature_unique unique (source, period_signature)
-);
-
-alter table public.warehouse_movements enable row level security;
-create policy "Allow read warehouse movements" on public.warehouse_movements for select to anon, authenticated using (true);
-create policy "Allow insert warehouse movements" on public.warehouse_movements for insert to anon, authenticated with check (true);
-create policy "Allow update warehouse movements" on public.warehouse_movements for update to anon, authenticated using (true) with check (true);
-create policy "Allow delete warehouse movements" on public.warehouse_movements for delete to anon, authenticated using (true);
-          </pre>
-        </div>
-      </section>
     </main>
     </div>
   </div>
