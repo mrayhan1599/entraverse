@@ -102,9 +102,12 @@
           <div class="title-bar">
             <h1>Laporan Pergerakan Barang</h1>
             <div class="title-actions" role="toolbar" aria-label="Aksi laporan stok">
-              <button class="btn primary-btn small" type="button" data-report-sync-now data-label-default="Sinkronkan Sekarang" data-label-loading="Menjadwalkan sinkronisasi...">
-                Sinkronkan Sekarang
-              </button>
+              <div class="stacked-actions" data-warehouse-auto-actions>
+                <span class="helper-text">Otomatis via API</span>
+                <button class="btn primary-btn small" type="button" data-report-sync-now data-label-default="Sinkronkan Sekarang" data-label-loading="Menjadwalkan sinkronisasi...">
+                  Sinkronkan Sekarang
+                </button>
+              </div>
             </div>
           </div>
           <p>Pantau ringkasan stok gudang dan profit &amp; loss dari Mekari Jurnal.</p>
@@ -248,6 +251,37 @@
           </div>
           <span id="warehouse-movement-count" class="count-pill">0 baris</span>
         </header>
+        <div class="report-source-tabs" data-warehouse-source-tabs>
+          <button type="button" class="report-source-tab is-active" data-warehouse-source-tab="auto">
+            Otomatis (API)
+            <span class="report-source-tab__note">Menggunakan integrasi Mekari</span>
+          </button>
+          <button type="button" class="report-source-tab" data-warehouse-source-tab="manual">
+            Upload Manual
+            <span class="report-source-tab__note">Unggah Excel 30 hari ke belakang</span>
+          </button>
+        </div>
+        <div class="warehouse-manual-upload" data-warehouse-manual-container hidden>
+          <div class="warehouse-manual-upload__info">
+            <p>Unggah laporan Excel dari Mekari Jurnal jika sinkron otomatis bermasalah. Disarankan hanya untuk rentang 30 hari terakhir.</p>
+            <ul>
+              <li>Kolom yang didukung: Gudang, Nama Produk, Kode Produk/SKU, Satuan, Saldo Awal, Qty Masuk, Qty Keluar, dan Saldo Akhir.</li>
+              <li>Gunakan file .xlsx/.xls. Baris subtotal akan dilewati otomatis.</li>
+            </ul>
+            <div class="warehouse-manual-upload__status">
+              <div class="warehouse-manual-upload__status-dot" data-manual-status-indicator></div>
+              <div>
+                <strong data-manual-upload-label>Belum ada unggahan</strong>
+                <p class="helper-text" data-manual-upload-meta>Upload file untuk mengganti data otomatis dalam tabel di bawah.</p>
+              </div>
+            </div>
+          </div>
+          <div class="warehouse-manual-upload__actions">
+            <label class="btn secondary-btn" for="warehouse-manual-file">Pilih File Excel</label>
+            <input type="file" id="warehouse-manual-file" accept=".xlsx,.xls,.csv" hidden data-warehouse-manual-input>
+            <button class="btn ghost-btn" type="button" data-warehouse-manual-reset hidden>Hapus unggahan</button>
+          </div>
+        </div>
         <div class="table-wrapper">
           <table class="category-table report-table">
             <thead>
@@ -352,6 +386,7 @@
     };
   </script>
   <script src="assets/vendor/supabase-js-2.43.4.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous" integrity="sha256-Mzf7pS8drTVGdItsXjwRkrvp6bJYuNRbvdBLba6cDO8="></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
