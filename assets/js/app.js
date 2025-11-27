@@ -15018,7 +15018,17 @@ async function handleManualWarehouseFile(file) {
       toast.show('Data pergerakan barang diperbarui dari upload manual.');
     } catch (error) {
       console.warn('Gagal menyimpan pergerakan gudang manual ke Supabase.', error);
-      toast.show('Unggahan manual tersimpan lokal, tetapi gagal disimpan ke Supabase.');
+      let message = 'Unggahan manual tersimpan lokal, tetapi gagal disimpan ke Supabase.';
+
+      if (isTableMissingError(error)) {
+        message = 'Tabel warehouse_movements belum ada di Supabase. Jalankan skrip supabase/warehouse_movements.sql di SQL Editor.';
+      } else if (isPermissionDeniedError(error)) {
+        message = 'Kunci atau kebijakan RLS Supabase tidak mengizinkan penyimpanan warehouse_movements. Periksa anon key dan kebijakan aksesnya.';
+      } else if (error?.message) {
+        message = `${message} (${error.message})`;
+      }
+
+      toast.show(message);
     }
 
     setWarehouseSourceTab(WAREHOUSE_SOURCE_MANUAL);
