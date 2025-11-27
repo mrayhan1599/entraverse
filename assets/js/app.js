@@ -2688,6 +2688,19 @@ function mapSupabaseProduct(record) {
   const photos = Array.isArray(record.photos) ? record.photos.filter(Boolean) : [];
   const variants = Array.isArray(record.variants) ? record.variants : [];
   const variantPricing = Array.isArray(record.variant_pricing) ? record.variant_pricing : [];
+  const normalizedVariantPricing = variantPricing.map(entry => {
+    if (!entry || typeof entry !== 'object') {
+      return entry;
+    }
+
+    const normalized = { ...entry };
+    const rawDailyAverage = normalized.dailyAverageSales ?? normalized.daily_average_sales;
+    if (rawDailyAverage !== undefined) {
+      normalized.dailyAverageSales = rawDailyAverage;
+    }
+
+    return normalized;
+  });
   const rawSpu = record.spu ?? record.parent_sku ?? record.parentSku ?? '';
   const normalizedSpu =
     typeof rawSpu === 'string'
@@ -2695,6 +2708,20 @@ function mapSupabaseProduct(record) {
       : rawSpu && typeof rawSpu !== 'undefined'
         ? String(rawSpu).trim()
         : '';
+
+  const normalizedInventory = (() => {
+    if (!record.inventory || typeof record.inventory !== 'object') {
+      return record.inventory ?? null;
+    }
+
+    const inventory = { ...record.inventory };
+    const rawDailyAverage = inventory.dailyAverageSales ?? inventory.daily_average_sales;
+    if (rawDailyAverage !== undefined) {
+      inventory.dailyAverageSales = rawDailyAverage;
+    }
+
+    return inventory;
+  })();
 
   return {
     id: record.id,
@@ -2704,10 +2731,10 @@ function mapSupabaseProduct(record) {
     spu: normalizedSpu,
     description: record.description ?? '',
     tradeIn: Boolean(record.trade_in),
-    inventory: record.inventory ?? null,
+    inventory: normalizedInventory,
     photos,
     variants,
-    variantPricing,
+    variantPricing: normalizedVariantPricing,
     mekariStatus: normalizeMekariStatus(
       typeof record.mekari_status === 'string'
         ? (() => {
