@@ -8958,15 +8958,11 @@ async function handleAddProductForm() {
     }
 
     const entry = map.get(normalizedSku);
-    let formatted = null;
-
-    if (entry && Number.isFinite(entry.average)) {
-      formatted = formatDailyAverageSalesValue(entry.average);
+    if (!entry || !Number.isFinite(entry.average)) {
+      return;
     }
 
-    if (formatted === null) {
-      formatted = '0';
-    }
+    const formatted = formatDailyAverageSalesValue(entry.average);
 
     if (averageInput.value !== formatted) {
       averageInput.value = formatted;
