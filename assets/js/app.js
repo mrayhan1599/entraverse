@@ -2688,21 +2688,7 @@ function mapSupabaseProduct(record) {
   const photos = Array.isArray(record.photos) ? record.photos.filter(Boolean) : [];
   const variants = Array.isArray(record.variants) ? record.variants : [];
   const variantPricing = Array.isArray(record.variant_pricing) ? record.variant_pricing : [];
-  const normalizeStockOutDate = value => {
-    if (!value) {
-      return '';
-    }
-
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return '';
-    }
-
-    const year = date.getFullYear();
-    const month = `${date.getMonth() + 1}`.padStart(2, '0');
-    const day = `${date.getDate()}`.padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+  const normalizeStockOutDate = value => formatDateInputValue(value);
   const normalizedVariantPricing = variantPricing.map(entry => {
     if (!entry || typeof entry !== 'object') {
       return entry;
@@ -9927,21 +9913,45 @@ async function handleAddProductForm() {
     return combinations;
   }
 
-  const formatDateInputValue = value => {
+  function parseStockOutDate(value) {
     if (!value) {
+      return null;
+    }
+
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    const stringValue = value.toString().trim();
+    if (!stringValue) {
+      return null;
+    }
+
+    const slashMatch = stringValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (slashMatch) {
+      const [, dayStr, monthStr, yearStr] = slashMatch;
+      const day = Number.parseInt(dayStr, 10);
+      const month = Number.parseInt(monthStr, 10) - 1;
+      const year = yearStr.length === 2 ? 2000 + Number.parseInt(yearStr, 10) : Number.parseInt(yearStr, 10);
+      const parsed = new Date(year, month, day);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    const fallback = new Date(value);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+
+  function formatDateInputValue(value) {
+    const date = parseStockOutDate(value);
+    if (!date) {
       return '';
     }
 
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return '';
-    }
-
-    const year = date.getFullYear();
+    const year = `${date.getFullYear() % 100}`.padStart(2, '0');
     const month = `${date.getMonth() + 1}`.padStart(2, '0');
     const day = `${date.getDate()}`.padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+    return `${day}/${month}/${year}`;
+  }
 
   const getStockOutDateFieldForDate = date => {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
@@ -10261,7 +10271,8 @@ async function handleAddProductForm() {
       input.dataset.field = field;
 
       if (STOCK_OUT_DATE_FIELDS.has(field)) {
-        input.type = 'date';
+        input.type = 'text';
+        input.placeholder = 'DD/MM/YY';
         input.readOnly = true;
         input.tabIndex = -1;
         input.setAttribute('aria-readonly', 'true');
