@@ -2688,6 +2688,21 @@ function mapSupabaseProduct(record) {
   const photos = Array.isArray(record.photos) ? record.photos.filter(Boolean) : [];
   const variants = Array.isArray(record.variants) ? record.variants : [];
   const variantPricing = Array.isArray(record.variant_pricing) ? record.variant_pricing : [];
+  const normalizeStockOutDate = value => {
+    if (!value) {
+      return '';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
   const normalizedVariantPricing = variantPricing.map(entry => {
     if (!entry || typeof entry !== 'object') {
       return entry;
@@ -2697,6 +2712,16 @@ function mapSupabaseProduct(record) {
     const rawDailyAverage = normalized.dailyAverageSales ?? normalized.daily_average_sales;
     if (rawDailyAverage !== undefined) {
       normalized.dailyAverageSales = rawDailyAverage;
+    }
+
+    const periodA = normalized.stockOutDatePeriodA ?? normalized.stock_out_date_period_a;
+    if (periodA !== undefined) {
+      normalized.stockOutDatePeriodA = normalizeStockOutDate(periodA);
+    }
+
+    const periodB = normalized.stockOutDatePeriodB ?? normalized.stock_out_date_period_b;
+    if (periodB !== undefined) {
+      normalized.stockOutDatePeriodB = normalizeStockOutDate(periodB);
     }
 
     return normalized;
@@ -9023,6 +9048,8 @@ async function handleAddProductForm() {
     'shopeePrice'
   ]);
 
+  const STOCK_OUT_DATE_FIELDS = new Set(['stockOutDatePeriodA', 'stockOutDatePeriodB']);
+
   const SAMPAI_EXPRESS_VENDOR_NAME = 'sampai express';
 
   function findSampaiExpressVendor() {
@@ -9900,6 +9927,58 @@ async function handleAddProductForm() {
     return combinations;
   }
 
+  const formatDateInputValue = value => {
+    if (!value) {
+      return '';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getStockOutDateFieldForDate = date => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return 'stockOutDatePeriodA';
+    }
+
+    return date.getDate() <= 15 ? 'stockOutDatePeriodA' : 'stockOutDatePeriodB';
+  };
+
+  const recordStockOutDateIfNeeded = (row, { referenceDate = new Date() } = {}) => {
+    if (!row) return;
+
+    const stockInput = row.querySelector('[data-field="stock"]');
+    if (!stockInput) return;
+
+    const stockValue = parseNumericValue(stockInput.value ?? '');
+    if (!Number.isFinite(stockValue) || stockValue !== 0) {
+      return;
+    }
+
+    const targetField = getStockOutDateFieldForDate(referenceDate);
+    const dateInput = row.querySelector(`[data-field="${targetField}"]`);
+    const formatted = formatDateInputValue(referenceDate);
+
+    if (!dateInput || !formatted) {
+      return;
+    }
+
+    const existingValue = (dateInput.value ?? '').toString().trim();
+    if (existingValue) {
+      return;
+    }
+
+    dateInput.value = formatted;
+    dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
   function collectPricingRows(variantDefs = getVariantDefinitions()) {
     if (!pricingBody) return [];
     return Array.from(pricingBody.querySelectorAll('.pricing-row')).map(row => {
@@ -9934,7 +10013,9 @@ async function handleAddProductForm() {
         stock: getValue('[data-field="stock"]'),
         dailyAverageSales: getValue('[data-field="dailyAverageSales"]'),
         sellerSku: getValue('[data-field="sellerSku"]'),
-        weight: getValue('[data-field="weight"]')
+        weight: getValue('[data-field="weight"]'),
+        stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
+        stockOutDatePeriodB: getValue('[data-field="stockOutDatePeriodB"]')
       };
 
       const mekariProductId = normalizeMekariProductId(
@@ -10076,6 +10157,11 @@ async function handleAddProductForm() {
         return;
       }
 
+      if (STOCK_OUT_DATE_FIELDS.has(field)) {
+        input.value = formatDateInputValue(value);
+        return;
+      }
+
       if (value === undefined || value === null) {
         input.value = '';
         return;
@@ -10096,7 +10182,9 @@ async function handleAddProductForm() {
       'stock',
       'dailyAverageSales',
       'sellerSku',
-      'weight'
+      'weight',
+      'stockOutDatePeriodA',
+      'stockOutDatePeriodB'
     ].forEach(field => {
       applyFieldValue(field, initialData[field]);
     });
@@ -10108,6 +10196,7 @@ async function handleAddProductForm() {
     });
 
     updateArrivalCostForRow(row);
+    recordStockOutDateIfNeeded(row);
   }
 
   function createPricingRow(initialData = {}, variantDefs = getVariantDefinitions(), options = {}) {
@@ -10170,6 +10259,14 @@ async function handleAddProductForm() {
       input.type = type;
       input.placeholder = placeholder;
       input.dataset.field = field;
+
+      if (STOCK_OUT_DATE_FIELDS.has(field)) {
+        input.type = 'date';
+        input.readOnly = true;
+        input.tabIndex = -1;
+        input.setAttribute('aria-readonly', 'true');
+        input.classList.add('readonly-input');
+      }
 
       if (
         [
@@ -10271,6 +10368,8 @@ async function handleAddProductForm() {
     buildInputCell('dailyAverageSales', '0', 'number');
     buildInputCell('sellerSku', 'SKU Penjual');
     buildInputCell('weight', 'Gram');
+    buildInputCell('stockOutDatePeriodA', '-');
+    buildInputCell('stockOutDatePeriodB', '-');
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'variant-actions';
@@ -10304,6 +10403,13 @@ async function handleAddProductForm() {
       arrivalCostInput.addEventListener('input', () => {
         recalculatePurchasePriceIdr(row);
       });
+    }
+
+    const stockInput = row.querySelector('[data-field="stock"]');
+    if (stockInput) {
+      const handleStockUpdate = () => recordStockOutDateIfNeeded(row);
+      stockInput.addEventListener('change', handleStockUpdate);
+      stockInput.addEventListener('blur', handleStockUpdate);
     }
 
     const manualVariantInput = row.querySelector('[data-field="variantLabel"]');
@@ -10375,6 +10481,7 @@ async function handleAddProductForm() {
 
     updateComputedPricingForRow(row);
     updateArrivalCostForRow(row);
+    recordStockOutDateIfNeeded(row);
     return row;
   }
 
@@ -10427,6 +10534,8 @@ async function handleAddProductForm() {
       'Rata-rata Penjualan per Hari',
       'SKU Penjual',
       'Berat Barang',
+      'Tanggal Stok Habis Periode A',
+      'Tanggal Stok Habis Periode B',
       ''
     ];
 
@@ -10856,7 +10965,9 @@ async function handleAddProductForm() {
         stock: (row.stock ?? '').toString().trim(),
         dailyAverageSales: (row.dailyAverageSales ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
-        weight: (row.weight ?? '').toString().trim()
+        weight: (row.weight ?? '').toString().trim(),
+        stockOutDatePeriodA: formatDateInputValue(row.stockOutDatePeriodA ?? ''),
+        stockOutDatePeriodB: formatDateInputValue(row.stockOutDatePeriodB ?? '')
       };
 
       if (row.id) {
@@ -10902,7 +11013,9 @@ async function handleAddProductForm() {
         row.stock,
         row.dailyAverageSales,
         row.sellerSku,
-        row.weight
+        row.weight,
+        row.stockOutDatePeriodA,
+        row.stockOutDatePeriodB
       ].map(value => (value ?? '').toString().trim());
       const hasDetails = detailValues.some(Boolean);
 
