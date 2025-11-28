@@ -2714,9 +2714,9 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 
 @media (max-width: 640px) {
   .date-range-filter__popover {
-    width: min(100%, 360px);
-    right: 0;
-    left: auto;
+    width: min(100vw - 24px, 360px);
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   .date-range-filter__custom-inputs {
