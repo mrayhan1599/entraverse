@@ -2641,18 +2641,17 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
 }
 
 .date-range-filter__custom-inputs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .date-range-filter__input {
   display: flex;
-  flex: 1 1 140px;
-  max-width: 150px;
-  min-width: 120px;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
   font-size: 12px;
   color: var(--color-muted);
 }
