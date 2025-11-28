@@ -299,7 +299,63 @@ async function fetchMekariProducts({
   return collected
 }
 
-async function mapToProductPayload(record: Record<string, unknown>) {
+function normalizeStockValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+
+  const normalized = normalizeString(value).replace(/[^\d.-]+/g, "")
+  if (!normalized) return null
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const STOCK_OUT_DATE_FIELDS = ["stockOutDatePeriodA", "stockOutDatePeriodB"] as const
+
+function pickStockOutDateField(reference: Date) {
+  return reference.getDate() <= 15 ? "stockOutDatePeriodA" : "stockOutDatePeriodB"
+}
+
+function applyStockOutDateMetadata(
+  variant: Record<string, unknown>,
+  existing?: Record<string, unknown> | null,
+  referenceDate: Date = new Date()
+) {
+  const normalized = { ...variant }
+
+  const stockValue = normalizeStockValue(normalized.stock)
+
+  if (stockValue === 0) {
+    const targetField = pickStockOutDateField(referenceDate)
+    const snakeCaseTarget = targetField.replace(/([A-Z])/g, "_$1").toLowerCase()
+    const existingValue = normalizeString(
+      normalized[targetField] ?? normalized[snakeCaseTarget] ?? existing?.[targetField] ?? (existing as any)?.[snakeCaseTarget]
+    )
+
+    STOCK_OUT_DATE_FIELDS.forEach(field => {
+      const snakeCaseKey = field.replace(/([A-Z])/g, "_$1").toLowerCase()
+      delete (normalized as Record<string, unknown>)[snakeCaseKey]
+      if (field !== targetField) {
+        delete (normalized as Record<string, unknown>)[field as string]
+      }
+    })
+
+    if (!existingValue) {
+      normalized[targetField] = referenceDate.toISOString()
+    }
+  } else if (stockValue !== null) {
+    STOCK_OUT_DATE_FIELDS.forEach(field => {
+      const snakeCaseKey = field.replace(/([A-Z])/g, "_$1").toLowerCase()
+      delete (normalized as Record<string, unknown>)[field as string]
+      delete (normalized as Record<string, unknown>)[snakeCaseKey]
+    })
+  }
+
+  return normalized
+}
+
+async function mapToProductPayload(record: Record<string, unknown>, referenceDate: Date) {
   const mekariId = parseMekariProductId(record)
   const skuRaw = normalizeString(record.product_code ?? record.productCode ?? record.sku ?? mekariId ?? "")
   const normalizedSku = normalizeSku(skuRaw) || undefined
@@ -315,7 +371,7 @@ async function mapToProductPayload(record: Record<string, unknown>) {
   }
 
   const productId = await hashToUuid(`mekari:${mekariId ?? normalizedSku ?? name}`)
-  const variant = {
+  const variant = applyStockOutDateMetadata({
     id: await hashToUuid(`mekari:variant:${mekariId ?? normalizedSku ?? name}`),
     variantLabel,
     sellerSku: skuRaw || "",
@@ -334,7 +390,7 @@ async function mapToProductPayload(record: Record<string, unknown>) {
     shippingMethod: "",
     weight,
     dailyAverageSales: ""
-  }
+  }, null, referenceDate)
 
   const photos = collectPhotoUrls(record)
 
@@ -425,7 +481,8 @@ function findVariantMatch(
 
 async function mergeExistingPricing(
   client: ReturnType<typeof createClient>,
-  payload: Awaited<ReturnType<typeof mapToProductPayload>>[]
+  payload: Awaited<ReturnType<typeof mapToProductPayload>>[],
+  referenceDate: Date
 ) {
   const ids = payload.map(item => item.id)
   if (!ids.length) return payload
@@ -464,7 +521,7 @@ async function mergeExistingPricing(
       const variantRecord = normalizeMekariField(variant as Record<string, unknown>)
       const match = findVariantMatch(variantRecord, existingVariants)
 
-      if (!match) return variantRecord
+      if (!match) return applyStockOutDateMetadata(variantRecord, null, referenceDate)
 
       const withPreservedPrices = keepExistingPrices(variantRecord, match)
 
@@ -479,7 +536,8 @@ async function mergeExistingPricing(
         weight: variantRecord.weight ?? match.weight
       }
 
-      return normalizeMekariField(merged)
+      const withStockOutDates = applyStockOutDateMetadata(merged, match, referenceDate)
+      return normalizeMekariField(withStockOutDates)
     })
 
     // Pertahankan varian lain yang tidak ada dalam payload baru
@@ -494,65 +552,17 @@ async function mergeExistingPricing(
   })
 }
 
-async function excludeExistingMekariProducts(
-  client: ReturnType<typeof createClient>,
-  records: Record<string, unknown>[]
-) {
-  const incomingIds = Array.from(
-    new Set(
-      records
-        .map(record => parseMekariProductId(record))
-        .filter((value): value is string => Boolean(value))
-    )
-  )
-
-  if (!incomingIds.length) return records
-
-  const { data: existing, error } = await client
-    .from("products")
-    .select("id, variant_pricing")
-
-  if (error) {
-    throw new Error(`Gagal membaca produk existing untuk validasi Mekari: ${error.message}`)
-  }
-
-  const existingIds = new Set<string>()
-
-  existing?.forEach(product => {
-    const asRecord = product as Record<string, unknown>
-    const productLevelId = normalizeString(asRecord.mekariProductId ?? (asRecord as any).mekariproductid)
-    if (productLevelId) existingIds.add(productLevelId)
-
-    const variants = Array.isArray(asRecord.variant_pricing) ? asRecord.variant_pricing : []
-    variants.forEach(variant => {
-      const mekariId = normalizeString(
-        (variant as Record<string, unknown>).mekariProductId ??
-          (variant as Record<string, unknown>).mekariproductid
-      )
-      if (mekariId) existingIds.add(mekariId)
-    })
-  })
-
-  if (!existingIds.size) return records
-
-  return records.filter(record => {
-    const mekariId = parseMekariProductId(record)
-    if (!mekariId) return true
-    return !existingIds.has(mekariId)
-  })
-}
-
 async function syncToSupabase(records: Record<string, unknown>[], supabaseUrl: string, supabaseKey: string) {
   const client = createClient(supabaseUrl, supabaseKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   })
 
-  const filteredRecords = await excludeExistingMekariProducts(client, records)
-  if (!filteredRecords.length) return []
+  if (!records.length) return []
 
-  const payload = await Promise.all(filteredRecords.map(mapToProductPayload))
+  const referenceDate = new Date()
+  const payload = await Promise.all(records.map(record => mapToProductPayload(record, referenceDate)))
   const uniqueMap = new Map(payload.map(entry => [entry.id, entry]))
-  const finalPayload = await mergeExistingPricing(client, Array.from(uniqueMap.values()))
+  const finalPayload = await mergeExistingPricing(client, Array.from(uniqueMap.values()), referenceDate)
 
   const { error, data } = await client
     .from("products")
