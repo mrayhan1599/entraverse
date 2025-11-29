@@ -75,59 +75,7 @@ function extractPurchasePrice(record: Record<string, unknown>) {
     record.purchasePrice,
     record.last_buy_price,
     record.lastBuyPrice
-)
-}
-
-function parseNumericValue(value: unknown) {
-  if (value === null || value === undefined) return null
-  if (typeof value === "string" && value.trim() === "") return null
-
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function getStockOutDateField(date: Date) {
-  return date.getDate() <= 15 ? "stockOutDatePeriodA" : "stockOutDatePeriodB"
-}
-
-function buildStockOutDateUpdates(
-  previousStock: number | null,
-  currentStock: number | null,
-  referenceDate = new Date()
-) {
-  const updates: Record<string, unknown> = {}
-
-  if (previousStock === null || currentStock === null) return updates
-
-  const wasZero = previousStock === 0
-  const isZero = currentStock === 0
-
-  if (!wasZero && isZero) {
-    const targetField = getStockOutDateField(referenceDate)
-    updates[targetField] = referenceDate.toISOString()
-  }
-
-  if (wasZero && currentStock > 0) {
-    ;["stockOutDatePeriodA", "stockOutDatePeriodB"].forEach(key => {
-      updates[key] = null
-    })
-  }
-
-  return updates
-}
-
-function normalizeStockOutDates(variant: Record<string, unknown>) {
-  const periodA = variant.stockOutDatePeriodA ?? variant.stock_out_date_period_a
-  const periodB = variant.stockOutDatePeriodB ?? variant.stock_out_date_period_b
-
-  const normalized: Record<string, unknown> = { ...variant }
-  delete normalized.stock_out_date_period_a
-  delete normalized.stock_out_date_period_b
-
-  if (periodA !== undefined) normalized.stockOutDatePeriodA = periodA
-  if (periodB !== undefined) normalized.stockOutDatePeriodB = periodB
-
-  return normalized
+  )
 }
 
 async function hashToUuid(input: string) {
@@ -509,7 +457,7 @@ async function mergeExistingPricing(
         mekariProductId: mekariId || undefined
       }
       delete (normalized as Record<string, unknown>).mekariproductid
-      return normalizeStockOutDates(normalized)
+      return normalized
     }
 
     const mergedVariants = (item.variant_pricing || []).map(variant => {
@@ -520,10 +468,6 @@ async function mergeExistingPricing(
 
       const withPreservedPrices = keepExistingPrices(variantRecord, match)
 
-      const previousStock = parseNumericValue(match.stock)
-      const currentStock = parseNumericValue(variantRecord.stock ?? match.stock)
-      const stockOutDateUpdates = buildStockOutDateUpdates(previousStock, currentStock)
-
       const merged = {
         ...match,
         ...withPreservedPrices,
@@ -532,8 +476,7 @@ async function mergeExistingPricing(
         variantLabel: variantRecord.variantLabel ?? match.variantLabel,
         mekariProductId:
           variantRecord.mekariProductId ?? match.mekariProductId ?? match.mekariproductid,
-        weight: variantRecord.weight ?? match.weight,
-        ...stockOutDateUpdates
+        weight: variantRecord.weight ?? match.weight
       }
 
       return normalizeMekariField(merged)
@@ -551,14 +494,63 @@ async function mergeExistingPricing(
   })
 }
 
+async function excludeExistingMekariProducts(
+  client: ReturnType<typeof createClient>,
+  records: Record<string, unknown>[]
+) {
+  const incomingIds = Array.from(
+    new Set(
+      records
+        .map(record => parseMekariProductId(record))
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  if (!incomingIds.length) return records
+
+  const { data: existing, error } = await client
+    .from("products")
+    .select("id, variant_pricing")
+
+  if (error) {
+    throw new Error(`Gagal membaca produk existing untuk validasi Mekari: ${error.message}`)
+  }
+
+  const existingIds = new Set<string>()
+
+  existing?.forEach(product => {
+    const asRecord = product as Record<string, unknown>
+    const productLevelId = normalizeString(asRecord.mekariProductId ?? (asRecord as any).mekariproductid)
+    if (productLevelId) existingIds.add(productLevelId)
+
+    const variants = Array.isArray(asRecord.variant_pricing) ? asRecord.variant_pricing : []
+    variants.forEach(variant => {
+      const mekariId = normalizeString(
+        (variant as Record<string, unknown>).mekariProductId ??
+          (variant as Record<string, unknown>).mekariproductid
+      )
+      if (mekariId) existingIds.add(mekariId)
+    })
+  })
+
+  if (!existingIds.size) return records
+
+  return records.filter(record => {
+    const mekariId = parseMekariProductId(record)
+    if (!mekariId) return true
+    return !existingIds.has(mekariId)
+  })
+}
+
 async function syncToSupabase(records: Record<string, unknown>[], supabaseUrl: string, supabaseKey: string) {
   const client = createClient(supabaseUrl, supabaseKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   })
 
-  if (!records.length) return []
+  const filteredRecords = await excludeExistingMekariProducts(client, records)
+  if (!filteredRecords.length) return []
 
-  const payload = await Promise.all(records.map(mapToProductPayload))
+  const payload = await Promise.all(filteredRecords.map(mapToProductPayload))
   const uniqueMap = new Map(payload.map(entry => [entry.id, entry]))
   const finalPayload = await mergeExistingPricing(client, Array.from(uniqueMap.values()))
 
