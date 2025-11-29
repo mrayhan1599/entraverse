@@ -2699,11 +2699,28 @@ function mapSupabaseProduct(record) {
   const photos = Array.isArray(record.photos) ? record.photos.filter(Boolean) : [];
   const variants = Array.isArray(record.variants) ? record.variants : [];
   const variantPricing = Array.isArray(record.variant_pricing) ? record.variant_pricing : [];
-  const normalizeStockOutDate = value => formatDateInputValue(value);
-  const normalizedVariantPricing = variantPricing.map(entry => {
-    if (!entry || typeof entry !== 'object') {
-      return entry;
+  const normalizeStockOutDate = value => {
+    try {
+      return formatDateInputValue(value);
+    } catch (error) {
+      console.warn('Gagal memformat tanggal habis stok varian.', { value, error });
+      return '';
     }
+  };
+  const normalizedVariantPricing = variantPricing
+    .map(entry => {
+      if (typeof entry === 'string') {
+        try {
+          entry = JSON.parse(entry);
+        } catch (error) {
+          console.warn('Gagal mengurai entri harga varian.', { entry, error });
+          return null;
+        }
+      }
+
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
 
     const normalized = { ...entry };
     const rawDailyAverage = normalized.dailyAverageSales ?? normalized.daily_average_sales;
@@ -2734,7 +2751,8 @@ function mapSupabaseProduct(record) {
     }
 
     return normalized;
-  });
+  })
+    .filter(Boolean);
   const rawSpu = record.spu ?? record.parent_sku ?? record.parentSku ?? '';
   const normalizedSpu =
     typeof rawSpu === 'string'
