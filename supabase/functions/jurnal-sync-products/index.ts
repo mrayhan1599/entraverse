@@ -461,6 +461,21 @@ function keepExistingPrices(
   return preserved
 }
 
+function parseVariantPricing(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value as Record<string, unknown>[]
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed
+    } catch (error) {
+      console.warn("Gagal mengurai variant_pricing", error)
+    }
+  }
+
+  return []
+}
+
 function findVariantMatch(
   incoming: Record<string, unknown>,
   existingVariants: Record<string, unknown>[]
@@ -505,11 +520,10 @@ async function mergeExistingPricing(
 
   return payload.map(item => {
     const current = existingMap.get(item.id)
-    if (!current?.variant_pricing || !Array.isArray(current.variant_pricing)) {
+    const existingVariants = parseVariantPricing(current?.variant_pricing)
+    if (!existingVariants.length) {
       return item
     }
-
-    const existingVariants = Array.isArray(current.variant_pricing) ? current.variant_pricing : []
 
     const normalizeMekariField = (variant: Record<string, unknown>) => {
       const mekariId = normalizeString(variant.mekariProductId ?? variant.mekariproductid)
@@ -587,7 +601,7 @@ async function findExistingProductsByMekariIds(
     }
 
     data?.forEach(row => {
-      const variants = Array.isArray(row.variant_pricing) ? row.variant_pricing : []
+      const variants = parseVariantPricing(row.variant_pricing)
       variants.forEach(variant => {
         const variantMekariId = normalizeString(variant.mekariProductId ?? variant.mekariproductid)
         if (variantMekariId && chunkSet.has(variantMekariId) && !result.has(variantMekariId)) {
