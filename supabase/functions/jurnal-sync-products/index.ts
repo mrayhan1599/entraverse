@@ -75,58 +75,7 @@ function extractPurchasePrice(record: Record<string, unknown>) {
     record.purchasePrice,
     record.last_buy_price,
     record.lastBuyPrice
-)
-}
-
-function parseNumericValue(value: unknown) {
-  if (value === null || value === undefined) return null
-  if (typeof value === "string" && value.trim() === "") return null
-
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function getStockOutDateField(date: Date) {
-  return date.getDate() <= 15 ? "stockOutDatePeriodA" : "stockOutDatePeriodB"
-}
-
-function getStockOutFieldAliases(field: "stockOutDatePeriodA" | "stockOutDatePeriodB") {
-  if (field === "stockOutDatePeriodA") return ["stockOutDatePeriodA", "stock_out_date_period_a"] as const
-  return ["stockOutDatePeriodB", "stock_out_date_period_b"] as const
-}
-
-function buildStockOutDateUpdates(
-  previousStock: number | null,
-  currentStock: number | null,
-  referenceDate = new Date()
-) {
-  const updates: Record<string, unknown> = {}
-
-  if (previousStock === null || currentStock === null) return updates
-
-  const wasZero = previousStock === 0
-  const isZero = currentStock === 0
-
-  if (!wasZero && isZero) {
-    const targetField = getStockOutDateField(referenceDate)
-    const value = referenceDate.toISOString()
-    getStockOutFieldAliases(targetField).forEach(key => {
-      updates[key] = value
-    })
-  }
-
-  if (wasZero && currentStock > 0) {
-    ;[
-      "stockOutDatePeriodA",
-      "stockOutDatePeriodB",
-      "stock_out_date_period_a",
-      "stock_out_date_period_b"
-    ].forEach(key => {
-      updates[key] = null
-    })
-  }
-
-  return updates
+  )
 }
 
 async function hashToUuid(input: string) {
@@ -519,10 +468,6 @@ async function mergeExistingPricing(
 
       const withPreservedPrices = keepExistingPrices(variantRecord, match)
 
-      const previousStock = parseNumericValue(match.stock)
-      const currentStock = parseNumericValue(variantRecord.stock ?? match.stock)
-      const stockOutDateUpdates = buildStockOutDateUpdates(previousStock, currentStock)
-
       const merged = {
         ...match,
         ...withPreservedPrices,
@@ -531,8 +476,7 @@ async function mergeExistingPricing(
         variantLabel: variantRecord.variantLabel ?? match.variantLabel,
         mekariProductId:
           variantRecord.mekariProductId ?? match.mekariProductId ?? match.mekariproductid,
-        weight: variantRecord.weight ?? match.weight,
-        ...stockOutDateUpdates
+        weight: variantRecord.weight ?? match.weight
       }
 
       return normalizeMekariField(merged)
