@@ -12109,6 +12109,19 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
     sell_price_per_unit: normalizedSellPrice
   };
 
+  const inventoryDefaults = {
+    track_inventory: true,
+    is_bought: true,
+    buy_account_number: '5-50000',
+    buy_account_name: 'Beban Pokok Pendapatan',
+    is_sold: true,
+    sell_account_number: '4-40000',
+    sell_account_name: 'Pendapatan',
+    inventory_asset_account_name: 'Persediaan Barang'
+  };
+
+  Object.assign(basePayload, inventoryDefaults);
+
   if (normalizedSku) {
     basePayload.custom_id = normalizedSku;
     basePayload.product_code = normalizedSku;
@@ -12118,15 +12131,7 @@ function buildMekariProductPayload({ name, sku, buyPrice, sellPrice, description
     Object.assign(basePayload, {
       taxable_buy: false,
       taxable_sell: false,
-      unit_name: 'Unit',
-      track_inventory: true,
-      is_bought: true,
-      buy_account_number: '5-50000',
-      buy_account_name: 'Beban Pokok Pendapatan',
-      is_sold: true,
-      sell_account_number: '4-40000',
-      sell_account_name: 'Pendapatan',
-      inventory_asset_account_name: 'Persediaan Barang'
+      unit_name: 'Unit'
     });
   }
 
