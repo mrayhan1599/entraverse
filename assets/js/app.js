@@ -12367,7 +12367,7 @@ async function updateMekariProductsById({ baseName, variantPricing, description 
     const baseNameForVariant = sanitizedBaseName || fallbackName;
     const mekariName = variantSuffix ? `${baseNameForVariant} - ${variantSuffix}` : baseNameForVariant;
     const normalizedSku = (row?.sellerSku ?? row?.sku ?? '').toString().trim();
-    const skuForPayload = normalizedSku || mekariProductId;
+    const skuForPayload = normalizedSku || '';
     const { buyPrice, sellPrice } = resolveMekariPriceStrings(row);
 
     const payload = buildMekariProductPayload({
