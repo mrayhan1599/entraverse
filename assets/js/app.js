@@ -10209,6 +10209,14 @@ async function handleAddProductForm() {
         return;
       }
 
+      if (value === undefined && field === 'stockOutDatePeriodA') {
+        value = initialData.stock_out_date_period_a;
+      }
+
+      if (value === undefined && field === 'stockOutDatePeriodB') {
+        value = initialData.stock_out_date_period_b;
+      }
+
       if (field === 'exchangeRate') {
         const applied = setExchangeRateInputValue(input, value);
         if (Number.isFinite(applied)) {
