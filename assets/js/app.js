@@ -2700,6 +2700,10 @@ function mapSupabaseProduct(record) {
       normalized.dailyAverageSales = rawDailyAverage;
     }
 
+    if ('daily_average_sales' in normalized) {
+      delete normalized.daily_average_sales;
+    }
+
     const periodA = normalized.stockOutDatePeriodA ?? normalized.stock_out_date_period_a;
     if (periodA !== undefined) {
       normalized.stockOutDatePeriodA = normalizeStockOutDate(periodA);
@@ -2708,6 +2712,14 @@ function mapSupabaseProduct(record) {
     const periodB = normalized.stockOutDatePeriodB ?? normalized.stock_out_date_period_b;
     if (periodB !== undefined) {
       normalized.stockOutDatePeriodB = normalizeStockOutDate(periodB);
+    }
+
+    if ('stock_out_date_period_a' in normalized) {
+      delete normalized.stock_out_date_period_a;
+    }
+
+    if ('stock_out_date_period_b' in normalized) {
+      delete normalized.stock_out_date_period_b;
     }
 
     return normalized;
