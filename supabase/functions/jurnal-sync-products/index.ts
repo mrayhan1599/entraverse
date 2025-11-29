@@ -351,7 +351,7 @@ async function fetchMekariProducts({
   return collected
 }
 
-async function mapToProductPayload(record: Record<string, unknown>) {
+async function mapToProductPayload(record: Record<string, unknown>, existingProductId?: string) {
   const mekariId = parseMekariProductId(record)
   const skuRaw = normalizeString(record.product_code ?? record.productCode ?? record.sku ?? mekariId ?? "")
   const normalizedSku = normalizeSku(skuRaw) || undefined
@@ -366,7 +366,8 @@ async function mapToProductPayload(record: Record<string, unknown>) {
     message: "Sinkron otomatis Mekari Jurnal"
   }
 
-  const productId = await hashToUuid(`mekari:${mekariId ?? normalizedSku ?? name}`)
+  const productId =
+    existingProductId ?? (await hashToUuid(`mekari:${mekariId ?? normalizedSku ?? name}`))
   const variant = {
     id: await hashToUuid(`mekari:variant:${mekariId ?? normalizedSku ?? name}`),
     variantLabel,
@@ -551,6 +552,46 @@ async function mergeExistingPricing(
   })
 }
 
+async function findExistingProductsByMekariIds(
+  client: ReturnType<typeof createClient>,
+  mekariIds: string[]
+) {
+  const normalizedIds = Array.from(new Set(mekariIds.map(id => normalizeString(id)).filter(Boolean)))
+  const result = new Map<string, string>()
+
+  const chunkSize = 10
+  for (let i = 0; i < normalizedIds.length; i += chunkSize) {
+    const chunk = normalizedIds.slice(i, i + chunkSize)
+    const chunkSet = new Set(chunk)
+    const filters = chunk
+      .map(id => `variant_pricing.cs.[{"mekariProductId":"${id}"}]`)
+      .join(",")
+
+    if (!filters) continue
+
+    const { data, error } = await client
+      .from("products")
+      .select("id, variant_pricing")
+      .or(filters)
+
+    if (error) {
+      throw new Error(`Gagal memeriksa produk Mekari existing: ${error.message}`)
+    }
+
+    data?.forEach(row => {
+      const variants = Array.isArray(row.variant_pricing) ? row.variant_pricing : []
+      variants.forEach(variant => {
+        const variantMekariId = normalizeString(variant.mekariProductId ?? variant.mekariproductid)
+        if (variantMekariId && chunkSet.has(variantMekariId) && !result.has(variantMekariId)) {
+          result.set(variantMekariId, row.id)
+        }
+      })
+    })
+  }
+
+  return result
+}
+
 async function syncToSupabase(records: Record<string, unknown>[], supabaseUrl: string, supabaseKey: string) {
   const client = createClient(supabaseUrl, supabaseKey, {
     auth: { autoRefreshToken: false, persistSession: false }
@@ -558,7 +599,20 @@ async function syncToSupabase(records: Record<string, unknown>[], supabaseUrl: s
 
   if (!records.length) return []
 
-  const payload = await Promise.all(records.map(mapToProductPayload))
+  const mekariIds = records
+    .map(parseMekariProductId)
+    .map(id => normalizeString(id))
+    .filter(Boolean) as string[]
+
+  const existingByMekariId = await findExistingProductsByMekariIds(client, mekariIds)
+
+  const payload = await Promise.all(
+    records.map(record => {
+      const mekariId = parseMekariProductId(record)
+      const existingId = mekariId ? existingByMekariId.get(mekariId) : undefined
+      return mapToProductPayload(record, existingId)
+    })
+  )
   const uniqueMap = new Map(payload.map(entry => [entry.id, entry]))
   const finalPayload = await mergeExistingPricing(client, Array.from(uniqueMap.values()))
 
