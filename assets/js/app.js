@@ -2691,6 +2691,46 @@ async function upsertCategoryToSupabase(category) {
   });
 }
 
+function parseStockOutDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  const stringValue = value.toString().trim();
+  if (!stringValue) {
+    return null;
+  }
+
+  const slashMatch = stringValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const [, dayStr, monthStr, yearStr] = slashMatch;
+    const day = Number.parseInt(dayStr, 10);
+    const month = Number.parseInt(monthStr, 10) - 1;
+    const year = yearStr.length === 2 ? 2000 + Number.parseInt(yearStr, 10) : Number.parseInt(yearStr, 10);
+    const parsed = new Date(year, month, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function formatDateInputValue(value) {
+  const date = parseStockOutDate(value);
+  if (!date) {
+    return '';
+  }
+
+  const year = `${date.getFullYear() % 100}`.padStart(2, '0');
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${day}/${month}/${year}`;
+}
+
 function mapSupabaseProduct(record) {
   if (!record) {
     return null;
@@ -9977,46 +10017,6 @@ async function handleAddProductForm() {
 
     traverse(0, [], []);
     return combinations;
-  }
-
-  function parseStockOutDate(value) {
-    if (!value) {
-      return null;
-    }
-
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? null : value;
-    }
-
-    const stringValue = value.toString().trim();
-    if (!stringValue) {
-      return null;
-    }
-
-    const slashMatch = stringValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (slashMatch) {
-      const [, dayStr, monthStr, yearStr] = slashMatch;
-      const day = Number.parseInt(dayStr, 10);
-      const month = Number.parseInt(monthStr, 10) - 1;
-      const year = yearStr.length === 2 ? 2000 + Number.parseInt(yearStr, 10) : Number.parseInt(yearStr, 10);
-      const parsed = new Date(year, month, day);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    }
-
-    const fallback = new Date(value);
-    return Number.isNaN(fallback.getTime()) ? null : fallback;
-  }
-
-  function formatDateInputValue(value) {
-    const date = parseStockOutDate(value);
-    if (!date) {
-      return '';
-    }
-
-    const year = `${date.getFullYear() % 100}`.padStart(2, '0');
-    const month = `${date.getMonth() + 1}`.padStart(2, '0');
-    const day = `${date.getDate()}`.padStart(2, '0');
-    return `${day}/${month}/${year}`;
   }
 
   const getStockOutDateFieldForDate = date => {
