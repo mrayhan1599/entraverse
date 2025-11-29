@@ -550,14 +550,63 @@ async function mergeExistingPricing(
   })
 }
 
+async function excludeExistingMekariProducts(
+  client: ReturnType<typeof createClient>,
+  records: Record<string, unknown>[]
+) {
+  const incomingIds = Array.from(
+    new Set(
+      records
+        .map(record => parseMekariProductId(record))
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  if (!incomingIds.length) return records
+
+  const { data: existing, error } = await client
+    .from("products")
+    .select("id, variant_pricing")
+
+  if (error) {
+    throw new Error(`Gagal membaca produk existing untuk validasi Mekari: ${error.message}`)
+  }
+
+  const existingIds = new Set<string>()
+
+  existing?.forEach(product => {
+    const asRecord = product as Record<string, unknown>
+    const productLevelId = normalizeString(asRecord.mekariProductId ?? (asRecord as any).mekariproductid)
+    if (productLevelId) existingIds.add(productLevelId)
+
+    const variants = Array.isArray(asRecord.variant_pricing) ? asRecord.variant_pricing : []
+    variants.forEach(variant => {
+      const mekariId = normalizeString(
+        (variant as Record<string, unknown>).mekariProductId ??
+          (variant as Record<string, unknown>).mekariproductid
+      )
+      if (mekariId) existingIds.add(mekariId)
+    })
+  })
+
+  if (!existingIds.size) return records
+
+  return records.filter(record => {
+    const mekariId = parseMekariProductId(record)
+    if (!mekariId) return true
+    return !existingIds.has(mekariId)
+  })
+}
+
 async function syncToSupabase(records: Record<string, unknown>[], supabaseUrl: string, supabaseKey: string) {
   const client = createClient(supabaseUrl, supabaseKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   })
 
-  if (!records.length) return []
+  const filteredRecords = await excludeExistingMekariProducts(client, records)
+  if (!filteredRecords.length) return []
 
-  const payload = await Promise.all(records.map(mapToProductPayload))
+  const payload = await Promise.all(filteredRecords.map(mapToProductPayload))
   const uniqueMap = new Map(payload.map(entry => [entry.id, entry]))
   const finalPayload = await mergeExistingPricing(client, Array.from(uniqueMap.values()))
 
