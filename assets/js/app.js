@@ -2103,7 +2103,12 @@ function isPermissionDeniedError(error) {
   }
 
   const code = error.code || error?.cause?.code;
-  if (code === '42501' || code === 'PGRST302' || code === 'PGRST403') {
+  const status = error.status || error?.cause?.status;
+  if (code === '42501' || code === 'PGRST302' || code === 'PGRST403' || code === 'PGRST301') {
+    return true;
+  }
+
+  if (status === 401) {
     return true;
   }
 
@@ -2290,10 +2295,16 @@ async function ensureSupabase() {
 
   supabaseInitializationPromise = (async () => {
     try {
-      return getSupabaseClient();
+      const client = getSupabaseClient();
+      supabaseInitializationError = null;
+      return client;
     } catch (error) {
       supabaseInitializationError = error;
       throw error;
+    } finally {
+      if (supabaseInitializationError) {
+        supabaseInitializationPromise = null;
+      }
     }
   })();
 
