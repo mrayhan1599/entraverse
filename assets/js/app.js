@@ -2805,6 +2805,31 @@ function mapSupabaseProduct(record) {
 
 function mapProductToRecord(product) {
   const sanitizedSpu = (product?.spu ?? '').toString().trim();
+  const normalizedVariantPricing = Array.isArray(product.variantPricing)
+    ? product.variantPricing.map(entry => {
+        const normalized = { ...entry };
+
+        const parseAndNormalizeDate = value => {
+          const parsed = parseStockOutDate(value);
+          return parsed ? parsed.toISOString() : null;
+        };
+
+        normalized.stockOutDatePeriodA = parseAndNormalizeDate(
+          normalized.stockOutDatePeriodA ?? normalized.stock_out_date_period_a
+        );
+
+        normalized.stockOutDatePeriodB = parseAndNormalizeDate(
+          normalized.stockOutDatePeriodB ?? normalized.stock_out_date_period_b
+        );
+
+        if (!normalized.variantLabel && (!normalized.variants || !normalized.variants.length)) {
+          normalized.variantLabel = 'Default';
+        }
+
+        return normalized;
+      })
+    : [];
+
   return {
     id: product.id,
     name: product.name,
@@ -2816,7 +2841,7 @@ function mapProductToRecord(product) {
     inventory: product.inventory ?? null,
     photos: Array.isArray(product.photos) ? product.photos : [],
     variants: Array.isArray(product.variants) ? product.variants : [],
-    variant_pricing: Array.isArray(product.variantPricing) ? product.variantPricing : [],
+    variant_pricing: normalizedVariantPricing,
     mekari_status: product.mekariStatus ? normalizeMekariStatus(product.mekariStatus) : null,
     created_at: toIsoTimestamp(product.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(product.updatedAt)
@@ -11050,7 +11075,7 @@ async function handleAddProductForm() {
       return normalized;
     });
 
-    const filteredPricing = normalizedPricing.filter(row => {
+    let filteredPricing = normalizedPricing.filter(row => {
       const detailValues = [
         row.purchasePrice,
         row.purchaseCurrency,
@@ -11078,6 +11103,16 @@ async function handleAddProductForm() {
 
       return hasDetails;
     });
+
+    if (!filteredPricing.length && normalizedPricing.length) {
+      const fallback = { ...normalizedPricing[0] };
+      if (!fallback.variantLabel) {
+        fallback.variantLabel = 'Default';
+      }
+      fallback.stockOutDatePeriodA = formatDateInputValue(fallback.stockOutDatePeriodA ?? '');
+      fallback.stockOutDatePeriodB = formatDateInputValue(fallback.stockOutDatePeriodB ?? '');
+      filteredPricing = [fallback];
+    }
 
     if (variantDefs.length) {
       const invalidCombination = filteredPricing.some(row => row.variants?.some(variant => !variant.value));
