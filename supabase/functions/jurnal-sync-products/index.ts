@@ -415,6 +415,8 @@ const MONETARY_FIELDS = [
   "basePrice",
   "purchase_price",
   "purchasePrice",
+  "purchaseCurrency",
+  "purchase_currency",
   "purchase_price_idr",
   "purchasePriceIdr",
   "buy_price",
@@ -465,13 +467,19 @@ function findVariantMatch(
 ) {
   const incomingMekariId = normalizeString(incoming.mekariproductid || incoming.mekariProductId)
   const incomingSellerSku = normalizeString(incoming.sellerSku)
+  const incomingVariantId = normalizeString(incoming.id)
+  const incomingNormalizedSku = normalizeSku(incomingSellerSku)
 
   return existingVariants.find(existing => {
     const existingMekariId = normalizeString(existing.mekariproductid || existing.mekariProductId)
     const existingSellerSku = normalizeString(existing.sellerSku)
+    const existingVariantId = normalizeString(existing.id)
+    const existingNormalizedSku = normalizeSku(existingSellerSku)
 
+    if (incomingVariantId && existingVariantId && incomingVariantId === existingVariantId) return true
     if (incomingMekariId && existingMekariId && incomingMekariId === existingMekariId) return true
     if (incomingSellerSku && existingSellerSku && incomingSellerSku === existingSellerSku) return true
+    if (incomingNormalizedSku && existingNormalizedSku && incomingNormalizedSku === existingNormalizedSku) return true
     return false
   })
 }
