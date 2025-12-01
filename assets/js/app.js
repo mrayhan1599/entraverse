@@ -10280,7 +10280,6 @@ async function handleAddProductForm() {
     });
 
     updateArrivalCostForRow(row);
-    recordStockOutDateIfNeeded(row);
   }
 
   function createPricingRow(initialData = {}, variantDefs = getVariantDefinitions(), options = {}) {
@@ -10566,7 +10565,6 @@ async function handleAddProductForm() {
 
     updateComputedPricingForRow(row);
     updateArrivalCostForRow(row);
-    recordStockOutDateIfNeeded(row);
     return row;
   }
 
