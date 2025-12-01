@@ -902,7 +902,11 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
       return false;
     }
 
-    const updatedVariant = { ...currentRow, stock: nextStockValue };
+    const stockOutDateUpdates = buildStockOutDateUpdates(currentRow.stock, nextStockValue, {
+      referenceDate: attempt
+    });
+
+    const updatedVariant = { ...currentRow, stock: nextStockValue, ...stockOutDateUpdates };
     pricingRows[variantIndex] = updatedVariant;
     const updatedProduct = { ...product, variantPricing: pricingRows, updatedAt: Date.now() };
     const aggregatedStock = calculateProductTotalStock(updatedProduct);
@@ -10025,6 +10029,32 @@ async function handleAddProductForm() {
     }
 
     return date.getDate() <= 15 ? 'stockOutDatePeriodA' : 'stockOutDatePeriodB';
+  };
+
+  const buildStockOutDateUpdates = (previousStock, nextStock, { referenceDate = new Date() } = {}) => {
+    const updates = {};
+
+    const previousValue = parseNumericValue(previousStock);
+    const nextValue = parseNumericValue(nextStock);
+
+    if (previousValue === null || nextValue === null) {
+      return updates;
+    }
+
+    const wasZero = previousValue === 0;
+    const isZero = nextValue === 0;
+
+    if (!wasZero && isZero) {
+      const targetField = getStockOutDateFieldForDate(referenceDate);
+      updates[targetField] = referenceDate.toISOString();
+    }
+
+    if (wasZero && nextValue > 0) {
+      updates.stockOutDatePeriodA = null;
+      updates.stockOutDatePeriodB = null;
+    }
+
+    return updates;
   };
 
   const recordStockOutDateIfNeeded = (row, { referenceDate = new Date() } = {}) => {
