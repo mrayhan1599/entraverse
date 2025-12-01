@@ -882,6 +882,40 @@ async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'm
     };
   }
 
+  const getStockOutDateFieldForDate = date => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return 'stockOutDatePeriodA';
+    }
+
+    return date.getDate() <= 15 ? 'stockOutDatePeriodA' : 'stockOutDatePeriodB';
+  };
+
+  const buildStockOutDateUpdates = (previousStock, nextStock, { referenceDate = new Date() } = {}) => {
+    const updates = {};
+
+    const previousValue = parseNumericValue(previousStock);
+    const nextValue = parseNumericValue(nextStock);
+
+    if (previousValue === null || nextValue === null) {
+      return updates;
+    }
+
+    const wasZero = previousValue === 0;
+    const isZero = nextValue === 0;
+
+    if (!wasZero && isZero) {
+      const targetField = getStockOutDateFieldForDate(referenceDate);
+      updates[targetField] = referenceDate.toISOString();
+    }
+
+    if (wasZero && nextValue > 0) {
+      updates.stockOutDatePeriodA = null;
+      updates.stockOutDatePeriodB = null;
+    }
+
+    return updates;
+  };
+
   const updateVariantStock = (productIndex, variantIndex, nextStock) => {
     if (!Number.isInteger(productIndex) || productIndex < 0) {
       return false;
@@ -10022,40 +10056,6 @@ async function handleAddProductForm() {
     traverse(0, [], []);
     return combinations;
   }
-
-  const getStockOutDateFieldForDate = date => {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return 'stockOutDatePeriodA';
-    }
-
-    return date.getDate() <= 15 ? 'stockOutDatePeriodA' : 'stockOutDatePeriodB';
-  };
-
-  const buildStockOutDateUpdates = (previousStock, nextStock, { referenceDate = new Date() } = {}) => {
-    const updates = {};
-
-    const previousValue = parseNumericValue(previousStock);
-    const nextValue = parseNumericValue(nextStock);
-
-    if (previousValue === null || nextValue === null) {
-      return updates;
-    }
-
-    const wasZero = previousValue === 0;
-    const isZero = nextValue === 0;
-
-    if (!wasZero && isZero) {
-      const targetField = getStockOutDateFieldForDate(referenceDate);
-      updates[targetField] = referenceDate.toISOString();
-    }
-
-    if (wasZero && nextValue > 0) {
-      updates.stockOutDatePeriodA = null;
-      updates.stockOutDatePeriodB = null;
-    }
-
-    return updates;
-  };
 
   const recordStockOutDateIfNeeded = (row, { referenceDate = new Date() } = {}) => {
     if (!row) return;
