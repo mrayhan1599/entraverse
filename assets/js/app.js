@@ -2769,6 +2769,56 @@ function formatDateInputValue(value) {
   return `${day}/${month}/${year}`;
 }
 
+function getDaysInMonth(year, monthIndex) {
+  const parsedYear = Number.parseInt(year, 10);
+  const parsedMonth = Number.parseInt(monthIndex, 10);
+
+  if (!Number.isFinite(parsedYear) || !Number.isFinite(parsedMonth)) {
+    return null;
+  }
+
+  const days = new Date(parsedYear, parsedMonth + 1, 0).getDate();
+  return Number.isFinite(days) ? days : null;
+}
+
+function calculateStockOutFactor(dateValue, period) {
+  const parsedDate = parseStockOutDate(dateValue);
+  if (!parsedDate) {
+    return '';
+  }
+
+  const day = parsedDate.getDate();
+  const month = parsedDate.getMonth();
+  const year = parsedDate.getFullYear();
+  const daysInMonth = getDaysInMonth(year, month);
+
+  if (!daysInMonth) {
+    return '';
+  }
+
+  const isPeriodA = (period ?? '').toString().toUpperCase() === 'A';
+  const startDay = isPeriodA ? 1 : 16;
+  const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth;
+
+  if (day < startDay || day > endDay) {
+    return '';
+  }
+
+  const totalDays = isPeriodA ? 15 : daysInMonth - 15;
+  const availableDays = day - startDay;
+
+  if (!Number.isFinite(totalDays) || availableDays <= 0) {
+    return '';
+  }
+
+  const factor = totalDays / availableDays;
+  if (!Number.isFinite(factor) || factor <= 0) {
+    return '';
+  }
+
+  return factor.toFixed(2);
+}
+
 function mapSupabaseProduct(record) {
   if (!record) {
     return null;
@@ -2808,6 +2858,24 @@ function mapSupabaseProduct(record) {
 
     if ('daily_average_sales' in normalized) {
       delete normalized.daily_average_sales;
+    }
+
+    const rawFactorA = normalized.stockOutFactorPeriodA ?? normalized.stock_out_factor_period_a;
+    if (rawFactorA !== undefined) {
+      normalized.stockOutFactorPeriodA = rawFactorA;
+    }
+
+    const rawFactorB = normalized.stockOutFactorPeriodB ?? normalized.stock_out_factor_period_b;
+    if (rawFactorB !== undefined) {
+      normalized.stockOutFactorPeriodB = rawFactorB;
+    }
+
+    if ('stock_out_factor_period_a' in normalized) {
+      delete normalized.stock_out_factor_period_a;
+    }
+
+    if ('stock_out_factor_period_b' in normalized) {
+      delete normalized.stock_out_factor_period_b;
     }
 
     const periodA = normalized.stockOutDatePeriodA ?? normalized.stock_out_date_period_a;
@@ -9175,7 +9243,9 @@ async function handleAddProductForm() {
     'offlinePrice',
     'entraversePrice',
     'tokopediaPrice',
-    'shopeePrice'
+    'shopeePrice',
+    'stockOutFactorPeriodA',
+    'stockOutFactorPeriodB'
   ]);
 
   const STOCK_OUT_DATE_FIELDS = new Set(['stockOutDatePeriodA', 'stockOutDatePeriodB']);
@@ -10085,6 +10155,36 @@ async function handleAddProductForm() {
     dateInput.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
+  const updateStockOutFactorsForRow = row => {
+    if (!row) return;
+
+    const dateA = row.querySelector('[data-field="stockOutDatePeriodA"]')?.value ?? '';
+    const dateB = row.querySelector('[data-field="stockOutDatePeriodB"]')?.value ?? '';
+    const factorAInput = row.querySelector('[data-field="stockOutFactorPeriodA"]');
+    const factorBInput = row.querySelector('[data-field="stockOutFactorPeriodB"]');
+
+    const factorA = calculateStockOutFactor(dateA, 'A');
+    const factorB = calculateStockOutFactor(dateB, 'B');
+
+    if (factorAInput) {
+      factorAInput.value = factorA;
+      if (factorA) {
+        factorAInput.dataset.numericValue = factorA;
+      } else {
+        delete factorAInput.dataset.numericValue;
+      }
+    }
+
+    if (factorBInput) {
+      factorBInput.value = factorB;
+      if (factorB) {
+        factorBInput.dataset.numericValue = factorB;
+      } else {
+        delete factorBInput.dataset.numericValue;
+      }
+    }
+  };
+
   function collectPricingRows(variantDefs = getVariantDefinitions()) {
     if (!pricingBody) return [];
     return Array.from(pricingBody.querySelectorAll('.pricing-row')).map(row => {
@@ -10106,6 +10206,8 @@ async function handleAddProductForm() {
 
       const data = {
         id: row.dataset.pricingId || null,
+        stockOutFactorPeriodA: '',
+        stockOutFactorPeriodB: '',
         purchasePrice: getValue('[data-field="purchasePrice"]'),
         purchaseCurrency: getValue('[data-field="purchaseCurrency"]'),
         exchangeRate: getValue('[data-field="exchangeRate"]', { useDataset: true }),
@@ -10123,6 +10225,9 @@ async function handleAddProductForm() {
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
         stockOutDatePeriodB: getValue('[data-field="stockOutDatePeriodB"]')
       };
+
+      data.stockOutFactorPeriodA = calculateStockOutFactor(data.stockOutDatePeriodA, 'A');
+      data.stockOutFactorPeriodB = calculateStockOutFactor(data.stockOutDatePeriodB, 'B');
 
       const mekariProductId = normalizeMekariProductId(
         row.dataset.mekariProductId ?? row.dataset.mekari_product_id ?? null
@@ -10298,7 +10403,9 @@ async function handleAddProductForm() {
       'sellerSku',
       'weight',
       'stockOutDatePeriodA',
-      'stockOutDatePeriodB'
+      'stockOutDatePeriodB',
+      'stockOutFactorPeriodA',
+      'stockOutFactorPeriodB'
     ].forEach(field => {
       applyFieldValue(field, initialData[field]);
     });
@@ -10310,6 +10417,7 @@ async function handleAddProductForm() {
     });
 
     updateArrivalCostForRow(row);
+    updateStockOutFactorsForRow(row);
   }
 
   function createPricingRow(initialData = {}, variantDefs = getVariantDefinitions(), options = {}) {
@@ -10413,6 +10521,11 @@ async function handleAddProductForm() {
         input.classList.add('readonly-input');
       }
 
+      if (field === 'stockOutFactorPeriodA' || field === 'stockOutFactorPeriodB') {
+        input.inputMode = 'decimal';
+        input.step = '0.01';
+      }
+
       if (AUTO_COMPUTED_PRICING_FIELDS.has(field)) {
         input.readOnly = true;
         input.tabIndex = -1;
@@ -10483,7 +10596,9 @@ async function handleAddProductForm() {
     buildInputCell('sellerSku', 'SKU Penjual');
     buildInputCell('weight', 'Gram');
     buildInputCell('stockOutDatePeriodA', '-');
+    buildInputCell('stockOutFactorPeriodA', '0');
     buildInputCell('stockOutDatePeriodB', '-');
+    buildInputCell('stockOutFactorPeriodB', '0');
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'variant-actions';
@@ -10525,6 +10640,15 @@ async function handleAddProductForm() {
       stockInput.addEventListener('change', handleStockUpdate);
       stockInput.addEventListener('blur', handleStockUpdate);
     }
+
+    ['stockOutDatePeriodA', 'stockOutDatePeriodB'].forEach(fieldName => {
+      const dateInput = row.querySelector(`[data-field="${fieldName}"]`);
+      if (!dateInput) return;
+      const handleDateChange = () => updateStockOutFactorsForRow(row);
+      dateInput.addEventListener('input', handleDateChange);
+      dateInput.addEventListener('change', handleDateChange);
+      dateInput.addEventListener('blur', handleDateChange);
+    });
 
     const manualVariantInput = row.querySelector('[data-field="variantLabel"]');
     if (manualVariantInput) {
@@ -11064,6 +11188,9 @@ async function handleAddProductForm() {
     const variantDefs = getVariantDefinitions();
     const rawPricingRows = collectPricingRows(variantDefs);
     const normalizedPricing = rawPricingRows.map(row => {
+      const formattedStockOutDateA = formatDateInputValue(row.stockOutDatePeriodA ?? '');
+      const formattedStockOutDateB = formatDateInputValue(row.stockOutDatePeriodB ?? '');
+
       const normalized = {
         purchasePrice: (row.purchasePrice ?? '').toString().trim(),
         purchaseCurrency: (row.purchaseCurrency ?? '').toString().trim(),
@@ -11079,8 +11206,10 @@ async function handleAddProductForm() {
         dailyAverageSales: (row.dailyAverageSales ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
         weight: (row.weight ?? '').toString().trim(),
-        stockOutDatePeriodA: formatDateInputValue(row.stockOutDatePeriodA ?? ''),
-        stockOutDatePeriodB: formatDateInputValue(row.stockOutDatePeriodB ?? '')
+        stockOutDatePeriodA: formattedStockOutDateA,
+        stockOutDatePeriodB: formattedStockOutDateB,
+        stockOutFactorPeriodA: calculateStockOutFactor(formattedStockOutDateA, 'A'),
+        stockOutFactorPeriodB: calculateStockOutFactor(formattedStockOutDateB, 'B')
       };
 
       if (row.id) {
@@ -11128,7 +11257,9 @@ async function handleAddProductForm() {
         row.sellerSku,
         row.weight,
         row.stockOutDatePeriodA,
-        row.stockOutDatePeriodB
+        row.stockOutDatePeriodB,
+        row.stockOutFactorPeriodA,
+        row.stockOutFactorPeriodB
       ].map(value => (value ?? '').toString().trim());
       const hasDetails = detailValues.some(Boolean);
 
