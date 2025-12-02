@@ -10772,7 +10772,9 @@ async function handleAddProductForm() {
       'SKU Penjual',
       'Berat Barang',
       'Tanggal Stok Habis Periode A',
+      'Faktor Stok Habis Periode A',
       'Tanggal Stok Habis Periode B',
+      'Faktor Stok Habis Periode B',
       ''
     ];
 
