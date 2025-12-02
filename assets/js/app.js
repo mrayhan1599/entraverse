@@ -10593,9 +10593,9 @@ async function handleAddProductForm() {
     buildInputCell('tokopediaPrice', 'Rp 0');
     buildInputCell('shopeePrice', 'Rp 0');
     buildInputCell('stock', 'Stok');
-    buildInputCell('dailyAverageSales', '0', 'number');
     buildInputCell('sellerSku', 'SKU Penjual');
     buildInputCell('weight', 'Gram');
+    buildInputCell('dailyAverageSales', '0', 'number');
     buildInputCell('stockOutDatePeriodA', '-');
     buildInputCell('stockOutFactorPeriodA', '0');
     buildInputCell('stockOutDatePeriodB', '-');
@@ -10769,9 +10769,9 @@ async function handleAddProductForm() {
       'Harga Jual Tokopedia',
       'Harga Jual Shopee',
       'Stok',
-      'Rata-rata Penjualan per Hari',
       'SKU Penjual',
       'Berat Barang',
+      'Rata-rata Penjualan per Hari',
       'Tanggal Stok Habis Periode A',
       'Faktor Stok Habis Periode A',
       'Tanggal Stok Habis Periode B',
