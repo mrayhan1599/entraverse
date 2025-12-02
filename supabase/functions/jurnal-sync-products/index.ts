@@ -114,31 +114,29 @@ function formatStockOutFactor(value: number) {
   return Number.isFinite(fixed) ? fixed.toString() : ""
 }
 
-function calculateStockOutFactor(
-  dateValue: unknown,
-  period: "A" | "B",
-  { referenceDate = new Date() }: { referenceDate?: Date } = {}
-) {
+function calculateStockOutFactor(dateValue: unknown, period: "A" | "B") {
   const parsedDate = parseStockOutDate(dateValue)
   if (!parsedDate) return ""
 
-  const stockOutDay = parsedDate.getDate()
-  const refDay = referenceDate.getDate()
-  const refMonth = referenceDate.getMonth()
-  const refYear = referenceDate.getFullYear()
-  const daysInMonth = new Date(refYear, refMonth + 1, 0).getDate()
-  if (!Number.isFinite(daysInMonth) || stockOutDay <= 0) return ""
+  const day = parsedDate.getDate()
+  const month = parsedDate.getMonth()
+  const year = parsedDate.getFullYear()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  if (!Number.isFinite(daysInMonth)) return ""
 
   const isPeriodA = (period ?? "A").toString().toUpperCase() === "A"
   const startDay = isPeriodA ? 1 : 16
   const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth
 
-  if (refDay < startDay || refDay > endDay || stockOutDay < startDay || stockOutDay > endDay) return ""
+  if (day < startDay || day > endDay) return ""
 
-  const factor = refDay / stockOutDay
-  if (!Number.isFinite(factor) || factor <= 0) return ""
+  const totalDays = endDay - startDay + 1
+  const availableDays = day - startDay + 1
 
-  return formatStockOutFactor(factor)
+  if (!Number.isFinite(totalDays) || availableDays <= 0) return ""
+
+  const factor = totalDays / availableDays
+  return factor > 0 && Number.isFinite(factor) ? formatStockOutFactor(factor) : ""
 }
 
 function normalizeStockOutMetadata(variant: Record<string, unknown>) {

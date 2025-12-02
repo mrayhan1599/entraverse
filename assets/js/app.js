@@ -2840,19 +2840,18 @@ function getDaysInMonth(year, monthIndex) {
   return Number.isFinite(days) ? days : null;
 }
 
-function calculateStockOutFactor(dateValue, period, { referenceDate = new Date() } = {}) {
+function calculateStockOutFactor(dateValue, period) {
   const parsedDate = parseStockOutDate(dateValue);
   if (!parsedDate) {
     return '';
   }
 
-  const stockOutDay = parsedDate.getDate();
-  const refDay = referenceDate.getDate();
-  const refMonth = referenceDate.getMonth();
-  const refYear = referenceDate.getFullYear();
-  const daysInMonth = getDaysInMonth(refYear, refMonth);
+  const day = parsedDate.getDate();
+  const month = parsedDate.getMonth();
+  const year = parsedDate.getFullYear();
+  const daysInMonth = getDaysInMonth(year, month);
 
-  if (!daysInMonth || !Number.isFinite(stockOutDay) || stockOutDay <= 0) {
+  if (!daysInMonth) {
     return '';
   }
 
@@ -2860,11 +2859,18 @@ function calculateStockOutFactor(dateValue, period, { referenceDate = new Date()
   const startDay = isPeriodA ? 1 : 16;
   const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth;
 
-  if (refDay < startDay || refDay > endDay || stockOutDay < startDay || stockOutDay > endDay) {
+  if (day < startDay || day > endDay) {
     return '';
   }
 
-  const factor = refDay / stockOutDay;
+  const totalDays = endDay - startDay + 1;
+  const availableDays = day - startDay + 1;
+
+  if (!Number.isFinite(totalDays) || availableDays <= 0) {
+    return '';
+  }
+
+  const factor = totalDays / availableDays;
   if (!Number.isFinite(factor) || factor <= 0) {
     return '';
   }
