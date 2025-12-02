@@ -224,7 +224,8 @@ const DEFAULT_PRODUCTS = [
         tokopediaPrice: '9750000',
         shopeePrice: '9650000',
         stock: '25',
-        dailyAverageSales: '8',
+        dailyAverageSalesPeriodA: '8',
+        dailyAverageSalesPeriodB: '8',
         sellerSku: 'SKU-MQ3S-128-GRN-1TH-128',
         weight: '2000'
       },
@@ -244,7 +245,8 @@ const DEFAULT_PRODUCTS = [
         tokopediaPrice: '10000000',
         shopeePrice: '9950000',
         stock: '18',
-        dailyAverageSales: '6',
+        dailyAverageSalesPeriodA: '6',
+        dailyAverageSalesPeriodB: '6',
         sellerSku: 'SKU-MQ3S-256-DBL-NTG',
         weight: '2050'
       }
@@ -289,7 +291,8 @@ const DEFAULT_PRODUCTS = [
         tokopediaPrice: '10699000',
         shopeePrice: '10550000',
         stock: '12',
-        dailyAverageSales: '5',
+        dailyAverageSalesPeriodA: '5',
+        dailyAverageSalesPeriodB: '5',
         sellerSku: 'SKU-MQ3S-256-GRP-1TH',
         weight: '2100'
       },
@@ -309,7 +312,8 @@ const DEFAULT_PRODUCTS = [
         tokopediaPrice: '11150000',
         shopeePrice: '11050000',
         stock: '9',
-        dailyAverageSales: '4',
+        dailyAverageSalesPeriodA: '4',
+        dailyAverageSalesPeriodB: '4',
         sellerSku: 'SKU-MQ3S-256-PRL-2TH',
         weight: '2100'
       }
@@ -1386,9 +1390,47 @@ function formatDailyAverageSalesValue(value) {
   return formatted;
 }
 
-function buildWarehouseAverageMap(rows, days = DAILY_AVERAGE_WINDOW_DAYS) {
+function getWibDateParts(date = new Date()) {
+  const offsetMillis = WIB_TIMEZONE_OFFSET_MINUTES * 60 * 1000;
+  const wibDate = new Date(date.getTime() + offsetMillis);
+  return {
+    year: wibDate.getUTCFullYear(),
+    month: wibDate.getUTCMonth(),
+    day: wibDate.getUTCDate()
+  };
+}
+
+function getDaysInMonthUtc(year, monthZeroBased) {
+  return new Date(Date.UTC(year, monthZeroBased + 1, 0)).getUTCDate();
+}
+
+function getManualAverageContext(now = new Date()) {
+  const { year, month, day } = getWibDateParts(now);
+  const isPeriodA = day <= 15;
+
+  const previousMonth = month === 0 ? 11 : month - 1;
+  const previousYear = month === 0 ? year - 1 : year;
+
+  const daysInCurrentMonth = getDaysInMonthUtc(year, month);
+  const daysInPreviousMonth = getDaysInMonthUtc(previousYear, previousMonth);
+
+  const periodADays = isPeriodA ? day : 15;
+  const periodBDays = isPeriodA
+    ? Math.max(1, daysInPreviousMonth - 15)
+    : Math.max(1, Math.min(day, daysInCurrentMonth) - 15);
+
+  return {
+    isPeriodA,
+    periodADays,
+    periodBDays,
+    periodAReference: { year, month },
+    periodBReference: isPeriodA ? { year: previousYear, month: previousMonth } : { year, month }
+  };
+}
+
+function buildManualPeriodAverage(rows, divisorDays) {
   const map = new Map();
-  const windowDays = Math.max(1, Number.parseInt(days, 10) || DAILY_AVERAGE_WINDOW_DAYS);
+  const days = Math.max(1, Number.parseInt(divisorDays, 10) || 1);
 
   (Array.isArray(rows) ? rows : [])
     .filter(Boolean)
@@ -1407,11 +1449,25 @@ function buildWarehouseAverageMap(rows, days = DAILY_AVERAGE_WINDOW_DAYS) {
       const totalOut = previous.totalOut + qtyOut;
       map.set(sku, {
         totalOut,
-        average: totalOut / windowDays
+        average: totalOut / days
       });
     });
 
   return map;
+}
+
+function mergeManualAverageMaps(periodAMap, periodBMap) {
+  const merged = new Map();
+  const keys = new Set([...(periodAMap?.keys() ?? []), ...(periodBMap?.keys() ?? [])]);
+
+  keys.forEach(sku => {
+    merged.set(sku, {
+      periodA: periodAMap?.get(sku) || { totalOut: 0, average: 0 },
+      periodB: periodBMap?.get(sku) || { totalOut: 0, average: 0 }
+    });
+  });
+
+  return merged;
 }
 
 function getWarehouseAverageSelection() {
@@ -1425,7 +1481,17 @@ function getWarehouseAverageSelection() {
 
 async function ensureWarehouseAverageData({ force = false } = {}) {
   const selection = getWarehouseAverageSelection();
-  const signature = getPeriodSelectionSignature(selection);
+  const context = getManualAverageContext();
+  const signatureParts = [
+    'manual-average',
+    context.isPeriodA ? 'period-a' : 'period-b',
+    `pa-${context.periodAReference.year}-${context.periodAReference.month + 1}`,
+    `pb-${context.periodBReference.year}-${context.periodBReference.month + 1}`,
+    `days-${context.periodADays}-${context.periodBDays}`,
+    `sigA-${getManualState('period-a').lastSignature || 'none'}`,
+    `sigB-${getManualState('period-b').lastSignature || 'none'}`
+  ];
+  const signature = signatureParts.join('|');
 
   if (!force && warehouseAverageCache && warehouseAverageCache.signature === signature) {
     return warehouseAverageCache;
@@ -1443,36 +1509,14 @@ async function ensureWarehouseAverageData({ force = false } = {}) {
   }
 
   warehouseAveragePromise = (async () => {
-    let rows = [];
+    const periodAState = getManualState('period-a');
+    const periodBState = getManualState('period-b');
 
-    if (
-      warehouseMovementsState.lastSignature === signature &&
-      Array.isArray(warehouseMovementsState.rows) &&
-      warehouseMovementsState.rows.length
-    ) {
-      rows = warehouseMovementsState.rows;
-    } else {
-      const cachedSnapshot = getCachedWarehouseMovements(signature);
-      if (cachedSnapshot && Array.isArray(cachedSnapshot.rows) && cachedSnapshot.rows.length) {
-        rows = cachedSnapshot.rows;
-      } else {
-        try {
-          const result = await syncWarehouseMovements({ selection, force: false, showToastOnError: false });
-          if (result?.success && Array.isArray(result.data?.rows)) {
-            rows = result.data.rows;
-          }
-        } catch (error) {
-          console.warn('Gagal menyinkronkan pergerakan barang Mekari untuk estimasi stok.', error);
-        }
+    const periodAMap = buildManualPeriodAverage(periodAState?.rows, context.periodADays);
+    const periodBMap = buildManualPeriodAverage(periodBState?.rows, context.periodBDays);
+    const map = mergeManualAverageMaps(periodAMap, periodBMap);
 
-        if (!rows.length && cachedSnapshot && Array.isArray(cachedSnapshot.rows)) {
-          rows = cachedSnapshot.rows;
-        }
-      }
-    }
-
-    const map = buildWarehouseAverageMap(rows, DAILY_AVERAGE_WINDOW_DAYS);
-    warehouseAverageCache = { signature, map, selection };
+    warehouseAverageCache = { signature, map, selection, context };
     return warehouseAverageCache;
   })();
 
@@ -2867,14 +2911,32 @@ function mapSupabaseProduct(record) {
       }
 
     const normalized = { ...entry };
-    const rawDailyAverage = normalized.dailyAverageSales ?? normalized.daily_average_sales;
-    if (rawDailyAverage !== undefined) {
-      normalized.dailyAverageSales = rawDailyAverage;
+    const rawDailyAverageA =
+      normalized.dailyAverageSalesPeriodA ??
+      normalized.daily_average_sales_period_a ??
+      normalized.dailyAverageSales ??
+      normalized.daily_average_sales;
+    const rawDailyAverageB =
+      normalized.dailyAverageSalesPeriodB ??
+      normalized.daily_average_sales_period_b ??
+      normalized.dailyAverageSales ??
+      normalized.daily_average_sales;
+
+    if (rawDailyAverageA !== undefined) {
+      normalized.dailyAverageSalesPeriodA = rawDailyAverageA;
     }
 
-    if ('daily_average_sales' in normalized) {
-      delete normalized.daily_average_sales;
+    if (rawDailyAverageB !== undefined) {
+      normalized.dailyAverageSalesPeriodB = rawDailyAverageB;
     }
+
+    ['daily_average_sales', 'daily_average_sales_period_a', 'daily_average_sales_period_b', 'dailyAverageSales'].forEach(
+      legacyKey => {
+        if (legacyKey in normalized) {
+          delete normalized[legacyKey];
+        }
+      }
+    );
 
     const rawFactorA = normalized.stockOutFactorPeriodA ?? normalized.stock_out_factor_period_a;
     if (rawFactorA !== undefined) {
@@ -2929,10 +2991,32 @@ function mapSupabaseProduct(record) {
     }
 
     const inventory = { ...record.inventory };
-    const rawDailyAverage = inventory.dailyAverageSales ?? inventory.daily_average_sales;
-    if (rawDailyAverage !== undefined) {
-      inventory.dailyAverageSales = rawDailyAverage;
+    const rawDailyAverageA =
+      inventory.dailyAverageSalesPeriodA ??
+      inventory.daily_average_sales_period_a ??
+      inventory.dailyAverageSales ??
+      inventory.daily_average_sales;
+    const rawDailyAverageB =
+      inventory.dailyAverageSalesPeriodB ??
+      inventory.daily_average_sales_period_b ??
+      inventory.dailyAverageSales ??
+      inventory.daily_average_sales;
+
+    if (rawDailyAverageA !== undefined) {
+      inventory.dailyAverageSalesPeriodA = rawDailyAverageA;
     }
+
+    if (rawDailyAverageB !== undefined) {
+      inventory.dailyAverageSalesPeriodB = rawDailyAverageB;
+    }
+
+    ['daily_average_sales', 'dailyAverageSales', 'daily_average_sales_period_a', 'daily_average_sales_period_b'].forEach(
+      legacyKey => {
+        if (legacyKey in inventory) {
+          delete inventory[legacyKey];
+        }
+      }
+    );
 
     return inventory;
   })();
@@ -3332,7 +3416,18 @@ function buildVariantPricingRowsFromInventory(product) {
         inventory.available_qty,
         product?.stock
       ),
-      dailyAverageSales: pickInventoryValue('dailyAverageSales', 'daily_average_sales'),
+      dailyAverageSalesPeriodA: pickInventoryValue(
+        'dailyAverageSalesPeriodA',
+        'daily_average_sales_period_a',
+        'dailyAverageSales',
+        'daily_average_sales'
+      ),
+      dailyAverageSalesPeriodB: pickInventoryValue(
+        'dailyAverageSalesPeriodB',
+        'daily_average_sales_period_b',
+        'dailyAverageSales',
+        'daily_average_sales'
+      ),
       sellerSku: fallbackSku,
       weight: pickInventoryValue('weightGrams', 'weight_grams', 'weight')
     }
@@ -9186,8 +9281,9 @@ async function handleAddProductForm() {
     }
 
     const skuInput = row.querySelector('[data-field="sellerSku"]');
-    const averageInput = row.querySelector('[data-field="dailyAverageSales"]');
-    if (!skuInput || !averageInput) {
+    const averageInputA = row.querySelector('[data-field="dailyAverageSalesPeriodA"]');
+    const averageInputB = row.querySelector('[data-field="dailyAverageSalesPeriodB"]');
+    if (!skuInput || (!averageInputA && !averageInputB)) {
       return;
     }
 
@@ -9197,17 +9293,22 @@ async function handleAddProductForm() {
     }
 
     const entry = map.get(normalizedSku);
-    if (!entry || !Number.isFinite(entry.average)) {
-      return;
-    }
+    const applyAverage = (input, value) => {
+      if (!input || !Number.isFinite(value)) {
+        return;
+      }
 
-    const formatted = formatDailyAverageSalesValue(entry.average);
+      const formatted = formatDailyAverageSalesValue(value);
 
-    if (averageInput.value !== formatted) {
-      averageInput.value = formatted;
-      averageInput.dispatchEvent(new Event('input', { bubbles: true }));
-      averageInput.dispatchEvent(new Event('change', { bubbles: true }));
-    }
+      if (input.value !== formatted) {
+        input.value = formatted;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    };
+
+    applyAverage(averageInputA, entry?.periodA?.average);
+    applyAverage(averageInputB, entry?.periodB?.average);
   };
 
   const applyWarehouseAverageToPricingRows = map => {
@@ -10235,7 +10336,8 @@ async function handleAddProductForm() {
         tokopediaPrice: getValue('[data-field="tokopediaPrice"]', { asRupiah: true }),
         shopeePrice: getValue('[data-field="shopeePrice"]', { asRupiah: true }),
         stock: getValue('[data-field="stock"]'),
-        dailyAverageSales: getValue('[data-field="dailyAverageSales"]'),
+        dailyAverageSalesPeriodA: getValue('[data-field="dailyAverageSalesPeriodA"]'),
+        dailyAverageSalesPeriodB: getValue('[data-field="dailyAverageSalesPeriodB"]'),
         sellerSku: getValue('[data-field="sellerSku"]'),
         weight: getValue('[data-field="weight"]'),
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
@@ -10417,7 +10519,8 @@ async function handleAddProductForm() {
       'stock',
       'sellerSku',
       'weight',
-      'dailyAverageSales',
+      'dailyAverageSalesPeriodA',
+      'dailyAverageSalesPeriodB',
       'stockOutDatePeriodA',
       'stockOutDatePeriodB',
       'stockOutFactorPeriodA',
@@ -10527,7 +10630,7 @@ async function handleAddProductForm() {
         input.pattern = '[0-9]*';
       }
 
-      if (field === 'dailyAverageSales') {
+      if (field === 'dailyAverageSalesPeriodA' || field === 'dailyAverageSalesPeriodB') {
         input.inputMode = 'decimal';
         input.min = '0';
         input.step = '0.01';
@@ -10610,7 +10713,8 @@ async function handleAddProductForm() {
     buildInputCell('stock', 'Stok');
     buildInputCell('sellerSku', 'SKU Penjual');
     buildInputCell('weight', 'Gram');
-    buildInputCell('dailyAverageSales', '0', 'number');
+    buildInputCell('dailyAverageSalesPeriodA', '0', 'number');
+    buildInputCell('dailyAverageSalesPeriodB', '0', 'number');
     buildInputCell('stockOutDatePeriodA', '-');
     buildInputCell('stockOutFactorPeriodA', '0');
     buildInputCell('stockOutDatePeriodB', '-');
@@ -10715,12 +10819,14 @@ async function handleAddProductForm() {
       const handleSkuUpdate = () => {
         const skuValue = sellerSkuInput.value?.toString().trim() ?? '';
         if (!skuValue) {
-          const averageInput = row.querySelector('[data-field="dailyAverageSales"]');
-          if (averageInput && averageInput.value !== '0') {
-            averageInput.value = '0';
-            averageInput.dispatchEvent(new Event('input', { bubbles: true }));
-            averageInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          ['dailyAverageSalesPeriodA', 'dailyAverageSalesPeriodB'].forEach(fieldName => {
+            const averageInput = row.querySelector(`[data-field="${fieldName}"]`);
+            if (averageInput && averageInput.value !== '0') {
+              averageInput.value = '0';
+              averageInput.dispatchEvent(new Event('input', { bubbles: true }));
+              averageInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
           return;
         }
         updateRowAverageFromWarehouse(row);
@@ -10786,7 +10892,8 @@ async function handleAddProductForm() {
       'Stok',
       'SKU Penjual',
       'Berat Barang',
-      'Rata-rata Penjualan per Hari',
+      'Rata-Rata Penjualan Periode A',
+      'Rata-Rata Penjualan Periode B',
       'Tanggal Stok Habis Periode A',
       'Faktor Stok Habis Periode A',
       'Tanggal Stok Habis Periode B',
@@ -11107,16 +11214,37 @@ async function handleAddProductForm() {
     }
 
     if (pricingBody) {
-      const fallbackDailyAverage = (product.inventory?.dailyAverageSales ?? '').toString().trim();
+      const fallbackDailyAverageA =
+        (product.inventory?.dailyAverageSalesPeriodA ?? product.inventory?.dailyAverageSales ?? '')
+          .toString()
+          .trim();
+      const fallbackDailyAverageB =
+        (product.inventory?.dailyAverageSalesPeriodB ?? product.inventory?.dailyAverageSales ?? '')
+          .toString()
+          .trim();
+
       const pricingData = Array.isArray(product.variantPricing) && product.variantPricing.length
         ? product.variantPricing.map(row => {
             if (!row) return row;
-            if (!fallbackDailyAverage) return row;
-            const existingValue = (row.dailyAverageSales ?? '').toString().trim();
-            if (existingValue) {
-              return row;
+
+            const existingValueA = (row.dailyAverageSalesPeriodA ?? row.dailyAverageSales ?? '').toString().trim();
+            const existingValueB = (row.dailyAverageSalesPeriodB ?? row.dailyAverageSales ?? '').toString().trim();
+
+            const nextRow = { ...row };
+
+            if (!existingValueA && fallbackDailyAverageA) {
+              nextRow.dailyAverageSalesPeriodA = fallbackDailyAverageA;
             }
-            return { ...row, dailyAverageSales: fallbackDailyAverage };
+
+            if (!existingValueB && fallbackDailyAverageB) {
+              nextRow.dailyAverageSalesPeriodB = fallbackDailyAverageB;
+            }
+
+            if ('dailyAverageSales' in nextRow) {
+              delete nextRow.dailyAverageSales;
+            }
+
+            return nextRow;
           })
         : [{}];
       refreshPricingTableStructure({ externalData: pricingData });
@@ -11221,7 +11349,8 @@ async function handleAddProductForm() {
         tokopediaPrice: (row.tokopediaPrice ?? '').toString().trim(),
         shopeePrice: (row.shopeePrice ?? '').toString().trim(),
         stock: (row.stock ?? '').toString().trim(),
-        dailyAverageSales: (row.dailyAverageSales ?? '').toString().trim(),
+        dailyAverageSalesPeriodA: (row.dailyAverageSalesPeriodA ?? '').toString().trim(),
+        dailyAverageSalesPeriodB: (row.dailyAverageSalesPeriodB ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
         weight: (row.weight ?? '').toString().trim(),
         stockOutDatePeriodA: formattedStockOutDateA,
@@ -11271,7 +11400,8 @@ async function handleAddProductForm() {
         row.tokopediaPrice,
         row.shopeePrice,
         row.stock,
-        row.dailyAverageSales,
+        row.dailyAverageSalesPeriodA,
+        row.dailyAverageSalesPeriodB,
         row.sellerSku,
         row.weight,
         row.stockOutDatePeriodA,
@@ -13252,7 +13382,8 @@ function mapMekariProductRecord(record) {
         tokopediaPrice: '',
         shopeePrice: '',
         stock,
-        dailyAverageSales: '',
+        dailyAverageSalesPeriodA: '',
+        dailyAverageSalesPeriodB: '',
         sellerSku: sku,
         weight: '',
         mekariProductId: mekariProductId || null
