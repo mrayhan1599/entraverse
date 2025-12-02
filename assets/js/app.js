@@ -2840,18 +2840,47 @@ function getDaysInMonth(year, monthIndex) {
   return Number.isFinite(days) ? days : null;
 }
 
-function calculateStockOutFactor(dateValue, period) {
+function calculateStockOutFactor(dateValue, period, { referenceDate = new Date() } = {}) {
   const parsedDate = parseStockOutDate(dateValue);
   if (!parsedDate) {
     return '';
   }
 
-  const day = parsedDate.getDate();
-  const month = parsedDate.getMonth();
-  const year = parsedDate.getFullYear();
-  const daysInMonth = getDaysInMonth(year, month);
+  const timeZone = 'Asia/Jakarta';
+  const toParts = date => {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+      const parts = formatter.formatToParts(date).reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+      return {
+        day: Number.parseInt(parts.day, 10),
+        month: Number.parseInt(parts.month, 10),
+        year: Number.parseInt(parts.year, 10)
+      };
+    } catch (error) {
+      console.error('Failed to extract date parts for stock-out factor', error);
+      return { day: NaN, month: NaN, year: NaN };
+    }
+  };
 
-  if (!daysInMonth) {
+  const referenceParts = toParts(referenceDate);
+  const stockOutParts = toParts(parsedDate);
+  const daysInMonth = getDaysInMonth(referenceParts.year, (referenceParts.month ?? 1) - 1);
+
+  if (
+    !daysInMonth ||
+    !Number.isFinite(stockOutParts.day) ||
+    stockOutParts.day <= 0 ||
+    !Number.isFinite(referenceParts.day) ||
+    referenceParts.day <= 0
+  ) {
     return '';
   }
 
@@ -2859,18 +2888,18 @@ function calculateStockOutFactor(dateValue, period) {
   const startDay = isPeriodA ? 1 : 16;
   const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth;
 
-  if (day < startDay || day > endDay) {
+  if (
+    referenceParts.day < startDay ||
+    referenceParts.day > endDay ||
+    stockOutParts.day < startDay ||
+    stockOutParts.day > endDay
+  ) {
     return '';
   }
 
-  const totalDays = endDay - startDay + 1;
-  const availableDays = day - startDay + 1;
-
-  if (!Number.isFinite(totalDays) || availableDays <= 0) {
-    return '';
-  }
-
-  const factor = totalDays / availableDays;
+  // Factor uses the current day number inside the active period against the day stock ran out.
+  // Example: updated on the 6th with stock-out recorded on the 5th yields 6 / 5 = 1.2.
+  const factor = referenceParts.day / stockOutParts.day;
   if (!Number.isFinite(factor) || factor <= 0) {
     return '';
   }

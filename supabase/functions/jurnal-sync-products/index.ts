@@ -114,29 +114,71 @@ function formatStockOutFactor(value: number) {
   return Number.isFinite(fixed) ? fixed.toString() : ""
 }
 
-function calculateStockOutFactor(dateValue: unknown, period: "A" | "B") {
+function calculateStockOutFactor(
+  dateValue: unknown,
+  period: "A" | "B",
+  { referenceDate = new Date() }: { referenceDate?: Date } = {},
+) {
   const parsedDate = parseStockOutDate(dateValue)
   if (!parsedDate) return ""
 
-  const day = parsedDate.getDate()
-  const month = parsedDate.getMonth()
-  const year = parsedDate.getFullYear()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  if (!Number.isFinite(daysInMonth)) return ""
+  const timeZone = "Asia/Jakarta"
+  const toParts = (date: Date) => {
+    try {
+      const formatter = new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+
+      const parts = formatter.formatToParts(date).reduce<Record<string, string>>((acc, part) => {
+        acc[part.type] = part.value
+        return acc
+      }, {})
+
+      return {
+        day: Number.parseInt(parts.day, 10),
+        month: Number.parseInt(parts.month, 10),
+        year: Number.parseInt(parts.year, 10),
+      }
+    } catch (error) {
+      console.error("Failed to extract date parts for stock-out factor", error)
+      return { day: NaN, month: NaN, year: NaN }
+    }
+  }
+
+  const referenceParts = toParts(referenceDate)
+  const stockOutParts = toParts(parsedDate)
+  const daysInMonth = new Date(referenceParts.year, referenceParts.month, 0).getDate()
+
+  if (
+    !Number.isFinite(daysInMonth) ||
+    !Number.isFinite(stockOutParts.day) ||
+    stockOutParts.day <= 0 ||
+    !Number.isFinite(referenceParts.day) ||
+    referenceParts.day <= 0
+  )
+    return ""
 
   const isPeriodA = (period ?? "A").toString().toUpperCase() === "A"
   const startDay = isPeriodA ? 1 : 16
   const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth
 
-  if (day < startDay || day > endDay) return ""
+  if (
+    referenceParts.day < startDay ||
+    referenceParts.day > endDay ||
+    stockOutParts.day < startDay ||
+    stockOutParts.day > endDay
+  )
+    return ""
 
-  const totalDays = endDay - startDay + 1
-  const availableDays = day - startDay + 1
+  // Factor uses the current day number inside the active period against the day stock ran out.
+  // Example: updated on the 6th with stock-out recorded on the 5th yields 6 / 5 = 1.2.
+  const factor = referenceParts.day / stockOutParts.day
+  if (!Number.isFinite(factor) || factor <= 0) return ""
 
-  if (!Number.isFinite(totalDays) || availableDays <= 0) return ""
-
-  const factor = totalDays / availableDays
-  return factor > 0 && Number.isFinite(factor) ? formatStockOutFactor(factor) : ""
+  return formatStockOutFactor(factor)
 }
 
 function normalizeStockOutMetadata(variant: Record<string, unknown>) {
