@@ -24,7 +24,16 @@ type VariantPricingRow = {
   sku?: unknown
   dailyAverageSales?: unknown
   daily_average_sales?: unknown
+  dailyAverageSalesPeriodA?: unknown
+  daily_average_sales_period_a?: unknown
+  dailyAverageSalesPeriodB?: unknown
+  daily_average_sales_period_b?: unknown
   [key: string]: unknown
+}
+
+const MANUAL_PERIOD_SIGNATURES = {
+  "period-a": "manual-period-1",
+  "period-b": "manual-period-2"
 }
 
 const corsHeaders = {
@@ -58,7 +67,7 @@ function parseNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-function buildAverageMap(rows: unknown[], windowDays = 30) {
+function buildAverageMap(rows: unknown[], windowDays: number) {
   const days = Math.max(1, Number.isFinite(windowDays) ? Number(windowDays) : 30)
   const map = new Map<string, { totalOut: number; average: number }>()
 
@@ -91,22 +100,75 @@ function normalizeInventory(inventory: unknown) {
 }
 
 async function fetchLatestManualRows(client: SupabaseClient) {
+  const periodSignatures = Object.values(MANUAL_PERIOD_SIGNATURES)
   const { data, error } = await client
     .from("warehouse_movements")
-    .select("rows, updated_at")
+    .select("period_signature, rows, updated_at")
     .eq("source", "manual")
+    .in("period_signature", periodSignatures)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
   if (error) {
     if (error.code === "42P01" || error.code === "PGRST301") {
-      return { rows: [], updatedAt: null as string | null }
+      return {}
     }
     throw error
   }
 
-  return { rows: Array.isArray(data?.rows) ? data.rows : [], updatedAt: data?.updated_at ?? null }
+  const grouped: Record<string, { rows: unknown[]; updatedAt: string | null; signature: string }> = {}
+
+  ;(data ?? []).forEach(entry => {
+    const signature = (entry as { period_signature?: string })?.period_signature ?? ""
+    const periodKey = Object.entries(MANUAL_PERIOD_SIGNATURES).find(([, value]) => value === signature)?.[0]
+    if (!periodKey || grouped[periodKey]) return
+
+    grouped[periodKey] = {
+      rows: Array.isArray((entry as { rows?: unknown[] }).rows) ? (entry as { rows?: unknown[] }).rows ?? [] : [],
+      updatedAt: (entry as { updated_at?: string | null }).updated_at ?? null,
+      signature
+    }
+  })
+
+  return grouped
+}
+
+function getWibDateParts(dateValue = new Date()) {
+  const wibString = new Date(dateValue).toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
+  const wib = new Date(wibString)
+
+  return {
+    year: wib.getFullYear(),
+    month: wib.getMonth(),
+    day: wib.getDate()
+  }
+}
+
+function getDaysInMonth(year: number, monthZeroBased: number) {
+  return new Date(Date.UTC(year, monthZeroBased + 1, 0)).getUTCDate()
+}
+
+function getManualAverageContext(now = new Date()) {
+  const { year, month, day } = getWibDateParts(now)
+  const isPeriodA = day <= 15
+
+  const previousMonth = month === 0 ? 11 : month - 1
+  const previousYear = month === 0 ? year - 1 : year
+
+  const daysInCurrentMonth = getDaysInMonth(year, month)
+  const daysInPreviousMonth = getDaysInMonth(previousYear, previousMonth)
+
+  const periodADays = isPeriodA ? day : 15
+  const periodBDays = isPeriodA
+    ? Math.max(1, daysInPreviousMonth - 15)
+    : Math.max(1, Math.min(day, daysInCurrentMonth) - 15)
+
+  return {
+    isPeriodA,
+    periodADays,
+    periodBDays,
+    periodAReference: { year, month },
+    periodBReference: isPeriodA ? { year: previousYear, month: previousMonth } : { year, month }
+  }
 }
 
 async function fetchProducts(client: SupabaseClient) {
@@ -155,10 +217,22 @@ Deno.serve(async req => {
       global: { headers: { "x-entraverse-trace-id": traceId } }
     })
 
-    const { rows, updatedAt } = await fetchLatestManualRows(supabase)
-    const averageMap = buildAverageMap(rows)
+    const context = getManualAverageContext()
+    const manualRows = await fetchLatestManualRows(supabase)
 
-    if (!averageMap.size) {
+    const periodARows = manualRows["period-a"]?.rows ?? []
+    const periodBRows = manualRows["period-b"]?.rows ?? []
+
+    const updatedAtCandidates = [manualRows["period-a"]?.updatedAt, manualRows["period-b"]?.updatedAt]
+      .filter((value): value is string => typeof value === "string" && !!value)
+      .sort()
+
+    const updatedAt = updatedAtCandidates[updatedAtCandidates.length - 1] ?? null
+
+    const periodAMap = buildAverageMap(periodARows, context.periodADays)
+    const periodBMap = buildAverageMap(periodBRows, context.periodBDays)
+
+    if (!periodAMap.size && !periodBMap.size) {
       return jsonResponse(200, {
         ok: true,
         traceId,
@@ -181,37 +255,67 @@ Deno.serve(async req => {
       if (!pricingRows.length) return
 
       let hasChange = false
-      let inventoryDailyAverage: number | null = null
+      let inventoryDailyAverageA: number | null = null
+      let inventoryDailyAverageB: number | null = null
 
       const updatedPricing = pricingRows.map(row => {
         const sku = normalizeSku(row.sellerSku ?? row.sku)
         if (!sku) return row
 
-        const matched = averageMap.get(sku)
-        if (!matched) return row
+        const matchedA = periodAMap.get(sku)
+        const matchedB = periodBMap.get(sku)
+        let nextRow = row
+        let rowTouched = false
 
-        const normalizedAverage = pickDailyAverageValue(row.dailyAverageSales ?? row.daily_average_sales)
-        const targetAverage = Number(matched.average.toFixed(2))
-        const rawAverageValue = row.dailyAverageSales ?? row.daily_average_sales
+        if (matchedA) {
+          const normalizedAverageA = pickDailyAverageValue(row.dailyAverageSalesPeriodA ?? row.daily_average_sales_period_a)
+          const targetAverageA = Number(matchedA.average.toFixed(2))
+          const rawAverageA = row.dailyAverageSalesPeriodA ?? row.daily_average_sales_period_a
 
-        if (normalizedAverage !== targetAverage || typeof rawAverageValue !== "number") {
-          hasChange = true
-          inventoryDailyAverage = inventoryDailyAverage ?? targetAverage
-          touchedVariants += 1
-          return { ...row, dailyAverageSales: targetAverage }
+          if (normalizedAverageA !== targetAverageA || typeof rawAverageA !== "number") {
+            hasChange = true
+            rowTouched = true
+            inventoryDailyAverageA = inventoryDailyAverageA ?? targetAverageA
+            nextRow = { ...nextRow, dailyAverageSalesPeriodA: targetAverageA }
+          }
         }
 
-        return row
+        if (matchedB) {
+          const normalizedAverageB = pickDailyAverageValue(row.dailyAverageSalesPeriodB ?? row.daily_average_sales_period_b)
+          const targetAverageB = Number(matchedB.average.toFixed(2))
+          const rawAverageB = row.dailyAverageSalesPeriodB ?? row.daily_average_sales_period_b
+
+          if (normalizedAverageB !== targetAverageB || typeof rawAverageB !== "number") {
+            hasChange = true
+            rowTouched = true
+            inventoryDailyAverageB = inventoryDailyAverageB ?? targetAverageB
+            nextRow = { ...nextRow, dailyAverageSalesPeriodB: targetAverageB }
+          }
+        }
+
+        if (rowTouched) {
+          touchedVariants += 1
+        }
+
+        return nextRow
       })
 
       if (!hasChange) return
 
       const inventory = normalizeInventory(record.inventory)
-      if (inventoryDailyAverage !== null) {
-        const rawDailyAverage = inventory.dailyAverageSales ?? inventory.daily_average_sales
+      if (inventoryDailyAverageA !== null) {
+        const rawDailyAverage = inventory.dailyAverageSalesPeriodA ?? inventory.daily_average_sales_period_a
         const normalized = pickDailyAverageValue(rawDailyAverage)
-        if (normalized !== inventoryDailyAverage || typeof rawDailyAverage !== "number") {
-          inventory.dailyAverageSales = inventoryDailyAverage
+        if (normalized !== inventoryDailyAverageA || typeof rawDailyAverage !== "number") {
+          inventory.dailyAverageSalesPeriodA = inventoryDailyAverageA
+        }
+      }
+
+      if (inventoryDailyAverageB !== null) {
+        const rawDailyAverage = inventory.dailyAverageSalesPeriodB ?? inventory.daily_average_sales_period_b
+        const normalized = pickDailyAverageValue(rawDailyAverage)
+        if (normalized !== inventoryDailyAverageB || typeof rawDailyAverage !== "number") {
+          inventory.dailyAverageSalesPeriodB = inventoryDailyAverageB
         }
       }
 
