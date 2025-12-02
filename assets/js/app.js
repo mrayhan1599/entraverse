@@ -10714,9 +10714,9 @@ async function handleAddProductForm() {
     buildInputCell('sellerSku', 'SKU Penjual');
     buildInputCell('weight', 'Gram');
     buildInputCell('dailyAverageSalesPeriodA', '0', 'number');
-    buildInputCell('dailyAverageSalesPeriodB', '0', 'number');
     buildInputCell('stockOutDatePeriodA', '-');
     buildInputCell('stockOutFactorPeriodA', '0');
+    buildInputCell('dailyAverageSalesPeriodB', '0', 'number');
     buildInputCell('stockOutDatePeriodB', '-');
     buildInputCell('stockOutFactorPeriodB', '0');
 
@@ -10893,9 +10893,9 @@ async function handleAddProductForm() {
       'SKU Penjual',
       'Berat Barang',
       'Rata-Rata Penjualan Periode A',
-      'Rata-Rata Penjualan Periode B',
       'Tanggal Stok Habis Periode A',
       'Faktor Stok Habis Periode A',
+      'Rata-Rata Penjualan Periode B',
       'Tanggal Stok Habis Periode B',
       'Faktor Stok Habis Periode B',
       ''
