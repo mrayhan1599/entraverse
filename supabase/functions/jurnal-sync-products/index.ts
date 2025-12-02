@@ -86,6 +86,71 @@ function parseNumericValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function parseStockOutDate(value: unknown): Date | null {
+  if (value === null || value === undefined) return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
+
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+
+    const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (slashMatch) {
+      const [, dayStr, monthStr, yearStr] = slashMatch
+      const day = Number.parseInt(dayStr, 10)
+      const month = Number.parseInt(monthStr, 10) - 1
+      const year = yearStr.length === 2 ? 2000 + Number.parseInt(yearStr, 10) : Number.parseInt(yearStr, 10)
+      const parsed = new Date(year, month, day)
+      return Number.isNaN(parsed.getTime()) ? null : parsed
+    }
+  }
+
+  const parsed = new Date(value as any)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function formatStockOutFactor(value: number) {
+  const fixed = Number(value.toFixed(2))
+  return Number.isFinite(fixed) ? fixed.toString() : ""
+}
+
+function calculateStockOutFactor(dateValue: unknown, period: "A" | "B") {
+  const parsedDate = parseStockOutDate(dateValue)
+  if (!parsedDate) return ""
+
+  const day = parsedDate.getDate()
+  const month = parsedDate.getMonth()
+  const year = parsedDate.getFullYear()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  if (!Number.isFinite(daysInMonth)) return ""
+
+  const isPeriodA = (period ?? "A").toString().toUpperCase() === "A"
+  const startDay = isPeriodA ? 1 : 16
+  const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth
+
+  if (day < startDay || day > endDay) return ""
+
+  const totalDays = endDay - startDay + 1
+  const availableDays = day - startDay + 1
+
+  if (!Number.isFinite(totalDays) || availableDays <= 0) return ""
+
+  const factor = totalDays / availableDays
+  return factor > 0 && Number.isFinite(factor) ? formatStockOutFactor(factor) : ""
+}
+
+function normalizeStockOutMetadata(variant: Record<string, unknown>) {
+  const normalized = normalizeStockOutDates(variant)
+
+  delete (normalized as Record<string, unknown>).stock_out_factor_period_a
+  delete (normalized as Record<string, unknown>).stock_out_factor_period_b
+
+  normalized.stockOutFactorPeriodA = calculateStockOutFactor(normalized.stockOutDatePeriodA, "A")
+  normalized.stockOutFactorPeriodB = calculateStockOutFactor(normalized.stockOutDatePeriodB, "B")
+
+  return normalized
+}
+
 function getStockOutDateField(date: Date) {
   return date.getDate() <= 15 ? "stockOutDatePeriodA" : "stockOutDatePeriodB"
 }
@@ -521,9 +586,6 @@ async function mergeExistingPricing(
   return payload.map(item => {
     const current = existingMap.get(item.id)
     const existingVariants = parseVariantPricing(current?.variant_pricing)
-    if (!existingVariants.length) {
-      return item
-    }
 
     const normalizeMekariField = (variant: Record<string, unknown>) => {
       const mekariId = normalizeString(variant.mekariProductId ?? variant.mekariproductid)
@@ -532,7 +594,16 @@ async function mergeExistingPricing(
         mekariProductId: mekariId || undefined
       }
       delete (normalized as Record<string, unknown>).mekariproductid
-      return normalizeStockOutDates(normalized)
+      return normalizeStockOutMetadata(normalized)
+    }
+
+    if (!existingVariants.length) {
+      return {
+        ...item,
+        variant_pricing: (item.variant_pricing || []).map(variant =>
+          normalizeMekariField(variant as Record<string, unknown>)
+        )
+      }
     }
 
     const mergedVariants = (item.variant_pricing || []).map(variant => {

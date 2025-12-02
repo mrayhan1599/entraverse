@@ -2804,8 +2804,8 @@ function calculateStockOutFactor(dateValue, period) {
     return '';
   }
 
-  const totalDays = isPeriodA ? 15 : daysInMonth - 15;
-  const availableDays = day - startDay;
+  const totalDays = endDay - startDay + 1;
+  const availableDays = day - startDay + 1;
 
   if (!Number.isFinite(totalDays) || availableDays <= 0) {
     return '';
@@ -2816,7 +2816,8 @@ function calculateStockOutFactor(dateValue, period) {
     return '';
   }
 
-  return factor.toFixed(2);
+  const fixed = Number(factor.toFixed(2));
+  return Number.isFinite(fixed) ? fixed.toString() : '';
 }
 
 function mapSupabaseProduct(record) {
