@@ -630,22 +630,37 @@ let warehouseMovementsState = {
 const WAREHOUSE_SOURCE_AUTO = 'auto';
 const WAREHOUSE_SOURCE_MANUAL = 'manual';
 const MANUAL_WAREHOUSE_SIGNATURE = 'manual-latest';
+const WAREHOUSE_MANUAL_PERIODS = [
+  { key: 'period-a', label: 'Periode A' },
+  { key: 'period-b', label: 'Periode B' }
+];
+const MANUAL_PERIOD_SIGNATURES = WAREHOUSE_MANUAL_PERIODS.reduce((accumulator, period, index) => {
+  accumulator[period.key] = `manual-period-${index + 1}`;
+  return accumulator;
+}, {});
 let warehouseActiveSource = WAREHOUSE_SOURCE_AUTO;
-let warehouseManualState = {
-  rows: [],
-  header: null,
-  totals: null,
-  warehouses: 0,
-  lastSignature: null,
-  loading: false,
-  error: null,
-  currentPage: 1,
-  pageSize: 10,
-  lastFilteredCount: 0,
-  sort: { key: null, direction: 'asc' },
-  lastLoadedAt: null,
-  fileName: null
-};
+let warehouseManualActivePeriod = WAREHOUSE_MANUAL_PERIODS[0].key;
+function createEmptyManualState() {
+  return {
+    rows: [],
+    header: null,
+    totals: null,
+    warehouses: 0,
+    lastSignature: null,
+    loading: false,
+    error: null,
+    currentPage: 1,
+    pageSize: 10,
+    lastFilteredCount: 0,
+    sort: { key: null, direction: 'asc' },
+    lastLoadedAt: null,
+    fileName: null
+  };
+}
+const warehouseManualStates = WAREHOUSE_MANUAL_PERIODS.reduce((accumulator, period) => {
+  accumulator[period.key] = createEmptyManualState();
+  return accumulator;
+}, {});
 
 const WAREHOUSE_MOVEMENTS_CACHE_KEY = 'entraverse_warehouse_movements_cache';
 const WAREHOUSE_MOVEMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -14368,14 +14383,65 @@ function sanitizeWarehouseSort(sort) {
   return { key, direction };
 }
 
-function getWarehouseState(source = warehouseActiveSource) {
-  return source === WAREHOUSE_SOURCE_MANUAL ? warehouseManualState : warehouseMovementsState;
+function getManualPeriodLabel(periodKey = warehouseManualActivePeriod) {
+  return WAREHOUSE_MANUAL_PERIODS.find(period => period.key === periodKey)?.label || 'Periode';
 }
 
-function setWarehouseState(source, value) {
+function getManualPeriodSignature(periodKey = warehouseManualActivePeriod) {
+  return MANUAL_PERIOD_SIGNATURES[periodKey] || `${MANUAL_WAREHOUSE_SIGNATURE}-${periodKey}`;
+}
+
+function getManualPeriodKeyFromSignature(signature) {
+  if (!signature) {
+    return null;
+  }
+
+  const entry = Object.entries(MANUAL_PERIOD_SIGNATURES).find(([, value]) => value === signature);
+  return entry ? entry[0] : null;
+}
+
+function getManualState(periodKey = warehouseManualActivePeriod) {
+  const existing = warehouseManualStates[periodKey];
+  if (existing) {
+    return existing;
+  }
+
+  warehouseManualStates[periodKey] = createEmptyManualState();
+  return warehouseManualStates[periodKey];
+}
+
+function setManualPeriod(periodKey) {
+  const fallback = WAREHOUSE_MANUAL_PERIODS[0]?.key ?? warehouseManualActivePeriod;
+  const targetPeriod = WAREHOUSE_MANUAL_PERIODS.some(period => period.key === periodKey)
+    ? periodKey
+    : fallback;
+  warehouseManualActivePeriod = targetPeriod;
+
+  document.querySelectorAll('[data-warehouse-manual-period]').forEach(button => {
+    button.classList.toggle('is-active', button.dataset.warehouseManualPeriod === targetPeriod);
+  });
+
+  updateManualUploadUI();
+  if (warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL) {
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+  }
+}
+
+function setManualState(value, { period } = {}) {
+  const targetPeriod = period || warehouseManualActivePeriod;
+  const currentState = getManualState(targetPeriod);
+  warehouseManualStates[targetPeriod] =
+    typeof value === 'function' ? value(currentState) : { ...currentState, ...value };
+  return warehouseManualStates[targetPeriod];
+}
+
+function getWarehouseState(source = warehouseActiveSource) {
+  return source === WAREHOUSE_SOURCE_MANUAL ? getManualState() : warehouseMovementsState;
+}
+
+function setWarehouseState(source, value, options = {}) {
   if (source === WAREHOUSE_SOURCE_MANUAL) {
-    warehouseManualState = typeof value === 'function' ? value(warehouseManualState) : { ...warehouseManualState, ...value };
-    return warehouseManualState;
+    return setManualState(value, options);
   }
 
   warehouseMovementsState = typeof value === 'function' ? value(warehouseMovementsState) : { ...warehouseMovementsState, ...value };
@@ -15226,7 +15292,8 @@ function formatManualUploadedAt(timestamp) {
 }
 
 function updateManualUploadUI() {
-  const state = warehouseManualState;
+  const state = getManualState();
+  const periodLabel = getManualPeriodLabel();
   const statusLabel = document.querySelector('[data-manual-upload-label]');
   const statusMeta = document.querySelector('[data-manual-upload-meta]');
   const indicator = document.querySelector('[data-manual-status-indicator]');
@@ -15241,12 +15308,12 @@ function updateManualUploadUI() {
 
   if (statusLabel) {
     statusLabel.textContent = hasRows
-      ? `Menggunakan upload: ${state.fileName || 'File Excel'}`
-      : 'Belum ada unggahan';
+      ? `${periodLabel} - Menggunakan upload: ${state.fileName || 'File Excel'}`
+      : `${periodLabel} - Belum ada unggahan`;
   }
 
   if (statusMeta) {
-    const parts = [];
+    const parts = [periodLabel];
     if (hasRows) {
       parts.push(`${formatNumber(state.rows.length)} baris • ${formatNumber(state.warehouses)} gudang`);
     }
@@ -15335,18 +15402,11 @@ function setWarehouseSourceTab(source) {
 }
 
 function clearManualWarehouseData({ silent = false } = {}) {
+  const periodLabel = getManualPeriodLabel();
+
   setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
-    rows: [],
-    header: null,
-    totals: null,
-    warehouses: 0,
-    fileName: null,
-    lastLoadedAt: null,
-    lastSignature: null,
-    error: null,
-    loading: false,
-    currentPage: 1,
-    lastFilteredCount: 0
+    ...createEmptyManualState(),
+    pageSize: getManualState().pageSize
   });
 
   updateManualUploadUI();
@@ -15356,7 +15416,7 @@ function clearManualWarehouseData({ silent = false } = {}) {
   }
 
   if (!silent) {
-    toast.show('Unggahan manual dibersihkan.');
+    toast.show(`Unggahan ${periodLabel} dibersihkan.`);
   }
 }
 
@@ -15364,6 +15424,10 @@ async function handleManualWarehouseFile(file) {
   if (!file) {
     return;
   }
+
+  const periodKey = warehouseManualActivePeriod;
+  const periodLabel = getManualPeriodLabel(periodKey);
+  const periodSignature = getManualPeriodSignature(periodKey);
 
   try {
     await ensureXlsxReader();
@@ -15374,11 +15438,15 @@ async function handleManualWarehouseFile(file) {
     return;
   }
 
-  setWarehouseState(WAREHOUSE_SOURCE_MANUAL, previous => ({
-    ...previous,
-    loading: true,
-    error: null
-  }));
+  setWarehouseState(
+    WAREHOUSE_SOURCE_MANUAL,
+    previous => ({
+      ...previous,
+      loading: true,
+      error: null
+    }),
+    { period: periodKey }
+  );
   updateManualUploadUI();
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
@@ -15394,32 +15462,36 @@ async function handleManualWarehouseFile(file) {
     const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     const normalized = normalizeManualWarehouseRows(matrix, { fileName: file.name });
 
-    const sortState = sanitizeWarehouseSort(getWarehouseState(WAREHOUSE_SOURCE_MANUAL).sort);
+    const sortState = sanitizeWarehouseSort(getManualState(periodKey).sort);
     const timestamp = Date.now();
 
     const snapshot = {
       ...normalized,
       source: WAREHOUSE_SOURCE_MANUAL,
-      periodSignature: MANUAL_WAREHOUSE_SIGNATURE,
+      periodSignature: periodSignature,
       fileName: file.name,
       lastLoadedAt: timestamp
     };
 
-    setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
-      ...normalized,
-      fileName: file.name,
-      loading: false,
-      error: null,
-      currentPage: 1,
-      lastFilteredCount: 0,
-      sort: sortState,
-      lastLoadedAt: timestamp,
-      lastSignature: MANUAL_WAREHOUSE_SIGNATURE
-    });
+    setWarehouseState(
+      WAREHOUSE_SOURCE_MANUAL,
+      {
+        ...normalized,
+        fileName: file.name,
+        loading: false,
+        error: null,
+        currentPage: 1,
+        lastFilteredCount: 0,
+        sort: sortState,
+        lastLoadedAt: timestamp,
+        lastSignature: periodSignature
+      },
+      { period: periodKey }
+    );
 
     try {
       await persistWarehouseMovementSnapshot(snapshot, { throwOnFailure: true });
-      toast.show('Data pergerakan barang diperbarui dari upload manual.');
+      toast.show(`Data pergerakan barang diperbarui (${periodLabel}).`);
     } catch (error) {
       console.warn('Gagal menyimpan pergerakan gudang manual ke Supabase.', error);
       let message = 'Unggahan manual tersimpan lokal, tetapi gagal disimpan ke Supabase.';
@@ -15438,11 +15510,15 @@ async function handleManualWarehouseFile(file) {
     setWarehouseSourceTab(WAREHOUSE_SOURCE_MANUAL);
   } catch (error) {
     const message = error?.message ? String(error.message) : 'Gagal membaca file Excel pergerakan barang.';
-    setWarehouseState(WAREHOUSE_SOURCE_MANUAL, previous => ({
-      ...previous,
-      loading: false,
-      error: message
-    }));
+    setWarehouseState(
+      WAREHOUSE_SOURCE_MANUAL,
+      previous => ({
+        ...previous,
+        loading: false,
+        error: message
+      }),
+      { period: periodKey }
+    );
     toast.show(message);
   } finally {
     updateManualUploadUI();
@@ -15800,6 +15876,7 @@ function initReportsPage() {
   const manualInput = document.querySelector('[data-warehouse-manual-input]');
   const manualResetButton = document.querySelector('[data-warehouse-manual-reset]');
   const sourceTabs = document.querySelector('[data-warehouse-source-tabs]');
+  const manualPeriodTabs = document.querySelector('[data-warehouse-manual-period-tabs]');
 
   if (sourceTabs) {
     sourceTabs.addEventListener('click', event => {
@@ -15808,6 +15885,16 @@ function initReportsPage() {
         return;
       }
       setWarehouseSourceTab(button.dataset.warehouseSourceTab);
+    });
+  }
+
+  if (manualPeriodTabs) {
+    manualPeriodTabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-warehouse-manual-period]');
+      if (!button) {
+        return;
+      }
+      setManualPeriod(button.dataset.warehouseManualPeriod);
     });
   }
 
@@ -15827,42 +15914,62 @@ function initReportsPage() {
 
   updateManualUploadUI();
   setWarehouseSourceTab(warehouseActiveSource);
+  setManualPeriod(warehouseManualActivePeriod);
 
   const restoreManualWarehouseFromSupabase = async () => {
     if (!isSupabaseConfigured()) {
       return;
     }
 
-    if (warehouseManualState.rows.length) {
+    const hasManualData = Object.values(warehouseManualStates).some(state => state.rows.length);
+    if (hasManualData) {
       return;
     }
 
     try {
-      const snapshot = await fetchWarehouseMovementSnapshot({
-        source: WAREHOUSE_SOURCE_MANUAL,
-        signature: MANUAL_WAREHOUSE_SIGNATURE
+      const snapshots = await Promise.all(
+        WAREHOUSE_MANUAL_PERIODS.map(period =>
+          fetchWarehouseMovementSnapshot({
+            source: WAREHOUSE_SOURCE_MANUAL,
+            signature: getManualPeriodSignature(period.key)
+          }).catch(error => {
+            console.warn(`Gagal memuat snapshot ${period.label} dari Supabase.`, error);
+            return null;
+          })
+        )
+      );
+
+      snapshots.forEach((snapshot, index) => {
+        if (snapshot && Array.isArray(snapshot.rows) && snapshot.rows.length) {
+          const periodKey =
+            getManualPeriodKeyFromSignature(snapshot.periodSignature) ||
+            WAREHOUSE_MANUAL_PERIODS[index]?.key ||
+            warehouseManualActivePeriod;
+
+          setWarehouseState(
+            WAREHOUSE_SOURCE_MANUAL,
+            {
+              ...createEmptyManualState(),
+              rows: snapshot.rows,
+              header: snapshot.header,
+              totals: snapshot.totals,
+              warehouses: snapshot.warehouses,
+              lastSignature: snapshot.periodSignature || getManualPeriodSignature(periodKey),
+              loading: false,
+              error: null,
+              currentPage: 1,
+              lastFilteredCount: 0,
+              sort: sanitizeWarehouseSort(getManualState(periodKey).sort),
+              lastLoadedAt: snapshot.lastLoadedAt || snapshot.updatedAt || Date.now(),
+              fileName: snapshot.fileName || null
+            },
+            { period: periodKey }
+          );
+        }
       });
 
-      if (snapshot && Array.isArray(snapshot.rows) && snapshot.rows.length) {
-        setWarehouseState(WAREHOUSE_SOURCE_MANUAL, {
-          ...warehouseManualState,
-          rows: snapshot.rows,
-          header: snapshot.header,
-          totals: snapshot.totals,
-          warehouses: snapshot.warehouses,
-          lastSignature: snapshot.periodSignature || MANUAL_WAREHOUSE_SIGNATURE,
-          loading: false,
-          error: null,
-          currentPage: 1,
-          lastFilteredCount: 0,
-          sort: sanitizeWarehouseSort(warehouseManualState.sort),
-          lastLoadedAt: snapshot.lastLoadedAt || snapshot.updatedAt || Date.now(),
-          fileName: snapshot.fileName || null
-        });
-
-        updateManualUploadUI();
-        renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
-      }
+      updateManualUploadUI();
+      renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
     } catch (error) {
       console.warn('Gagal memuat pergerakan gudang manual dari Supabase.', error);
     }
