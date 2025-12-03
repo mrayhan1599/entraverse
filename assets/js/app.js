@@ -6232,6 +6232,7 @@ function setupTopbarBrandNavigation() {
 
   const targetHref = brandLink.getAttribute('href');
   const currentPage = document.body.dataset.page;
+  const mobileViewQuery = window.matchMedia('(max-width: 768px)');
 
   brandLink.addEventListener('click', event => {
     if (!targetHref) {
@@ -6241,7 +6242,7 @@ function setupTopbarBrandNavigation() {
     const targetUrl = new URL(targetHref, window.location.href);
     const isCurrentPage = currentPage === 'dashboard' || targetUrl.pathname === window.location.pathname;
 
-    if (isCurrentPage) {
+    if (mobileViewQuery.matches || isCurrentPage) {
       event.preventDefault();
     }
   });
