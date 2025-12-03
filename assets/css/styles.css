@@ -594,12 +594,6 @@ body.sidebar-collapsed .sidebar-collapse-toggle svg {
   align-items: center;
   gap: 14px;
   color: var(--color-navbar-text);
-  text-decoration: none;
-}
-
-.topbar-brand:hover {
-  color: var(--color-navbar-text);
-  text-decoration: none;
 }
 
 .topbar-brand .brand {
