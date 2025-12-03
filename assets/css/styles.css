@@ -3632,7 +3632,7 @@ input:checked + .slider:before {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   padding: 4px 0;
-  z-index: 20;
+  z-index: 1200;
 }
 
 .action-menu__item {
