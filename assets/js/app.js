@@ -5259,12 +5259,50 @@ function setupActionMenus() {
     return;
   }
 
+  const resetMenuPosition = list => {
+    if (!list) return;
+    list.style.top = '';
+    list.style.left = '';
+    list.style.right = '';
+    list.style.bottom = '';
+    list.style.position = '';
+    list.style.minWidth = '';
+  };
+
+  const positionMenuList = (list, trigger) => {
+    const spacing = 8;
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuWidth = Math.max(list.offsetWidth || 0, triggerRect.width);
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let top = triggerRect.bottom + spacing;
+    let left = triggerRect.right - menuWidth;
+
+    if (left < spacing) {
+      left = spacing;
+    } else if (left + menuWidth > viewportWidth - spacing) {
+      left = Math.max(spacing, viewportWidth - spacing - menuWidth);
+    }
+
+    const menuHeight = list.offsetHeight || 0;
+    if (top + menuHeight > viewportHeight - spacing) {
+      top = Math.max(spacing, triggerRect.top - spacing - menuHeight);
+    }
+
+    list.style.position = 'fixed';
+    list.style.minWidth = `${menuWidth}px`;
+    list.style.top = `${top}px`;
+    list.style.left = `${left}px`;
+  };
+
   const closeMenu = menu => {
     if (!menu) return;
     menu.removeAttribute('data-open');
     const list = menu.querySelector('[data-action-menu-list]');
     if (list) {
       list.hidden = true;
+      resetMenuPosition(list);
     }
     const trigger = menu.querySelector('[data-action-menu-trigger]');
     if (trigger) {
@@ -5282,12 +5320,23 @@ function setupActionMenus() {
     menu.setAttribute('data-open', 'true');
     list.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
+    positionMenuList(list, trigger);
     const firstItem = list.querySelector('[data-action-menu-item]');
     if (firstItem) {
       requestAnimationFrame(() => {
         firstItem.focus();
       });
     }
+  };
+
+  const repositionOpenMenus = () => {
+    const openMenus = document.querySelectorAll('[data-action-menu][data-open="true"]');
+    openMenus.forEach(menu => {
+      const list = menu.querySelector('[data-action-menu-list]');
+      const trigger = menu.querySelector('[data-action-menu-trigger]');
+      if (!list || !trigger) return;
+      positionMenuList(list, trigger);
+    });
   };
 
   const closeAllMenus = exceptMenu => {
@@ -5339,6 +5388,16 @@ function setupActionMenus() {
       closeAllMenus();
     }
   });
+
+  window.addEventListener('resize', repositionOpenMenus);
+  window.addEventListener(
+    'scroll',
+    event => {
+      if (event.target && event.target.closest('[data-action-menu]')) return;
+      repositionOpenMenus();
+    },
+    true
+  );
 
   actionMenusInitialized = true;
 }
