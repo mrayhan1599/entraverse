@@ -6223,6 +6223,30 @@ function normalizeVariants(variants) {
     .filter(Boolean);
 }
 
+function setupTopbarBrandNavigation() {
+  const brandLink = document.querySelector('.topbar-brand');
+
+  if (!brandLink) {
+    return;
+  }
+
+  const targetHref = brandLink.getAttribute('href');
+  const currentPage = document.body.dataset.page;
+
+  brandLink.addEventListener('click', event => {
+    if (!targetHref) {
+      return;
+    }
+
+    const targetUrl = new URL(targetHref, window.location.href);
+    const isCurrentPage = currentPage === 'dashboard' || targetUrl.pathname === window.location.pathname;
+
+    if (isCurrentPage) {
+      event.preventDefault();
+    }
+  });
+}
+
 function setupSidebarToggle() {
   const sidebar = document.querySelector('[data-sidebar]');
   const backdrop = document.querySelector('[data-sidebar-backdrop]');
@@ -17663,6 +17687,7 @@ function initPage() {
     const topbarAuth = initTopbarAuth();
     const initialUser = getCurrentUser();
     topbarAuth.update(initialUser ?? getGuestUser());
+    setupTopbarBrandNavigation();
     setupThemeControls();
     setupActionMenus();
 
