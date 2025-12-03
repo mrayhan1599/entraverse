@@ -594,6 +594,31 @@ body.sidebar-collapsed .sidebar-collapse-toggle svg {
   align-items: center;
   gap: 14px;
   color: var(--color-navbar-text);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.topbar-brand:hover {
+  color: var(--color-navbar-text);
+  text-decoration: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .topbar-brand {
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
+
+  .topbar-brand,
+  .topbar-brand * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .topbar-brand:active,
+  .topbar-brand:focus {
+    outline: none;
+    background: none;
+  }
 }
 
 .topbar-brand .brand {
