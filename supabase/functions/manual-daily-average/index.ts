@@ -28,6 +28,16 @@ type VariantPricingRow = {
   daily_average_sales_period_a?: unknown
   dailyAverageSalesPeriodB?: unknown
   daily_average_sales_period_b?: unknown
+  stockOutFactorPeriodA?: unknown
+  stock_out_factor_period_a?: unknown
+  stockOutFactorPeriodB?: unknown
+  stock_out_factor_period_b?: unknown
+  stockOutDatePeriodA?: unknown
+  stock_out_date_period_a?: unknown
+  stockOutDatePeriodB?: unknown
+  stock_out_date_period_b?: unknown
+  finalDailyAveragePerDay?: unknown
+  final_daily_average_per_day?: unknown
   [key: string]: unknown
 }
 
@@ -171,6 +181,95 @@ function getManualAverageContext(now = new Date()) {
   }
 }
 
+function parseStockOutDate(value: unknown) {
+  if (value instanceof Date) {
+    return value
+  }
+
+  const raw = (value ?? "").toString().trim()
+  if (!raw) return null
+
+  const iso = new Date(raw)
+  if (!Number.isNaN(iso.getTime())) {
+    return iso
+  }
+
+  const parts = raw.split(/[/-]/).filter(Boolean)
+  if (parts.length < 3) return null
+
+  const [dayString, monthString, yearString] = parts
+  const day = Number.parseInt(dayString, 10)
+  const month = Number.parseInt(monthString, 10)
+  const year = Number.parseInt(yearString.length === 2 ? `20${yearString}` : yearString, 10)
+
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) {
+    return null
+  }
+
+  const candidate = new Date(Date.UTC(year, Math.max(0, month - 1), day))
+  return Number.isNaN(candidate.getTime()) ? null : candidate
+}
+
+function calculateStockOutFactor(dateValue: unknown, period: "A" | "B", referenceDate = new Date()) {
+  const parsedDate = parseStockOutDate(dateValue)
+  if (!parsedDate) return 1
+
+  const referenceParts = getWibDateParts(referenceDate)
+  const stockOutParts = getWibDateParts(parsedDate)
+  const daysInMonth = getDaysInMonth(referenceParts.year, referenceParts.month)
+
+  if (!daysInMonth) return 1
+
+  const isPeriodA = (period ?? "").toString().toUpperCase() === "A"
+  const startDay = isPeriodA ? 1 : 16
+  const endDay = isPeriodA ? Math.min(15, daysInMonth) : daysInMonth
+
+  if (
+    referenceParts.day < startDay ||
+    referenceParts.day > endDay ||
+    stockOutParts.day < startDay ||
+    stockOutParts.day > endDay
+  ) {
+    return 1
+  }
+
+  const factor = referenceParts.day / stockOutParts.day
+  if (!Number.isFinite(factor) || factor <= 0) {
+    return 1
+  }
+
+  const fixed = Number(factor.toFixed(2))
+  return Number.isFinite(fixed) ? fixed : 1
+}
+
+function calculateFinalDailyAverage({
+  averageA,
+  averageB,
+  factorA,
+  factorB
+}: {
+  averageA: number | null
+  averageB: number | null
+  factorA: number | null
+  factorB: number | null
+}) {
+  const hasAverageA = Number.isFinite(averageA)
+  const hasAverageB = Number.isFinite(averageB)
+
+  if (!hasAverageA && !hasAverageB) return null
+
+  const safeAverageA = hasAverageA && Number.isFinite(averageA) ? Number(averageA) : 0
+  const safeAverageB = hasAverageB && Number.isFinite(averageB) ? Number(averageB) : 0
+  const safeFactorA = Number.isFinite(factorA) ? Number(factorA) : 1
+  const safeFactorB = Number.isFinite(factorB) ? Number(factorB) : 1
+
+  const computed = (safeAverageA * safeFactorA + safeAverageB * safeFactorB) / 2
+  if (!Number.isFinite(computed) || computed < 0) return null
+
+  const rounded = Number(computed.toFixed(2))
+  return Number.isFinite(rounded) ? rounded : null
+}
+
 async function fetchProducts(client: SupabaseClient) {
   const { data, error } = await client
     .from("products")
@@ -264,33 +363,67 @@ Deno.serve(async req => {
 
         const matchedA = periodAMap.get(sku)
         const matchedB = periodBMap.get(sku)
+        const normalizedAverageA = pickDailyAverageValue(
+          row.dailyAverageSalesPeriodA ?? row.daily_average_sales_period_a
+        )
+        const normalizedAverageB = pickDailyAverageValue(
+          row.dailyAverageSalesPeriodB ?? row.daily_average_sales_period_b
+        )
+        let targetAverageA = normalizedAverageA
+        let targetAverageB = normalizedAverageB
         let nextRow = row
         let rowTouched = false
 
         if (matchedA) {
-          const normalizedAverageA = pickDailyAverageValue(row.dailyAverageSalesPeriodA ?? row.daily_average_sales_period_a)
-          const targetAverageA = Number(matchedA.average.toFixed(2))
+          const computedAverageA = Number(matchedA.average.toFixed(2))
           const rawAverageA = row.dailyAverageSalesPeriodA ?? row.daily_average_sales_period_a
 
-          if (normalizedAverageA !== targetAverageA || typeof rawAverageA !== "number") {
+          if (normalizedAverageA !== computedAverageA || typeof rawAverageA !== "number") {
             hasChange = true
             rowTouched = true
-            inventoryDailyAverageA = inventoryDailyAverageA ?? targetAverageA
-            nextRow = { ...nextRow, dailyAverageSalesPeriodA: targetAverageA }
+            inventoryDailyAverageA = inventoryDailyAverageA ?? computedAverageA
+            nextRow = { ...nextRow, dailyAverageSalesPeriodA: computedAverageA }
           }
+
+          targetAverageA = computedAverageA
         }
 
         if (matchedB) {
-          const normalizedAverageB = pickDailyAverageValue(row.dailyAverageSalesPeriodB ?? row.daily_average_sales_period_b)
-          const targetAverageB = Number(matchedB.average.toFixed(2))
+          const computedAverageB = Number(matchedB.average.toFixed(2))
           const rawAverageB = row.dailyAverageSalesPeriodB ?? row.daily_average_sales_period_b
 
-          if (normalizedAverageB !== targetAverageB || typeof rawAverageB !== "number") {
+          if (normalizedAverageB !== computedAverageB || typeof rawAverageB !== "number") {
             hasChange = true
             rowTouched = true
-            inventoryDailyAverageB = inventoryDailyAverageB ?? targetAverageB
-            nextRow = { ...nextRow, dailyAverageSalesPeriodB: targetAverageB }
+            inventoryDailyAverageB = inventoryDailyAverageB ?? computedAverageB
+            nextRow = { ...nextRow, dailyAverageSalesPeriodB: computedAverageB }
           }
+
+          targetAverageB = computedAverageB
+        }
+
+        const factorA =
+          parseNumber(row.stockOutFactorPeriodA ?? row.stock_out_factor_period_a) ??
+          calculateStockOutFactor(row.stockOutDatePeriodA ?? row.stock_out_date_period_a, "A")
+        const factorB =
+          parseNumber(row.stockOutFactorPeriodB ?? row.stock_out_factor_period_b) ??
+          calculateStockOutFactor(row.stockOutDatePeriodB ?? row.stock_out_date_period_b, "B")
+
+        const finalAverage = calculateFinalDailyAverage({
+          averageA: targetAverageA,
+          averageB: targetAverageB,
+          factorA,
+          factorB
+        })
+
+        const existingFinal = pickDailyAverageValue(
+          row.finalDailyAveragePerDay ?? row.final_daily_average_per_day
+        )
+
+        if (finalAverage !== null && finalAverage !== existingFinal) {
+          hasChange = true
+          rowTouched = true
+          nextRow = { ...nextRow, finalDailyAveragePerDay: finalAverage }
         }
 
         if (rowTouched) {
