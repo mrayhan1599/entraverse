@@ -2959,15 +2959,6 @@ function mapSupabaseProduct(record) {
       normalized.dailyAverageSalesPeriodB = rawDailyAverageB;
     }
 
-    const rawFinalAverage = normalized.finalDailyAveragePerDay ?? normalized.final_daily_average_per_day;
-    if (rawFinalAverage !== undefined) {
-      normalized.finalDailyAveragePerDay = rawFinalAverage;
-    }
-
-    if ('final_daily_average_per_day' in normalized) {
-      delete normalized.final_daily_average_per_day;
-    }
-
     ['daily_average_sales', 'daily_average_sales_period_a', 'daily_average_sales_period_b', 'dailyAverageSales'].forEach(
       legacyKey => {
         if (legacyKey in normalized) {
@@ -3046,15 +3037,6 @@ function mapSupabaseProduct(record) {
 
     if (rawDailyAverageB !== undefined) {
       inventory.dailyAverageSalesPeriodB = rawDailyAverageB;
-    }
-
-    const rawFinalAverage = inventory.finalDailyAveragePerDay ?? inventory.final_daily_average_per_day;
-    if (rawFinalAverage !== undefined) {
-      inventory.finalDailyAveragePerDay = rawFinalAverage;
-    }
-
-    if ('final_daily_average_per_day' in inventory) {
-      delete inventory.final_daily_average_per_day;
     }
 
     ['daily_average_sales', 'dailyAverageSales', 'daily_average_sales_period_a', 'daily_average_sales_period_b'].forEach(
@@ -9415,8 +9397,6 @@ async function handleAddProductForm() {
 
     applyAverage(averageInputA, entry?.periodA?.average);
     applyAverage(averageInputB, entry?.periodB?.average);
-
-    updateFinalDailyAverageForRow(row);
   };
 
   const applyWarehouseAverageToPricingRows = map => {
@@ -9470,8 +9450,7 @@ async function handleAddProductForm() {
     'tokopediaPrice',
     'shopeePrice',
     'stockOutFactorPeriodA',
-    'stockOutFactorPeriodB',
-    'finalDailyAveragePerDay'
+    'stockOutFactorPeriodB'
   ]);
 
   const STOCK_OUT_DATE_FIELDS = new Set(['stockOutDatePeriodA', 'stockOutDatePeriodB']);
@@ -10388,7 +10367,6 @@ async function handleAddProductForm() {
     const dateB = row.querySelector('[data-field="stockOutDatePeriodB"]')?.value ?? '';
     const factorAInput = row.querySelector('[data-field="stockOutFactorPeriodA"]');
     const factorBInput = row.querySelector('[data-field="stockOutFactorPeriodB"]');
-    const updateFinalAverage = () => updateFinalDailyAverageForRow(row);
 
     const factorA = calculateStockOutFactor(dateA, 'A');
     const factorB = calculateStockOutFactor(dateB, 'B');
@@ -10400,7 +10378,6 @@ async function handleAddProductForm() {
       } else {
         delete factorAInput.dataset.numericValue;
       }
-      updateFinalAverage();
     }
 
     if (factorBInput) {
@@ -10410,56 +10387,7 @@ async function handleAddProductForm() {
       } else {
         delete factorBInput.dataset.numericValue;
       }
-      updateFinalAverage();
     }
-  };
-
-  const updateFinalDailyAverageForRow = row => {
-    if (!row) return;
-
-    const finalAverageInput = row.querySelector('[data-field="finalDailyAveragePerDay"]');
-    if (!finalAverageInput) return;
-
-    const averageInputA = row.querySelector('[data-field="dailyAverageSalesPeriodA"]');
-    const averageInputB = row.querySelector('[data-field="dailyAverageSalesPeriodB"]');
-    const factorAInput = row.querySelector('[data-field="stockOutFactorPeriodA"]');
-    const factorBInput = row.querySelector('[data-field="stockOutFactorPeriodB"]');
-
-    const averageA = parseNumericValue(averageInputA?.dataset.numericValue ?? averageInputA?.value ?? '');
-    const averageB = parseNumericValue(averageInputB?.dataset.numericValue ?? averageInputB?.value ?? '');
-    const factorA = parseNumericValue(factorAInput?.dataset.numericValue ?? factorAInput?.value ?? '');
-    const factorB = parseNumericValue(factorBInput?.dataset.numericValue ?? factorBInput?.value ?? '');
-
-    const hasTermA = Number.isFinite(averageA) && Number.isFinite(factorA);
-    const hasTermB = Number.isFinite(averageB) && Number.isFinite(factorB);
-
-    if (!hasTermA && !hasTermB) {
-      finalAverageInput.value = '';
-      delete finalAverageInput.dataset.numericValue;
-      return;
-    }
-
-    const safeAverageA = hasTermA ? averageA : 0;
-    const safeFactorA = hasTermA ? factorA : 0;
-    const safeAverageB = hasTermB ? averageB : 0;
-    const safeFactorB = hasTermB ? factorB : 0;
-
-    const computed = ((safeAverageA * safeFactorA + safeAverageB * safeFactorB) / 2);
-    if (!Number.isFinite(computed) || computed < 0) {
-      finalAverageInput.value = '';
-      delete finalAverageInput.dataset.numericValue;
-      return;
-    }
-
-    const formatted = formatDailyAverageSalesValue(computed);
-    if (formatted === null) {
-      finalAverageInput.value = '';
-      delete finalAverageInput.dataset.numericValue;
-      return;
-    }
-
-    finalAverageInput.value = formatted;
-    finalAverageInput.dataset.numericValue = computed;
   };
 
   function collectPricingRows(variantDefs = getVariantDefinitions()) {
@@ -10498,7 +10426,6 @@ async function handleAddProductForm() {
         stock: getValue('[data-field="stock"]'),
         dailyAverageSalesPeriodA: getValue('[data-field="dailyAverageSalesPeriodA"]'),
         dailyAverageSalesPeriodB: getValue('[data-field="dailyAverageSalesPeriodB"]'),
-        finalDailyAveragePerDay: getValue('[data-field="finalDailyAveragePerDay"]', { useDataset: true }),
         sellerSku: getValue('[data-field="sellerSku"]'),
         weight: getValue('[data-field="weight"]'),
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
@@ -10655,22 +10582,6 @@ async function handleAddProductForm() {
         return;
       }
 
-      if (field === 'finalDailyAveragePerDay') {
-        const numeric = parseNumericValue(value ?? '');
-        const formatted = formatDailyAverageSalesValue(numeric);
-        if (formatted !== null) {
-          input.value = formatted;
-          if (Number.isFinite(numeric)) {
-            input.dataset.numericValue = numeric;
-          }
-          return;
-        }
-
-        input.value = '';
-        delete input.dataset.numericValue;
-        return;
-      }
-
       if (STOCK_OUT_DATE_FIELDS.has(field)) {
         input.value = formatDateInputValue(value);
         return;
@@ -10701,8 +10612,7 @@ async function handleAddProductForm() {
       'stockOutDatePeriodA',
       'stockOutDatePeriodB',
       'stockOutFactorPeriodA',
-      'stockOutFactorPeriodB',
-      'finalDailyAveragePerDay'
+      'stockOutFactorPeriodB'
     ].forEach(field => {
       applyFieldValue(field, initialData[field]);
     });
@@ -10823,15 +10733,6 @@ async function handleAddProductForm() {
         input.step = '0.01';
       }
 
-      if (field === 'finalDailyAveragePerDay') {
-        input.inputMode = 'decimal';
-        input.step = '0.01';
-        input.readOnly = true;
-        input.tabIndex = -1;
-        input.setAttribute('aria-readonly', 'true');
-        input.classList.add('readonly-input');
-      }
-
       if (AUTO_COMPUTED_PRICING_FIELDS.has(field)) {
         input.readOnly = true;
         input.tabIndex = -1;
@@ -10906,7 +10807,6 @@ async function handleAddProductForm() {
     buildInputCell('dailyAverageSalesPeriodB', '0', 'number');
     buildInputCell('stockOutDatePeriodB', '-');
     buildInputCell('stockOutFactorPeriodB', '0');
-    buildInputCell('finalDailyAveragePerDay', '0', 'number');
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'variant-actions';
@@ -10956,14 +10856,6 @@ async function handleAddProductForm() {
       dateInput.addEventListener('input', handleDateChange);
       dateInput.addEventListener('change', handleDateChange);
       dateInput.addEventListener('blur', handleDateChange);
-    });
-
-    ['dailyAverageSalesPeriodA', 'dailyAverageSalesPeriodB'].forEach(fieldName => {
-      const averageInput = row.querySelector(`[data-field="${fieldName}"]`);
-      if (!averageInput) return;
-      const handleAverageChange = () => updateFinalDailyAverageForRow(row);
-      averageInput.addEventListener('input', handleAverageChange);
-      averageInput.addEventListener('change', handleAverageChange);
     });
 
     const manualVariantInput = row.querySelector('[data-field="variantLabel"]');
@@ -11094,7 +10986,6 @@ async function handleAddProductForm() {
       'Rata-Rata Penjualan Periode B',
       'Tanggal Stok Habis Periode B',
       'Faktor Stok Habis Periode B',
-      'Rata-Rata Penjualan per Hari Final',
       ''
     ];
 
@@ -11548,8 +11439,6 @@ async function handleAddProductForm() {
         stock: (row.stock ?? '').toString().trim(),
         dailyAverageSalesPeriodA: (row.dailyAverageSalesPeriodA ?? '').toString().trim(),
         dailyAverageSalesPeriodB: (row.dailyAverageSalesPeriodB ?? '').toString().trim(),
-        finalDailyAveragePerDay:
-          formatDailyAverageSalesValue(parseNumericValue(row.finalDailyAveragePerDay ?? '')) ?? '',
         sellerSku: (row.sellerSku ?? '').toString().trim(),
         weight: (row.weight ?? '').toString().trim(),
         stockOutDatePeriodA: formattedStockOutDateA,
@@ -11601,7 +11490,6 @@ async function handleAddProductForm() {
         row.stock,
         row.dailyAverageSalesPeriodA,
         row.dailyAverageSalesPeriodB,
-        row.finalDailyAveragePerDay,
         row.sellerSku,
         row.weight,
         row.stockOutDatePeriodA,
