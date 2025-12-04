@@ -3115,13 +3115,19 @@ function mapSupabaseProduct(record) {
     const normalizedLeadTime = normalizeLeadTimeValue(normalized.leadTime ?? normalized.lead_time);
     if (normalizedLeadTime !== null) {
       normalized.leadTime = normalizedLeadTime;
-      normalized.lead_time = normalizedLeadTime;
     } else {
       delete normalized.leadTime;
-      if ('lead_time' in normalized) {
-        delete normalized.lead_time;
-      }
     }
+
+    if ('lead_time' in normalized) {
+      delete normalized.lead_time;
+    }
+
+    ['currentStock', 'current_stock'].forEach(key => {
+      if (key in normalized) {
+        delete normalized[key];
+      }
+    });
 
     const rawFifteenDayRequirement =
       normalized.fifteenDayRequirement ?? normalized.fifteen_day_requirement;
@@ -3255,13 +3261,19 @@ function mapProductToRecord(product) {
         const normalizedLeadTime = normalizeLeadTimeValue(normalized.leadTime ?? normalized.lead_time);
         if (normalizedLeadTime !== null) {
           normalized.leadTime = normalizedLeadTime;
-          normalized.lead_time = normalizedLeadTime;
         } else {
           delete normalized.leadTime;
-          if ('lead_time' in normalized) {
-            delete normalized.lead_time;
-          }
         }
+
+        if ('lead_time' in normalized) {
+          delete normalized.lead_time;
+        }
+
+        ['currentStock', 'current_stock'].forEach(key => {
+          if (key in normalized) {
+            delete normalized[key];
+          }
+        });
 
         [
           ['fifteenDayRequirement', 'fifteen_day_requirement'],
@@ -8691,7 +8703,9 @@ function handleProductActions() {
       const updatedPricing = pricingRows.map(row => {
         const normalized = { ...(row ?? {}) };
         normalized.leadTime = leadTimeValue;
-        normalized.lead_time = leadTimeValue;
+        if ('lead_time' in normalized) {
+          delete normalized.lead_time;
+        }
         return normalized;
       });
 
