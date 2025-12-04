@@ -416,6 +416,23 @@ let productBulkMediaQuery = null;
 let productBulkEditEnabled = false;
 const productBulkSelection = new Set();
 
+function normalizeProductId(id) {
+  return id != null ? String(id) : '';
+}
+
+function normalizeProductSelection() {
+  if (!productBulkSelection.size) {
+    return;
+  }
+
+  const normalized = Array.from(productBulkSelection)
+    .map(normalizeProductId)
+    .filter(Boolean);
+
+  productBulkSelection.clear();
+  normalized.forEach(id => productBulkSelection.add(id));
+}
+
 const PRODUCT_NAME_COLLATOR = typeof Intl !== 'undefined' && typeof Intl.Collator === 'function'
   ? new Intl.Collator('id-ID', { sensitivity: 'base', numeric: true })
   : null;
@@ -7530,9 +7547,12 @@ function syncProductBulkControls() {
   const leadTimeBtn = document.getElementById('product-bulk-leadtime');
   const selectAll = document.getElementById('product-bulk-select-all');
   const bulkHeaders = document.querySelectorAll('[data-product-bulk-column]');
+  const bulkCheckboxes = document.querySelectorAll('[data-product-bulk-checkbox]');
+
+  normalizeProductSelection();
 
   const visibleIds = Array.isArray(currentProductPageItems)
-    ? currentProductPageItems.map(item => item?.id).filter(Boolean)
+    ? currentProductPageItems.map(item => normalizeProductId(item?.id)).filter(Boolean)
     : [];
   const selectedOnPage = visibleIds.filter(id => productBulkSelection.has(id));
   const selectionCount = productBulkSelection.size;
@@ -7557,6 +7577,11 @@ function syncProductBulkControls() {
     countEl.textContent = `${selectionCount} produk dipilih`;
     countEl.hidden = !bulkActive;
   }
+
+  bulkCheckboxes.forEach(checkbox => {
+    const id = normalizeProductId(checkbox.value);
+    checkbox.checked = bulkActive && id && productBulkSelection.has(id);
+  });
 
   if (actions) {
     actions.hidden = !bulkActive;
@@ -8042,9 +8067,11 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
 
   const cachedProducts = getProductsFromCache();
   if (Array.isArray(cachedProducts) && cachedProducts.length) {
-    const validIds = new Set(cachedProducts.map(product => product?.id).filter(Boolean));
+    const validIds = new Set(
+      cachedProducts.map(product => normalizeProductId(product?.id)).filter(Boolean)
+    );
     Array.from(productBulkSelection).forEach(id => {
-      if (!validIds.has(id)) {
+      if (!validIds.has(normalizeProductId(id))) {
         productBulkSelection.delete(id);
       }
     });
@@ -8237,7 +8264,7 @@ function applyProductRenderResult(result, { filter, requestedPage, pageSize, req
             class="product-bulk-checkbox"
             data-product-bulk-checkbox
             value="${safeProductId}"
-            ${productBulkSelection.has(product.id) ? 'checked' : ''}
+            ${productBulkSelection.has(normalizeProductId(product.id)) ? 'checked' : ''}
             aria-label="Pilih ${safeName}"
           >
         </td>`
@@ -8456,14 +8483,14 @@ function handleProductActions() {
   const leadTimeCloseButtons = leadTimeModal ? Array.from(leadTimeModal.querySelectorAll('[data-close-modal]')) : [];
 
   const deleteProductsByIds = async ids => {
-    const idSet = new Set((ids ?? []).filter(Boolean));
+    const idSet = new Set((ids ?? []).map(normalizeProductId).filter(Boolean));
     if (!idSet.size) {
       return { supabaseFailed: false };
     }
 
     const products = getProductsFromCache();
     const remaining = Array.isArray(products)
-      ? products.filter(product => !idSet.has(product?.id))
+      ? products.filter(product => !idSet.has(normalizeProductId(product?.id)))
       : [];
 
     let supabaseFailed = false;
@@ -8617,7 +8644,9 @@ function handleProductActions() {
       }
 
       const products = getCurrentPageProducts();
-      const ids = Array.isArray(products) ? products.map(product => product?.id).filter(Boolean) : [];
+      const ids = Array.isArray(products)
+        ? products.map(product => normalizeProductId(product?.id)).filter(Boolean)
+        : [];
 
       if (event.target.checked) {
         ids.forEach(id => productBulkSelection.add(id));
@@ -8725,7 +8754,7 @@ function handleProductActions() {
       return;
     }
 
-    const id = checkbox.value;
+    const id = normalizeProductId(checkbox.value);
     if (!id) return;
 
     if (checkbox.checked) {
