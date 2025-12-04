@@ -260,7 +260,14 @@ async function fetchWarehouseSummary({
   }
 
   try {
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+
+    const unwrapped =
+      (parsed && typeof parsed === "object"
+        ? (parsed as { warehouse_items_stock_movement_summary?: unknown; data?: unknown })
+        : null)
+
+    return (unwrapped?.warehouse_items_stock_movement_summary ?? unwrapped?.data ?? parsed) as WarehouseSummary
   } catch (error) {
     console.error("Payload warehouse tidak valid.", error)
     throw new Error("Gagal mengurai respons warehouse movement API.")
