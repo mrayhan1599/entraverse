@@ -38,6 +38,10 @@ type VariantPricingRow = {
   stock_out_date_period_b?: unknown
   finalDailyAveragePerDay?: unknown
   final_daily_average_per_day?: unknown
+  leadTime?: unknown
+  lead_time?: unknown
+  reorderPoint?: unknown
+  reorder_point?: unknown
   [key: string]: unknown
 }
 
@@ -102,6 +106,14 @@ function buildAverageMap(rows: unknown[], windowDays: number) {
 function pickDailyAverageValue(value: unknown) {
   const parsed = parseNumber(value)
   return parsed === null ? null : Number(parsed.toFixed(2))
+}
+
+function pickReorderPointValue(value: unknown) {
+  const parsed = parseNumber(value)
+  if (parsed === null || parsed < 0) return null
+
+  const rounded = Number(parsed.toFixed(2))
+  return Number.isFinite(rounded) ? rounded : null
 }
 
 function normalizeInventory(inventory: unknown) {
@@ -270,6 +282,25 @@ function calculateFinalDailyAverage({
   return Number.isFinite(rounded) ? rounded : null
 }
 
+function calculateReorderPoint(leadTime: unknown, finalAverage: unknown) {
+  const parsedLeadTime = parseNumber(leadTime)
+  const parsedFinalAverage = parseNumber(finalAverage)
+
+  if (
+    !Number.isFinite(parsedLeadTime) ||
+    parsedLeadTime === null ||
+    parsedLeadTime < 0 ||
+    !Number.isFinite(parsedFinalAverage) ||
+    parsedFinalAverage === null ||
+    parsedFinalAverage < 0
+  ) {
+    return null
+  }
+
+  const rounded = Number((parsedLeadTime * parsedFinalAverage).toFixed(2))
+  return Number.isFinite(rounded) ? rounded : null
+}
+
 async function fetchProducts(client: SupabaseClient) {
   const { data, error } = await client
     .from("products")
@@ -424,6 +455,25 @@ Deno.serve(async req => {
           hasChange = true
           rowTouched = true
           nextRow = { ...nextRow, finalDailyAveragePerDay: finalAverage }
+        }
+
+        const finalAverageForReorder = finalAverage ?? existingFinal
+        const leadTime = row.leadTime ?? row.lead_time
+        const existingReorderPoint = pickReorderPointValue(
+          row.reorderPoint ?? row.reorder_point
+        )
+        const computedReorderPoint = calculateReorderPoint(
+          leadTime,
+          finalAverageForReorder
+        )
+
+        if (
+          computedReorderPoint !== null &&
+          computedReorderPoint !== existingReorderPoint
+        ) {
+          hasChange = true
+          rowTouched = true
+          nextRow = { ...nextRow, reorderPoint: computedReorderPoint }
         }
 
         if (rowTouched) {
