@@ -3129,11 +3129,6 @@ function mapSupabaseProduct(record) {
       normalized.fifteenDayRequirement = rawFifteenDayRequirement;
     }
 
-    const rawCurrentStock = normalized.currentStock ?? normalized.current_stock;
-    if (rawCurrentStock !== undefined) {
-      normalized.currentStock = rawCurrentStock;
-    }
-
     const rawInTransitStock = normalized.inTransitStock ?? normalized.in_transit_stock;
     if (rawInTransitStock !== undefined) {
       normalized.inTransitStock = rawInTransitStock;
@@ -3144,7 +3139,7 @@ function mapSupabaseProduct(record) {
       normalized.nextProcurement = rawNextProcurement;
     }
 
-    ['fifteen_day_requirement', 'current_stock', 'in_transit_stock', 'next_procurement'].forEach(key => {
+    ['fifteen_day_requirement', 'in_transit_stock', 'next_procurement'].forEach(key => {
       if (key in normalized) {
         delete normalized[key];
       }
@@ -3270,7 +3265,6 @@ function mapProductToRecord(product) {
 
         [
           ['fifteenDayRequirement', 'fifteen_day_requirement'],
-          ['currentStock', 'current_stock'],
           ['inTransitStock', 'in_transit_stock'],
           ['nextProcurement', 'next_procurement']
         ].forEach(([camelKey, snakeKey]) => {
@@ -10967,7 +10961,6 @@ async function handleAddProductForm() {
         leadTime: getValue('[data-field="leadTime"]'),
         reorderPoint: getValue('[data-field="reorderPoint"]', { useDataset: true }),
         fifteenDayRequirement: getValue('[data-field="fifteenDayRequirement"]', { useDataset: true }),
-        currentStock: getValue('[data-field="currentStock"]', { useDataset: true }),
         inTransitStock: getValue('[data-field="inTransitStock"]', { useDataset: true }),
         nextProcurement: getValue('[data-field="nextProcurement"]', { useDataset: true }),
         sellerSku: getValue('[data-field="sellerSku"]'),
@@ -11178,7 +11171,6 @@ async function handleAddProductForm() {
       'leadTime',
       'reorderPoint',
       'fifteenDayRequirement',
-      'currentStock',
       'inTransitStock',
       'nextProcurement'
     ].forEach(field => {
@@ -11304,7 +11296,6 @@ async function handleAddProductForm() {
           'leadTime',
           'reorderPoint',
           'fifteenDayRequirement',
-          'currentStock',
           'inTransitStock',
           'nextProcurement'
         ].includes(field)
@@ -11418,7 +11409,6 @@ async function handleAddProductForm() {
     buildInputCell('leadTime', '0', 'number');
     buildInputCell('reorderPoint', '0', 'number');
     buildInputCell('fifteenDayRequirement', '0', 'number');
-    buildInputCell('currentStock', '0', 'number');
     buildInputCell('inTransitStock', '0', 'number');
     buildInputCell('nextProcurement', '0', 'number');
 
@@ -11644,7 +11634,6 @@ async function handleAddProductForm() {
       'Lead Time (hari)',
       'Reorder Point',
       'Kebutuhan 15 Hari',
-      'Stok Saat Ini',
       'Stok Dalam Perjalanan',
       'Pengadaan Barang Selanjutnya',
       ''
@@ -12100,7 +12089,6 @@ async function handleAddProductForm() {
         leadTime: (row.leadTime ?? '').toString().trim(),
         reorderPoint: (row.reorderPoint ?? '').toString().trim(),
         fifteenDayRequirement: (row.fifteenDayRequirement ?? '').toString().trim(),
-        currentStock: (row.currentStock ?? '').toString().trim(),
         inTransitStock: (row.inTransitStock ?? '').toString().trim(),
         nextProcurement: (row.nextProcurement ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
@@ -12159,7 +12147,6 @@ async function handleAddProductForm() {
         row.leadTime,
         row.reorderPoint,
         row.fifteenDayRequirement,
-        row.currentStock,
         row.inTransitStock,
         row.nextProcurement,
         row.sellerSku,

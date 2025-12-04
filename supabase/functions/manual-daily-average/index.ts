@@ -38,6 +38,8 @@ type VariantPricingRow = {
   stock_out_date_period_b?: unknown
   finalDailyAveragePerDay?: unknown
   final_daily_average_per_day?: unknown
+  fifteenDayRequirement?: unknown
+  fifteen_day_requirement?: unknown
   leadTime?: unknown
   lead_time?: unknown
   reorderPoint?: unknown
@@ -558,6 +560,14 @@ Deno.serve(async req => {
           finalAverageForReorder
         )
 
+        const existingFifteenDayRequirement = pickDailyAverageValue(
+          (row as { fifteenDayRequirement?: unknown }).fifteenDayRequirement ??
+            (row as { fifteen_day_requirement?: unknown }).fifteen_day_requirement
+        )
+        const computedFifteenDayRequirement = Number.isFinite(finalAverageForReorder)
+          ? Number((Number(finalAverageForReorder) * 15).toFixed(2))
+          : null
+
         if (
           computedReorderPoint !== null &&
           computedReorderPoint !== existingReorderPoint
@@ -565,6 +575,15 @@ Deno.serve(async req => {
           hasChange = true
           rowTouched = true
           nextRow = { ...nextRow, reorderPoint: computedReorderPoint }
+        }
+
+        if (
+          computedFifteenDayRequirement !== null &&
+          computedFifteenDayRequirement !== existingFifteenDayRequirement
+        ) {
+          hasChange = true
+          rowTouched = true
+          nextRow = { ...nextRow, fifteenDayRequirement: computedFifteenDayRequirement }
         }
 
         if (closingBalanceMap.has(sku)) {
