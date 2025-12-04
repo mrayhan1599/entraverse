@@ -697,6 +697,9 @@ let dailyInventorySyncScheduled = false;
 let dailyInventorySyncPromise = null;
 let xlsxLoaderPromise = null;
 
+const DEFAULT_WAREHOUSE_AUTO_PERIOD = resolveWarehouseAutoSelection()?.key || WAREHOUSE_MANUAL_PERIODS[0].key;
+let warehouseAutoActivePeriodKey = DEFAULT_WAREHOUSE_AUTO_PERIOD;
+
 async function synchronizeMekariProducts({ attemptTime = new Date(), reason = 'manual' } = {}) {
   const attempt = attemptTime instanceof Date && !Number.isNaN(attemptTime.getTime()) ? attemptTime : new Date();
   const attemptIso = attempt.toISOString();
@@ -15101,6 +15104,25 @@ function getManualPeriodLabel(periodKey = warehouseManualActivePeriod) {
   return WAREHOUSE_MANUAL_PERIODS.find(period => period.key === periodKey)?.label || 'Periode';
 }
 
+function getWarehouseAutoPeriodInfo(periodKey = warehouseAutoActivePeriodKey, referenceDate = new Date()) {
+  const { periodA, periodB } = getWarehouseAutoPeriods(referenceDate);
+  const lookup = {
+    'period-a': periodA,
+    'period-b': periodB
+  };
+
+  const period = lookup[periodKey] || lookup[warehouseAutoActivePeriodKey] || periodA || periodB;
+  const label = getManualPeriodLabel(period?.key || periodKey);
+  const rangeText = formatDateRangeDisplay(period?.start, period?.end);
+
+  return {
+    ...period,
+    key: period?.key || periodKey,
+    label,
+    rangeText
+  };
+}
+
 function getManualPeriodSignature(periodKey = warehouseManualActivePeriod) {
   return MANUAL_PERIOD_SIGNATURES[periodKey] || `${MANUAL_WAREHOUSE_SIGNATURE}-${periodKey}`;
 }
@@ -15138,6 +15160,36 @@ function setManualPeriod(periodKey) {
   updateManualUploadUI();
   if (warehouseActiveSource === WAREHOUSE_SOURCE_MANUAL) {
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+  }
+}
+
+function setWarehouseAutoPeriod(periodKey = warehouseAutoActivePeriodKey, { triggerSync = false, force = false } = {}) {
+  const period = getWarehouseAutoPeriodInfo(periodKey);
+  warehouseAutoActivePeriodKey = period.key;
+
+  document.querySelectorAll('[data-warehouse-auto-period]').forEach(button => {
+    const isActive = button.dataset.warehouseAutoPeriod === warehouseAutoActivePeriodKey;
+    button.classList.toggle('is-active', isActive);
+  });
+
+  const periodLabel = document.querySelector('[data-warehouse-auto-period-label]');
+  if (periodLabel) {
+    periodLabel.textContent = period.rangeText
+      ? `${period.label} • ${period.rangeText}`
+      : `${period.label} • Periode mengikuti kalender bulan berjalan`;
+  }
+
+  if (triggerSync) {
+    warehouseMovementsState.currentPage = 1;
+    warehouseMovementsState.lastFilteredCount = 0;
+
+    syncWarehouseMovements({
+      selection: { key: warehouseAutoActivePeriodKey },
+      force,
+      showToastOnError: true
+    }).catch(error => {
+      console.error('Gagal memuat data pergerakan barang otomatis.', error);
+    });
   }
 }
 
@@ -15454,6 +15506,12 @@ function renderSalesReports({ search = '' } = {}) {
         ? 'Sumber: Upload manual (Excel)'
         : 'Sumber: API Mekari Jurnal'
     );
+    if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO) {
+      const autoPeriod = getWarehouseAutoPeriodInfo();
+      if (autoPeriod?.rangeText) {
+        parts.push(`${autoPeriod.label}: ${autoPeriod.rangeText}`);
+      }
+    }
     if (state.header?.date) {
       parts.push(`Periode ${state.header.date}`);
     }
@@ -15698,7 +15756,7 @@ async function fetchWarehouseMovements({ start, end } = {}) {
 }
 
 async function syncWarehouseMovements({ selection, force = false, showToastOnError = false } = {}) {
-  const normalizedSelection = selection ?? getPeriodSelection();
+  const normalizedSelection = selection ?? { key: warehouseAutoActivePeriodKey };
   const autoPeriod = resolveWarehouseAutoSelection(normalizedSelection);
   const signature =
     warehouseActiveSource === WAREHOUSE_SOURCE_AUTO
@@ -16070,6 +16128,11 @@ function setWarehouseSourceTab(source) {
   const autoActions = document.querySelector('[data-warehouse-auto-actions]');
   if (autoActions) {
     autoActions.hidden = targetSource !== WAREHOUSE_SOURCE_AUTO;
+  }
+
+  const autoContainer = document.querySelector('[data-warehouse-auto-container]');
+  if (autoContainer) {
+    autoContainer.hidden = targetSource !== WAREHOUSE_SOURCE_AUTO;
   }
 
   updateManualUploadUI();
@@ -16552,6 +16615,7 @@ function initReportsPage() {
   const manualResetButton = document.querySelector('[data-warehouse-manual-reset]');
   const sourceTabs = document.querySelector('[data-warehouse-source-tabs]');
   const manualPeriodTabs = document.querySelector('[data-warehouse-manual-period-tabs]');
+  const autoPeriodTabs = document.querySelector('[data-warehouse-auto-period-tabs]');
 
   if (sourceTabs) {
     sourceTabs.addEventListener('click', event => {
@@ -16573,6 +16637,16 @@ function initReportsPage() {
     });
   }
 
+  if (autoPeriodTabs) {
+    autoPeriodTabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-warehouse-auto-period]');
+      if (!button) {
+        return;
+      }
+      setWarehouseAutoPeriod(button.dataset.warehouseAutoPeriod, { triggerSync: true });
+    });
+  }
+
   if (manualInput) {
     manualInput.addEventListener('change', event => {
       const file = event.target.files?.[0] || null;
@@ -16590,6 +16664,7 @@ function initReportsPage() {
   updateManualUploadUI();
   setWarehouseSourceTab(warehouseActiveSource);
   setManualPeriod(warehouseManualActivePeriod);
+  setWarehouseAutoPeriod(warehouseAutoActivePeriodKey);
 
   const restoreManualWarehouseFromSupabase = async () => {
     if (!isSupabaseConfigured()) {
@@ -16784,6 +16859,7 @@ function initReportsPage() {
     const searchInput = document.getElementById('search-input');
 
     currentPeriodSelection = getPeriodSelection();
+    setWarehouseAutoPeriod(warehouseAutoActivePeriodKey, { triggerSync: false });
 
     const activeState = getWarehouseState();
     activeState.currentPage = 1;
@@ -16795,7 +16871,7 @@ function initReportsPage() {
 
     if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO) {
       syncWarehouseMovements({
-        selection: currentPeriodSelection,
+        selection: { key: warehouseAutoActivePeriodKey },
         force: forceWarehouseSync,
         showToastOnError: triggerProfitLoss
       }).catch(error => {
