@@ -45,11 +45,6 @@ type VariantPricingRow = {
   [key: string]: unknown
 }
 
-const MANUAL_PERIOD_SIGNATURES = {
-  "period-a": "manual-period-1",
-  "period-b": "manual-period-2"
-}
-
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -121,18 +116,23 @@ function normalizeInventory(inventory: unknown) {
   return { ...(inventory as JsonRecord) }
 }
 
-async function fetchLatestManualRows(client: SupabaseClient) {
-  const periodSignatures = Object.values(MANUAL_PERIOD_SIGNATURES)
+async function fetchLatestAutoRows(client: SupabaseClient) {
+  const { periodA, periodB } = getAutoPeriods()
+  const signatureMap: Record<string, string> = {
+    "period-a": periodA.signature,
+    "period-b": periodB.signature
+  }
+  const periodSignatures = Object.values(signatureMap)
   const { data, error } = await client
     .from("warehouse_movements")
     .select("period_signature, rows, updated_at")
-    .eq("source", "manual")
+    .eq("source", "auto")
     .in("period_signature", periodSignatures)
     .order("updated_at", { ascending: false })
 
   if (error) {
     if (error.code === "42P01" || error.code === "PGRST301") {
-      return {}
+      return { grouped: {}, periods: { periodA, periodB } }
     }
     throw error
   }
@@ -141,7 +141,7 @@ async function fetchLatestManualRows(client: SupabaseClient) {
 
   ;(data ?? []).forEach(entry => {
     const signature = (entry as { period_signature?: string })?.period_signature ?? ""
-    const periodKey = Object.entries(MANUAL_PERIOD_SIGNATURES).find(([, value]) => value === signature)?.[0]
+    const periodKey = Object.entries(signatureMap).find(([, value]) => value === signature)?.[0]
     if (!periodKey || grouped[periodKey]) return
 
     grouped[periodKey] = {
@@ -151,7 +151,7 @@ async function fetchLatestManualRows(client: SupabaseClient) {
     }
   })
 
-  return grouped
+  return { grouped, periods: { periodA, periodB } }
 }
 
 function getWibDateParts(dateValue = new Date()) {
@@ -165,31 +165,77 @@ function getWibDateParts(dateValue = new Date()) {
   }
 }
 
+function toDateOnlyString(date: Date) {
+  const iso = date.toISOString()
+  return iso.slice(0, 10)
+}
+
+function pad2(value: number) {
+  return String(Math.max(0, Math.floor(value))).padStart(2, "0")
+}
+
+function calculateInclusiveDays(startDate: Date, endDate: Date) {
+  const diff = endDate.getTime() - startDate.getTime()
+  if (!Number.isFinite(diff) || diff < 0) return 0
+
+  return Math.floor(diff / (24 * 60 * 60 * 1000)) + 1
+}
+
 function getDaysInMonth(year: number, monthZeroBased: number) {
   return new Date(Date.UTC(year, monthZeroBased + 1, 0)).getUTCDate()
 }
 
-function getManualAverageContext(now = new Date()) {
-  const { year, month, day } = getWibDateParts(now)
-  const isPeriodA = day <= 15
+function calculateElapsedDays(startDate: Date, endDate: Date, referenceDate: Date) {
+  const start = startDate.getTime()
+  const end = endDate.getTime()
+  const reference = referenceDate.getTime()
 
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(reference)) {
+    return 0
+  }
+
+  const clampedReference = reference < start ? start : reference > end ? end : reference
+  return calculateInclusiveDays(startDate, new Date(clampedReference))
+}
+
+function getAutoPeriods(referenceDate = new Date()) {
+  const { year, month, day } = getWibDateParts(referenceDate)
+  const daysInMonth = getDaysInMonth(year, month)
+  const periodAEndDay = Math.min(15, daysInMonth)
+
+  const periodAStart = new Date(Date.UTC(year, month, 1))
+  const periodAEnd = new Date(Date.UTC(year, month, periodAEndDay))
+
+  const isPeriodAActive = day <= 15
   const previousMonth = month === 0 ? 11 : month - 1
   const previousYear = month === 0 ? year - 1 : year
+  const periodBYear = isPeriodAActive ? previousYear : year
+  const periodBMonth = isPeriodAActive ? previousMonth : month
+  const periodBDays = getDaysInMonth(periodBYear, periodBMonth)
+  const periodBStart = new Date(Date.UTC(periodBYear, periodBMonth, 16))
+  const periodBEnd = new Date(Date.UTC(periodBYear, periodBMonth, periodBDays))
 
-  const daysInCurrentMonth = getDaysInMonth(year, month)
-  const daysInPreviousMonth = getDaysInMonth(previousYear, previousMonth)
-
-  const periodADays = isPeriodA ? day : 15
-  const periodBDays = isPeriodA
-    ? Math.max(1, daysInPreviousMonth - 15)
-    : Math.max(1, Math.min(day, daysInCurrentMonth) - 15)
+  const referenceDateOnly = new Date(Date.UTC(year, month, day))
+  const periodAElapsedDays = calculateElapsedDays(periodAStart, periodAEnd, referenceDateOnly)
+  const periodBElapsedDays = calculateElapsedDays(periodBStart, periodBEnd, referenceDateOnly)
 
   return {
-    isPeriodA,
-    periodADays,
-    periodBDays,
-    periodAReference: { year, month },
-    periodBReference: isPeriodA ? { year: previousYear, month: previousMonth } : { year, month }
+    periodA: {
+      key: "period-a",
+      start: toDateOnlyString(periodAStart),
+      end: toDateOnlyString(periodAEnd),
+      signature: `auto-period-a-${year}-${pad2(month + 1)}`,
+      days: calculateInclusiveDays(periodAStart, periodAEnd),
+      elapsedDays: periodAElapsedDays
+    },
+    periodB: {
+      key: "period-b",
+      start: toDateOnlyString(periodBStart),
+      end: toDateOnlyString(periodBEnd),
+      signature: `auto-period-b-${periodBYear}-${pad2(periodBMonth + 1)}`,
+      days: calculateInclusiveDays(periodBStart, periodBEnd),
+      elapsedDays: periodBElapsedDays
+    }
   }
 }
 
@@ -347,27 +393,29 @@ Deno.serve(async req => {
       global: { headers: { "x-entraverse-trace-id": traceId } }
     })
 
-    const context = getManualAverageContext()
-    const manualRows = await fetchLatestManualRows(supabase)
+    const { grouped: autoRows, periods } = await fetchLatestAutoRows(supabase)
 
-    const periodARows = manualRows["period-a"]?.rows ?? []
-    const periodBRows = manualRows["period-b"]?.rows ?? []
+    const periodARows = autoRows["period-a"]?.rows ?? []
+    const periodBRows = autoRows["period-b"]?.rows ?? []
 
-    const updatedAtCandidates = [manualRows["period-a"]?.updatedAt, manualRows["period-b"]?.updatedAt]
+    const updatedAtCandidates = [autoRows["period-a"]?.updatedAt, autoRows["period-b"]?.updatedAt]
       .filter((value): value is string => typeof value === "string" && !!value)
       .sort()
 
     const updatedAt = updatedAtCandidates[updatedAtCandidates.length - 1] ?? null
 
-    const periodAMap = buildAverageMap(periodARows, context.periodADays)
-    const periodBMap = buildAverageMap(periodBRows, context.periodBDays)
+    const periodADivisor = periods.periodA.elapsedDays || periods.periodA.days || 30
+    const periodBDivisor = periods.periodB.elapsedDays || periods.periodB.days || 30
+
+    const periodAMap = buildAverageMap(periodARows, periodADivisor)
+    const periodBMap = buildAverageMap(periodBRows, periodBDivisor)
 
     if (!periodAMap.size && !periodBMap.size) {
       return jsonResponse(200, {
         ok: true,
         traceId,
         stage: "compute",
-        message: "Tidak ada SKU dengan qty keluar pada unggahan manual.",
+        message: "Tidak ada SKU dengan qty keluar pada snapshot otomatis.",
         updatedAt
       })
     }
