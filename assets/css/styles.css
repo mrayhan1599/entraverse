@@ -3071,6 +3071,21 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), rgba(37, 99, 235, 0.02));
 }
 
+body[data-warehouse-source='auto'] [data-warehouse-manual-container],
+body[data-warehouse-source='auto'] [data-warehouse-auto-actions][hidden],
+body[data-warehouse-source='auto'] [data-warehouse-manual-period-tabs] {
+  display: none;
+}
+
+body[data-warehouse-source='manual'] [data-warehouse-auto-container],
+body[data-warehouse-source='manual'] [data-warehouse-auto-actions] {
+  display: none;
+}
+
+body[data-warehouse-source='manual'] [data-warehouse-manual-container] {
+  display: grid;
+}
+
 .warehouse-manual-period-tabs {
   display: flex;
   flex-wrap: wrap;
