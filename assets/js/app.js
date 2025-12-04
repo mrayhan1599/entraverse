@@ -1448,6 +1448,36 @@ function getManualAverageContext(now = new Date()) {
   };
 }
 
+function normalizeDateOnly(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function calculateInclusiveDays(startDate, endDate) {
+  const start = normalizeDateOnly(startDate);
+  const end = normalizeDateOnly(endDate);
+
+  if (!start || !end) {
+    return null;
+  }
+
+  const diffMs = end.getTime() - start.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return null;
+  }
+
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000)) + 1;
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
 function buildManualPeriodAverage(rows, divisorDays) {
   const map = new Map();
   const days = Math.max(1, Number.parseInt(divisorDays, 10) || 1);
@@ -1500,27 +1530,47 @@ function getWarehouseAverageSelection() {
 }
 
 async function ensureWarehouseAverageData({ force = false } = {}) {
-  const selection = getWarehouseAverageSelection();
-  const context = getManualAverageContext();
-  const signatureParts = [
-    'manual-average',
-    context.isPeriodA ? 'period-a' : 'period-b',
-    `pa-${context.periodAReference.year}-${context.periodAReference.month + 1}`,
-    `pb-${context.periodBReference.year}-${context.periodBReference.month + 1}`,
-    `days-${context.periodADays}-${context.periodBDays}`,
-    `sigA-${getManualState('period-a').lastSignature || 'none'}`,
-    `sigB-${getManualState('period-b').lastSignature || 'none'}`
-  ];
-  const signature = signatureParts.join('|');
+  const { periodA, periodB } = getWarehouseAutoPeriods();
+  const selection = { key: warehouseAutoActivePeriodKey, start: periodA?.start || null, end: periodB?.end || null };
+  const periodADays = calculateInclusiveDays(periodA?.start, periodA?.end) || DAILY_AVERAGE_WINDOW_DAYS;
+  const periodBDays = calculateInclusiveDays(periodB?.start, periodB?.end) || DAILY_AVERAGE_WINDOW_DAYS;
 
-  if (!force && warehouseAverageCache && warehouseAverageCache.signature === signature) {
+  const buildSignature = (snapA, snapB) =>
+    [
+      'auto-average',
+      `pa-${periodA?.signature || 'unknown'}`,
+      `pb-${periodB?.signature || 'unknown'}`,
+      `pa-updated-${snapA?.updatedAt || snapA?.lastLoadedAt || 'none'}`,
+      `pb-updated-${snapB?.updatedAt || snapB?.lastLoadedAt || 'none'}`,
+      `days-${periodADays}-${periodBDays}`
+    ].join('|');
+
+  const isSamePeriodAsCache = cache => {
+    if (!cache || !cache.context) {
+      return false;
+    }
+
+    const cachedA = cache.context.periodAReference?.start || null;
+    const cachedB = cache.context.periodBReference?.start || null;
+    return cachedA === (periodA?.start || null) && cachedB === (periodB?.start || null);
+  };
+
+  const cacheFresh = cache => {
+    if (!cache?.cachedAt) {
+      return false;
+    }
+
+    return Date.now() - cache.cachedAt < WAREHOUSE_MOVEMENTS_CACHE_TTL_MS;
+  };
+
+  if (!force && warehouseAverageCache && isSamePeriodAsCache(warehouseAverageCache) && cacheFresh(warehouseAverageCache)) {
     return warehouseAverageCache;
   }
 
   if (!force && warehouseAveragePromise) {
     try {
       const cached = await warehouseAveragePromise;
-      if (cached && cached.signature === signature) {
+      if (cached) {
         return cached;
       }
     } catch (error) {
@@ -1529,14 +1579,24 @@ async function ensureWarehouseAverageData({ force = false } = {}) {
   }
 
   warehouseAveragePromise = (async () => {
-    const periodAState = getManualState('period-a');
-    const periodBState = getManualState('period-b');
+    const [autoPeriodA, autoPeriodB] = await Promise.all([
+      fetchWarehouseMovementSnapshot({ source: WAREHOUSE_SOURCE_AUTO, signature: periodA?.signature }).catch(() => null),
+      fetchWarehouseMovementSnapshot({ source: WAREHOUSE_SOURCE_AUTO, signature: periodB?.signature }).catch(() => null)
+    ]);
 
-    const periodAMap = buildManualPeriodAverage(periodAState?.rows, context.periodADays);
-    const periodBMap = buildManualPeriodAverage(periodBState?.rows, context.periodBDays);
+    const periodAMap = buildManualPeriodAverage(autoPeriodA?.rows || [], periodADays);
+    const periodBMap = buildManualPeriodAverage(autoPeriodB?.rows || [], periodBDays);
     const map = mergeManualAverageMaps(periodAMap, periodBMap);
 
-    warehouseAverageCache = { signature, map, selection, context };
+    const signature = buildSignature(autoPeriodA, autoPeriodB);
+    const context = {
+      periodADays,
+      periodBDays,
+      periodAReference: { start: periodA?.start || null, end: periodA?.end || null },
+      periodBReference: { start: periodB?.start || null, end: periodB?.end || null }
+    };
+
+    warehouseAverageCache = { signature, map, selection, context, cachedAt: Date.now() };
     return warehouseAverageCache;
   })();
 
