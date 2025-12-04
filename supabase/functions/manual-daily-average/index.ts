@@ -42,6 +42,8 @@ type VariantPricingRow = {
   lead_time?: unknown
   reorderPoint?: unknown
   reorder_point?: unknown
+  currentStock?: unknown
+  current_stock?: unknown
   [key: string]: unknown
 }
 
@@ -96,6 +98,45 @@ function buildAverageMap(rows: unknown[], windowDays: number) {
   })
 
   return map
+}
+
+function buildClosingBalanceMap(rows: unknown[]) {
+  const map = new Map<string, number>()
+
+  ;(Array.isArray(rows) ? rows : []).forEach(entry => {
+    if (!entry || typeof entry !== "object") return
+    const record = entry as ManualRow & { closingBalance?: unknown; closing_balance?: unknown }
+    const sku = normalizeSku(record.productCode ?? record.product_code ?? record.sku)
+    if (!sku) return
+
+    const closing = parseNumber(record.closingBalance ?? record.closing_balance)
+    if (closing === null) return
+
+    const existing = map.get(sku) ?? 0
+    map.set(sku, existing + closing)
+  })
+
+  return map
+}
+
+function pickLatestClosingRows(grouped: Record<string, { rows?: unknown[]; updatedAt?: string | null }>) {
+  const candidates = Object.values(grouped ?? {}).map(entry => {
+    const rows = Array.isArray(entry?.rows) ? entry.rows : []
+    const updatedAt = entry?.updatedAt ?? null
+    const timestamp = updatedAt ? Date.parse(updatedAt) : Number.NaN
+
+    return { rows, timestamp }
+  })
+
+  if (!candidates.length) return [] as unknown[]
+
+  candidates.sort((a, b) => {
+    const left = Number.isFinite(a.timestamp) ? a.timestamp : -Infinity
+    const right = Number.isFinite(b.timestamp) ? b.timestamp : -Infinity
+    return left - right
+  })
+
+  return candidates[candidates.length - 1].rows
 }
 
 function pickDailyAverageValue(value: unknown) {
@@ -397,6 +438,7 @@ Deno.serve(async req => {
 
     const periodARows = autoRows["period-a"]?.rows ?? []
     const periodBRows = autoRows["period-b"]?.rows ?? []
+    const closingRows = pickLatestClosingRows(autoRows)
 
     const updatedAtCandidates = [autoRows["period-a"]?.updatedAt, autoRows["period-b"]?.updatedAt]
       .filter((value): value is string => typeof value === "string" && !!value)
@@ -409,13 +451,14 @@ Deno.serve(async req => {
 
     const periodAMap = buildAverageMap(periodARows, periodADivisor)
     const periodBMap = buildAverageMap(periodBRows, periodBDivisor)
+    const closingBalanceMap = buildClosingBalanceMap(closingRows)
 
-    if (!periodAMap.size && !periodBMap.size) {
+    if (!periodAMap.size && !periodBMap.size && !closingBalanceMap.size) {
       return jsonResponse(200, {
         ok: true,
         traceId,
         stage: "compute",
-        message: "Tidak ada SKU dengan qty keluar pada snapshot otomatis.",
+        message: "Tidak ada SKU dengan qty keluar atau saldo akhir pada snapshot otomatis.",
         updatedAt
       })
     }
@@ -522,6 +565,18 @@ Deno.serve(async req => {
           hasChange = true
           rowTouched = true
           nextRow = { ...nextRow, reorderPoint: computedReorderPoint }
+        }
+
+        if (closingBalanceMap.has(sku)) {
+          const currentStock = parseNumber(row.currentStock ?? row.current_stock)
+          const normalizedCurrentStock = Number.isFinite(currentStock) ? currentStock : null
+          const closingBalance = closingBalanceMap.get(sku) ?? null
+
+          if (closingBalance !== normalizedCurrentStock) {
+            hasChange = true
+            rowTouched = true
+            nextRow = { ...nextRow, currentStock: closingBalance }
+          }
         }
 
         if (rowTouched) {

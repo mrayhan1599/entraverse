@@ -10844,6 +10844,35 @@ async function handleAddProductForm() {
     reorderInput.dataset.numericValue = rounded;
   };
 
+  const updateFifteenDayRequirementForRow = row => {
+    if (!row) return;
+
+    const requirementInput = row.querySelector('[data-field="fifteenDayRequirement"]');
+    const finalAverageInput = row.querySelector('[data-field="finalDailyAveragePerDay"]');
+
+    if (!requirementInput || !finalAverageInput) return;
+
+    const finalAverage = parseNumericValue(
+      finalAverageInput.dataset.numericValue ?? finalAverageInput.value ?? ''
+    );
+
+    if (!Number.isFinite(finalAverage) || finalAverage < 0) {
+      requirementInput.value = '';
+      delete requirementInput.dataset.numericValue;
+      return;
+    }
+
+    const computed = finalAverage * 15;
+    const rounded = Math.round(computed * 100) / 100;
+    const formatted = rounded
+      .toFixed(2)
+      .replace(/\.0+$/, '')
+      .replace(/\.([0-9])0$/, '.$1');
+
+    requirementInput.value = formatted;
+    requirementInput.dataset.numericValue = rounded;
+  };
+
   const updateFinalDailyAverageForRow = row => {
     if (!row) return;
 
@@ -10866,6 +10895,7 @@ async function handleAddProductForm() {
     if (!hasAverageA && !hasAverageB) {
       finalAverageInput.value = '';
       delete finalAverageInput.dataset.numericValue;
+      updateFifteenDayRequirementForRow(row);
       return;
     }
 
@@ -10878,6 +10908,7 @@ async function handleAddProductForm() {
     if (!Number.isFinite(computed) || computed < 0) {
       finalAverageInput.value = '';
       delete finalAverageInput.dataset.numericValue;
+      updateFifteenDayRequirementForRow(row);
       return;
     }
 
@@ -10885,11 +10916,13 @@ async function handleAddProductForm() {
     if (formatted === null) {
       finalAverageInput.value = '';
       delete finalAverageInput.dataset.numericValue;
+      updateFifteenDayRequirementForRow(row);
       return;
     }
 
     finalAverageInput.value = formatted;
     finalAverageInput.dataset.numericValue = computed;
+    updateFifteenDayRequirementForRow(row);
     updateReorderPointForRow(row);
   };
 
@@ -11161,6 +11194,7 @@ async function handleAddProductForm() {
     updateArrivalCostForRow(row);
     updateStockOutFactorsForRow(row);
     updateReorderPointForRow(row);
+    updateFifteenDayRequirementForRow(row);
   }
 
   function createPricingRow(initialData = {}, variantDefs = getVariantDefinitions(), options = {}) {
@@ -11281,6 +11315,11 @@ async function handleAddProductForm() {
           input.step = '0.1';
         } else if (field === 'reorderPoint') {
           input.step = '0.01';
+          input.readOnly = false;
+          input.tabIndex = 0;
+          input.removeAttribute('aria-readonly');
+          input.classList.remove('readonly-input');
+          input.removeAttribute('readonly');
         } else {
           input.step = '1';
         }
