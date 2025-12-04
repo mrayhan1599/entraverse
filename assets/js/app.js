@@ -11320,11 +11320,16 @@ async function handleAddProductForm() {
           input.step = '0.1';
         } else if (field === 'reorderPoint') {
           input.step = '0.01';
-          input.readOnly = false;
-          input.tabIndex = 0;
-          input.removeAttribute('aria-readonly');
-          input.classList.remove('readonly-input');
-          input.removeAttribute('readonly');
+          input.readOnly = true;
+          input.tabIndex = -1;
+          input.setAttribute('aria-readonly', 'true');
+          input.classList.add('readonly-input');
+        } else if (field === 'fifteenDayRequirement') {
+          input.step = '0.01';
+          input.readOnly = true;
+          input.tabIndex = -1;
+          input.setAttribute('aria-readonly', 'true');
+          input.classList.add('readonly-input');
         } else {
           input.step = '1';
         }
