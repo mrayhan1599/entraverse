@@ -261,6 +261,25 @@
             <span class="report-source-tab__note">Unggah Excel 30 hari ke belakang</span>
           </button>
         </div>
+        <div class="warehouse-auto-settings" data-warehouse-auto-container>
+          <div class="warehouse-manual-period-tabs" data-warehouse-auto-period-tabs>
+            <button type="button" class="warehouse-manual-period-tab" data-warehouse-auto-period="period-a">
+              Periode A
+            </button>
+            <button type="button" class="warehouse-manual-period-tab" data-warehouse-auto-period="period-b">
+              Periode B
+            </button>
+          </div>
+          <div class="warehouse-manual-upload__info">
+            <p>Periode Pergerakan Barang otomatis diambil dari API Mekari Jurnal.</p>
+            <ul>
+              <li>Periode A: tanggal 1–15 setiap bulan.</li>
+              <li>Periode B: tanggal 16–30/31 setiap bulan.</li>
+              <li>Tidak perlu unggah manual; gunakan tombol sinkron untuk memperbarui.</li>
+            </ul>
+            <p class="helper-text" data-warehouse-auto-period-label>Periode aktif akan mengikuti rentang tanggal di atas.</p>
+          </div>
+        </div>
         <div class="warehouse-manual-upload" data-warehouse-manual-container hidden>
           <div class="warehouse-manual-period-tabs" data-warehouse-manual-period-tabs>
             <button type="button" class="warehouse-manual-period-tab is-active" data-warehouse-manual-period="period-a">
