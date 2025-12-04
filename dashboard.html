@@ -172,6 +172,21 @@
                 </button>
                 <div class="product-bulk-actions" id="product-bulk-actions" hidden>
                   <span class="product-bulk-count" id="product-bulk-count">0 produk dipilih</span>
+                  <button type="button" class="btn primary-btn" id="product-bulk-leadtime" disabled>
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      fill="none"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <path d="m12 7-.001 5.001L16 14"></path>
+                    </svg>
+                    Edit lead time
+                  </button>
                   <button type="button" class="btn danger-btn" id="product-bulk-delete" disabled aria-label="Hapus produk">
                     <svg
                       aria-hidden="true"
@@ -282,6 +297,36 @@
         </footer>
       </section>
     </main>
+    <div class="modal-backdrop" id="bulk-leadtime-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-leadtime-modal-title">
+        <form id="bulk-leadtime-form" class="modal-form">
+          <div class="modal-header">
+            <h2 id="bulk-leadtime-modal-title">Edit lead time massal</h2>
+            <button class="icon-btn small" type="button" data-close-modal aria-label="Tutup formulir">✕</button>
+          </div>
+          <div class="modal-body">
+            <p id="bulk-leadtime-count" class="helper-text">Tidak ada produk dipilih.</p>
+            <div class="form-group">
+              <label for="bulk-leadtime-input">Lead time (hari)</label>
+              <input
+                type="number"
+                id="bulk-leadtime-input"
+                name="leadTime"
+                inputmode="numeric"
+                min="0"
+                required
+                placeholder="Masukkan lead time"
+              >
+              <p class="helper-text">Nilai ini akan diterapkan ke semua varian dalam produk terpilih.</p>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn ghost-btn" type="button" data-close-modal>Batalkan</button>
+            <button class="btn primary-btn" type="submit">Simpan</button>
+          </div>
+        </form>
+      </div>
+    </div>
     </div>
   </div>
   <script>

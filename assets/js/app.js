@@ -3012,6 +3012,17 @@ function mapSupabaseProduct(record) {
       delete normalized.stock_out_date_period_b;
     }
 
+    const normalizedLeadTime = normalizeLeadTimeValue(normalized.leadTime ?? normalized.lead_time);
+    if (normalizedLeadTime !== null) {
+      normalized.leadTime = normalizedLeadTime;
+      normalized.lead_time = normalizedLeadTime;
+    } else {
+      delete normalized.leadTime;
+      if ('lead_time' in normalized) {
+        delete normalized.lead_time;
+      }
+    }
+
     return normalized;
   })
     .filter(Boolean);
@@ -3117,6 +3128,17 @@ function mapProductToRecord(product) {
 
         if (!normalized.variantLabel && (!normalized.variants || !normalized.variants.length)) {
           normalized.variantLabel = 'Default';
+        }
+
+        const normalizedLeadTime = normalizeLeadTimeValue(normalized.leadTime ?? normalized.lead_time);
+        if (normalizedLeadTime !== null) {
+          normalized.leadTime = normalizedLeadTime;
+          normalized.lead_time = normalizedLeadTime;
+        } else {
+          delete normalized.leadTime;
+          if ('lead_time' in normalized) {
+            delete normalized.lead_time;
+          }
         }
 
         return normalized;
@@ -7505,6 +7527,7 @@ function syncProductBulkControls() {
   const actions = document.getElementById('product-bulk-actions');
   const countEl = document.getElementById('product-bulk-count');
   const deleteBtn = document.getElementById('product-bulk-delete');
+  const leadTimeBtn = document.getElementById('product-bulk-leadtime');
   const selectAll = document.getElementById('product-bulk-select-all');
   const bulkHeaders = document.querySelectorAll('[data-product-bulk-column]');
 
@@ -7540,8 +7563,14 @@ function syncProductBulkControls() {
     actions.classList.toggle('is-visible', bulkActive);
   }
 
+  const noSelection = selectionCount === 0;
+
+  if (leadTimeBtn) {
+    leadTimeBtn.hidden = !bulkActive;
+    leadTimeBtn.disabled = noSelection;
+  }
+
   if (deleteBtn) {
-    const noSelection = selectionCount === 0;
     deleteBtn.disabled = noSelection;
     deleteBtn.hidden = noSelection || !bulkActive;
   }
@@ -7838,6 +7867,19 @@ function resolveShopeePriceValue(entry = {}) {
     }
   }
   return null;
+}
+
+function normalizeLeadTimeValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+
+  return Math.round(numeric);
 }
 
 function buildProductSkuTable(product) {
@@ -8406,6 +8448,13 @@ function handleProductActions() {
     }
   }
 
+  const bulkLeadTimeBtn = document.getElementById('product-bulk-leadtime');
+  const leadTimeModal = document.getElementById('bulk-leadtime-modal');
+  const leadTimeForm = document.getElementById('bulk-leadtime-form');
+  const leadTimeInput = document.getElementById('bulk-leadtime-input');
+  const leadTimeCount = document.getElementById('bulk-leadtime-count');
+  const leadTimeCloseButtons = leadTimeModal ? Array.from(leadTimeModal.querySelectorAll('[data-close-modal]')) : [];
+
   const deleteProductsByIds = async ids => {
     const idSet = new Set((ids ?? []).filter(Boolean));
     if (!idSet.size) {
@@ -8434,9 +8483,98 @@ function handleProductActions() {
     return { supabaseFailed };
   };
 
+  const closeLeadTimeModal = () => {
+    if (leadTimeModal) {
+      leadTimeModal.hidden = true;
+    }
+    document.body.classList.remove('modal-open');
+    if (leadTimeForm) {
+      leadTimeForm.reset();
+    }
+  };
+
+  const openLeadTimeModal = () => {
+    if (!leadTimeModal || !leadTimeForm || !leadTimeInput) {
+      return;
+    }
+
+    if (!productBulkSelection.size) {
+      toast.show('Pilih produk untuk memperbarui lead time.');
+      return;
+    }
+
+    leadTimeForm.reset();
+    if (leadTimeCount) {
+      leadTimeCount.textContent = `${productBulkSelection.size} produk dipilih`;
+    }
+
+    leadTimeModal.hidden = false;
+    document.body.classList.add('modal-open');
+
+    requestAnimationFrame(() => {
+      if (leadTimeInput) {
+        leadTimeInput.focus({ preventScroll: true });
+        leadTimeInput.select?.();
+      }
+    });
+  };
+
+  const applyLeadTimeToSelection = async leadTimeValue => {
+    const selectedIds = Array.from(productBulkSelection);
+    if (!selectedIds.length) {
+      return { supabaseFailed: false, updatedProducts: [] };
+    }
+
+    const cachedProducts = getProductsFromCache();
+    const productMap = new Map(
+      Array.isArray(cachedProducts)
+        ? cachedProducts.map(product => [product?.id, product]).filter(([id]) => Boolean(id))
+        : []
+    );
+
+    const updatedProducts = [];
+
+    selectedIds.forEach(id => {
+      const product = productMap.get(id);
+      if (!product) return;
+
+      const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+      const updatedPricing = pricingRows.map(row => {
+        const normalized = { ...(row ?? {}) };
+        normalized.leadTime = leadTimeValue;
+        normalized.lead_time = leadTimeValue;
+        return normalized;
+      });
+
+      const updatedProduct = { ...product, variantPricing: updatedPricing, updatedAt: Date.now() };
+      productMap.set(id, updatedProduct);
+      updatedProducts.push(updatedProduct);
+    });
+
+    const nextCache = Array.isArray(cachedProducts)
+      ? cachedProducts.map(product => productMap.get(product?.id) ?? product)
+      : [];
+
+    setProductCache(nextCache);
+
+    let supabaseFailed = false;
+
+    if (isSupabaseConfigured()) {
+      try {
+        await bulkUpsertProductsToSupabase(updatedProducts);
+      } catch (error) {
+        supabaseFailed = true;
+        console.error('Gagal memperbarui lead time di Supabase.', error);
+      }
+    }
+
+    return { supabaseFailed, updatedProducts };
+  };
+
   const resetBulkEditState = () => {
     productBulkEditEnabled = false;
     productBulkSelection.clear();
+    closeLeadTimeModal();
     syncProductBulkControls();
   };
 
@@ -8518,6 +8656,65 @@ function handleProductActions() {
       }
     });
   }
+
+  if (bulkLeadTimeBtn) {
+    bulkLeadTimeBtn.addEventListener('click', () => {
+      if (!requireCatalogManager('Silakan login untuk mengedit lead time.')) {
+        return;
+      }
+      openLeadTimeModal();
+    });
+  }
+
+  if (leadTimeForm) {
+    leadTimeForm.addEventListener('submit', async event => {
+      event.preventDefault();
+
+      if (!requireCatalogManager('Silakan login untuk memperbarui lead time.')) {
+        return;
+      }
+
+      const normalizedLeadTime = normalizeLeadTimeValue(leadTimeInput?.value);
+      if (normalizedLeadTime === null) {
+        toast.show('Masukkan lead time dalam hari (minimal 0).');
+        if (leadTimeInput) {
+          leadTimeInput.focus({ preventScroll: true });
+          leadTimeInput.select?.();
+        }
+        return;
+      }
+
+      const { supabaseFailed, updatedProducts } = await applyLeadTimeToSelection(normalizedLeadTime);
+
+      closeLeadTimeModal();
+      renderProducts(getCurrentFilter(), { resetPage: false });
+      syncProductBulkControls();
+
+      if (supabaseFailed) {
+        toast.show('Lead time disimpan, namun gagal tersinkron ke Supabase.');
+      } else {
+        const appliedCount = updatedProducts.length || productBulkSelection.size;
+        toast.show(`Lead time diperbarui untuk ${appliedCount} produk.`);
+      }
+    });
+  }
+
+  leadTimeCloseButtons.forEach(button => button.addEventListener('click', closeLeadTimeModal));
+
+  if (leadTimeModal) {
+    leadTimeModal.addEventListener('click', event => {
+      if (event.target === leadTimeModal) {
+        closeLeadTimeModal();
+      }
+    });
+  }
+
+  const handleLeadTimeEscape = event => {
+    if (event.key === 'Escape' && leadTimeModal && !leadTimeModal.hidden) {
+      closeLeadTimeModal();
+    }
+  };
+  document.addEventListener('keydown', handleLeadTimeEscape);
 
   tbody.addEventListener('change', event => {
     const checkbox = event.target.closest('[data-product-bulk-checkbox]');
