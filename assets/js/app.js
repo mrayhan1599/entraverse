@@ -10442,6 +10442,39 @@ async function handleAddProductForm() {
     }
   };
 
+  const updateReorderPointForRow = row => {
+    if (!row) return;
+
+    const reorderInput = row.querySelector('[data-field="reorderPoint"]');
+    const leadTimeInput = row.querySelector('[data-field="leadTime"]');
+    const finalAverageInput = row.querySelector('[data-field="finalDailyAveragePerDay"]');
+
+    if (!reorderInput || !leadTimeInput || !finalAverageInput) return;
+
+    const leadTime = parseNumericValue(
+      leadTimeInput.dataset.numericValue ?? leadTimeInput.value ?? ''
+    );
+    const finalAverage = parseNumericValue(
+      finalAverageInput.dataset.numericValue ?? finalAverageInput.value ?? ''
+    );
+
+    if (!Number.isFinite(leadTime) || leadTime < 0 || !Number.isFinite(finalAverage) || finalAverage < 0) {
+      reorderInput.value = '';
+      delete reorderInput.dataset.numericValue;
+      return;
+    }
+
+    const computed = leadTime * finalAverage;
+    const rounded = Math.round(computed * 100) / 100;
+    const formatted = rounded
+      .toFixed(2)
+      .replace(/\.0+$/, '')
+      .replace(/\.([0-9])0$/, '.$1');
+
+    reorderInput.value = formatted;
+    reorderInput.dataset.numericValue = rounded;
+  };
+
   const updateFinalDailyAverageForRow = row => {
     if (!row) return;
 
@@ -10458,21 +10491,21 @@ async function handleAddProductForm() {
     const factorA = parseNumericValue(factorAInput?.dataset.numericValue ?? factorAInput?.value ?? '');
     const factorB = parseNumericValue(factorBInput?.dataset.numericValue ?? factorBInput?.value ?? '');
 
-  const hasAverageA = Number.isFinite(averageA);
-  const hasAverageB = Number.isFinite(averageB);
+    const hasAverageA = Number.isFinite(averageA);
+    const hasAverageB = Number.isFinite(averageB);
 
-  if (!hasAverageA && !hasAverageB) {
-    finalAverageInput.value = '';
-    delete finalAverageInput.dataset.numericValue;
-    return;
-  }
+    if (!hasAverageA && !hasAverageB) {
+      finalAverageInput.value = '';
+      delete finalAverageInput.dataset.numericValue;
+      return;
+    }
 
-  const safeAverageA = hasAverageA ? averageA : 0;
-  const safeAverageB = hasAverageB ? averageB : 0;
-  const safeFactorA = Number.isFinite(factorA) ? factorA : 1;
-  const safeFactorB = Number.isFinite(factorB) ? factorB : 1;
+    const safeAverageA = hasAverageA ? averageA : 0;
+    const safeAverageB = hasAverageB ? averageB : 0;
+    const safeFactorA = Number.isFinite(factorA) ? factorA : 1;
+    const safeFactorB = Number.isFinite(factorB) ? factorB : 1;
 
-  const computed = ((safeAverageA * safeFactorA + safeAverageB * safeFactorB) / 2);
+    const computed = (safeAverageA * safeFactorA + safeAverageB * safeFactorB) / 2;
     if (!Number.isFinite(computed) || computed < 0) {
       finalAverageInput.value = '';
       delete finalAverageInput.dataset.numericValue;
@@ -10488,6 +10521,7 @@ async function handleAddProductForm() {
 
     finalAverageInput.value = formatted;
     finalAverageInput.dataset.numericValue = computed;
+    updateReorderPointForRow(row);
   };
 
   function collectPricingRows(variantDefs = getVariantDefinitions()) {
@@ -10529,7 +10563,7 @@ async function handleAddProductForm() {
         finalDailyAveragePerDay: getValue('[data-field="finalDailyAveragePerDay"]', { useDataset: true }),
         initialStockPrediction: getValue('[data-field="initialStockPrediction"]'),
         leadTime: getValue('[data-field="leadTime"]'),
-        reorderPoint: getValue('[data-field="reorderPoint"]'),
+        reorderPoint: getValue('[data-field="reorderPoint"]', { useDataset: true }),
         sellerSku: getValue('[data-field="sellerSku"]'),
         weight: getValue('[data-field="weight"]'),
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
@@ -10749,6 +10783,7 @@ async function handleAddProductForm() {
 
     updateArrivalCostForRow(row);
     updateStockOutFactorsForRow(row);
+    updateReorderPointForRow(row);
   }
 
   function createPricingRow(initialData = {}, variantDefs = getVariantDefinitions(), options = {}) {
@@ -10855,7 +10890,13 @@ async function handleAddProductForm() {
       if (['initialStockPrediction', 'leadTime', 'reorderPoint'].includes(field)) {
         input.inputMode = 'decimal';
         input.min = '0';
-        input.step = field === 'leadTime' ? '0.1' : '1';
+        if (field === 'leadTime') {
+          input.step = '0.1';
+        } else if (field === 'reorderPoint') {
+          input.step = '0.01';
+        } else {
+          input.step = '1';
+        }
       }
 
       if (field === 'stockOutFactorPeriodA' || field === 'stockOutFactorPeriodB') {
@@ -11008,6 +11049,13 @@ async function handleAddProductForm() {
       averageInput.addEventListener('input', handleAverageChange);
       averageInput.addEventListener('change', handleAverageChange);
     });
+
+    const leadTimeInput = row.querySelector('[data-field="leadTime"]');
+    if (leadTimeInput) {
+      const handleLeadTimeChange = () => updateReorderPointForRow(row);
+      leadTimeInput.addEventListener('input', handleLeadTimeChange);
+      leadTimeInput.addEventListener('change', handleLeadTimeChange);
+    }
 
     const manualVariantInput = row.querySelector('[data-field="variantLabel"]');
     if (manualVariantInput) {
