@@ -12776,6 +12776,69 @@ function getProfitLossDateRange({ periodKey = 'all', startDate = null, endDate =
   return { startDate: null, endDate: null, period: periodKey };
 }
 
+function toWibDate(dateValue = new Date()) {
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return new Date();
+  }
+
+  const utcMillis = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
+  return new Date(utcMillis + WIB_TIMEZONE_OFFSET_MINUTES * 60 * 1000);
+}
+
+function getWarehouseAutoPeriods(referenceDate = new Date()) {
+  const now = toWibDate(referenceDate);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+
+  const periodAStart = new Date(Date.UTC(year, month, 1));
+  const periodAEnd = new Date(Date.UTC(year, month, Math.min(15, new Date(Date.UTC(year, month + 1, 0)).getUTCDate())));
+
+  const isPeriodAActive = day <= 15;
+  const previousMonth = month === 0 ? 11 : month - 1;
+  const previousYear = month === 0 ? year - 1 : year;
+  const periodBYear = isPeriodAActive ? previousYear : year;
+  const periodBMonth = isPeriodAActive ? previousMonth : month;
+  const periodBEndDay = new Date(Date.UTC(periodBYear, periodBMonth + 1, 0)).getUTCDate();
+
+  const periodBStart = new Date(Date.UTC(periodBYear, periodBMonth, 16));
+  const periodBEnd = new Date(Date.UTC(periodBYear, periodBMonth, periodBEndDay));
+
+  const periodA = {
+    key: 'period-a',
+    start: toDateOnlyString(periodAStart),
+    end: toDateOnlyString(periodAEnd),
+    signature: `auto-period-a-${year}-${String(month + 1).padStart(2, '0')}`,
+    isActive: isPeriodAActive
+  };
+
+  const periodB = {
+    key: 'period-b',
+    start: toDateOnlyString(periodBStart),
+    end: toDateOnlyString(periodBEnd),
+    signature: `auto-period-b-${periodBYear}-${String(periodBMonth + 1).padStart(2, '0')}`,
+    isActive: !isPeriodAActive
+  };
+
+  return { periodA, periodB };
+}
+
+function resolveWarehouseAutoSelection(selection, referenceDate = new Date()) {
+  const { periodA, periodB } = getWarehouseAutoPeriods(referenceDate);
+  const key = (selection?.key || '').toString();
+
+  if (key === 'period-b') {
+    return periodB;
+  }
+
+  if (key === 'period-a') {
+    return periodA;
+  }
+
+  return periodA.isActive ? periodA : periodB;
+}
+
 const DEFAULT_PNL_SUMMARY = Object.freeze({
   revenue: 0,
   cogs: 0,
@@ -15636,7 +15699,11 @@ async function fetchWarehouseMovements({ start, end } = {}) {
 
 async function syncWarehouseMovements({ selection, force = false, showToastOnError = false } = {}) {
   const normalizedSelection = selection ?? getPeriodSelection();
-  const signature = getPeriodSelectionSignature(normalizedSelection);
+  const autoPeriod = resolveWarehouseAutoSelection(normalizedSelection);
+  const signature =
+    warehouseActiveSource === WAREHOUSE_SOURCE_AUTO
+      ? autoPeriod.signature
+      : getPeriodSelectionSignature(normalizedSelection);
 
   if (!force && signature === warehouseMovementsState.lastSignature && warehouseMovementsState.rows.length) {
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
@@ -15667,47 +15734,18 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
     }
   }
 
-  if (!force && (!cachedSnapshot || !cachedSnapshot.rows?.length)) {
-    try {
-      const supabaseSnapshot = await fetchWarehouseMovementSnapshot({
-        source: WAREHOUSE_SOURCE_AUTO,
-        signature
-      });
-
-      if (supabaseSnapshot && Array.isArray(supabaseSnapshot.rows) && supabaseSnapshot.rows.length) {
-        warehouseMovementsState = {
-          ...warehouseMovementsState,
-          rows: supabaseSnapshot.rows,
-          header: supabaseSnapshot.header,
-          totals: supabaseSnapshot.totals,
-          warehouses: supabaseSnapshot.warehouses,
-          lastSignature: signature,
-          loading: false,
-          error: null,
-          currentPage: Math.max(1, Number(warehouseMovementsState.currentPage) || 1),
-          pageSize: Math.max(1, Number(warehouseMovementsState.pageSize) || 10),
-          sort: sanitizeWarehouseSort(warehouseMovementsState.sort),
-          lastLoadedAt: supabaseSnapshot.lastLoadedAt || supabaseSnapshot.updatedAt || Date.now(),
-          lastFilteredCount: 0
-        };
-
-        renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
-        return { success: true, cached: true, source: 'supabase' };
-      }
-    } catch (error) {
-      console.warn('Gagal memuat snapshot pergerakan gudang dari Supabase.', error);
-    }
-  }
-
   setWarehouseMovementsLoading(true, { preservePage: Boolean(cachedSnapshot) });
   renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
 
   try {
-    const range = getProfitLossDateRange({
-      periodKey: normalizedSelection?.key ?? 'all',
-      startDate: normalizedSelection?.start ?? normalizedSelection?.startDate ?? null,
-      endDate: normalizedSelection?.end ?? normalizedSelection?.endDate ?? null
-    });
+    const range =
+      warehouseActiveSource === WAREHOUSE_SOURCE_AUTO
+        ? { startDate: autoPeriod.start, endDate: autoPeriod.end }
+        : getProfitLossDateRange({
+            periodKey: normalizedSelection?.key ?? 'all',
+            startDate: normalizedSelection?.start ?? normalizedSelection?.startDate ?? null,
+            endDate: normalizedSelection?.end ?? normalizedSelection?.endDate ?? null
+          });
 
     const payload = await fetchWarehouseMovements({ start: range.startDate, end: range.endDate });
     const normalized = normalizeWarehouseMovementsPayload(payload);
@@ -15730,20 +15768,6 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
       lastFilteredCount: 0,
       lastLoadedAt: Date.now()
     };
-
-    persistWarehouseMovementSnapshot({
-      source: WAREHOUSE_SOURCE_AUTO,
-      periodSignature: signature,
-      periodStart: range.startDate,
-      periodEnd: range.endDate,
-      header: normalized.header,
-      totals: normalized.totals,
-      rows: normalized.rows,
-      warehouses: normalized.warehouses,
-      lastLoadedAt: Date.now()
-    }).catch(error => {
-      console.warn('Gagal menyimpan pergerakan gudang otomatis ke Supabase.', error);
-    });
 
     setCachedWarehouseMovements(signature, warehouseMovementsState);
 
