@@ -3123,6 +3123,33 @@ function mapSupabaseProduct(record) {
       }
     }
 
+    const rawFifteenDayRequirement =
+      normalized.fifteenDayRequirement ?? normalized.fifteen_day_requirement;
+    if (rawFifteenDayRequirement !== undefined) {
+      normalized.fifteenDayRequirement = rawFifteenDayRequirement;
+    }
+
+    const rawCurrentStock = normalized.currentStock ?? normalized.current_stock;
+    if (rawCurrentStock !== undefined) {
+      normalized.currentStock = rawCurrentStock;
+    }
+
+    const rawInTransitStock = normalized.inTransitStock ?? normalized.in_transit_stock;
+    if (rawInTransitStock !== undefined) {
+      normalized.inTransitStock = rawInTransitStock;
+    }
+
+    const rawNextProcurement = normalized.nextProcurement ?? normalized.next_procurement;
+    if (rawNextProcurement !== undefined) {
+      normalized.nextProcurement = rawNextProcurement;
+    }
+
+    ['fifteen_day_requirement', 'current_stock', 'in_transit_stock', 'next_procurement'].forEach(key => {
+      if (key in normalized) {
+        delete normalized[key];
+      }
+    });
+
     return normalized;
   })
     .filter(Boolean);
@@ -3240,6 +3267,24 @@ function mapProductToRecord(product) {
             delete normalized.lead_time;
           }
         }
+
+        [
+          ['fifteenDayRequirement', 'fifteen_day_requirement'],
+          ['currentStock', 'current_stock'],
+          ['inTransitStock', 'in_transit_stock'],
+          ['nextProcurement', 'next_procurement']
+        ].forEach(([camelKey, snakeKey]) => {
+          if (camelKey in normalized) {
+            const value = normalized[camelKey];
+            if (value === undefined || value === null || value === '') {
+              delete normalized[camelKey];
+              if (snakeKey in normalized) delete normalized[snakeKey];
+              return;
+            }
+            normalized[camelKey] = value;
+            normalized[snakeKey] = value;
+          }
+        });
 
         return normalized;
       })
@@ -10760,6 +10805,21 @@ async function handleAddProductForm() {
 
     if (!reorderInput || !leadTimeInput || !finalAverageInput) return;
 
+    const manualValue = (reorderInput.value ?? '').toString().trim();
+    const hasManualOverride = reorderInput.dataset.userOverride === 'true' && manualValue !== '';
+
+    if (hasManualOverride) {
+      const manualNumeric = parseNumericValue(manualValue);
+      if (Number.isFinite(manualNumeric)) {
+        reorderInput.dataset.numericValue = manualNumeric;
+      } else {
+        delete reorderInput.dataset.numericValue;
+      }
+      return;
+    }
+
+    delete reorderInput.dataset.userOverride;
+
     const leadTime = parseNumericValue(
       leadTimeInput.dataset.numericValue ?? leadTimeInput.value ?? ''
     );
@@ -10873,6 +10933,10 @@ async function handleAddProductForm() {
         initialStockPrediction: getValue('[data-field="initialStockPrediction"]'),
         leadTime: getValue('[data-field="leadTime"]'),
         reorderPoint: getValue('[data-field="reorderPoint"]', { useDataset: true }),
+        fifteenDayRequirement: getValue('[data-field="fifteenDayRequirement"]', { useDataset: true }),
+        currentStock: getValue('[data-field="currentStock"]', { useDataset: true }),
+        inTransitStock: getValue('[data-field="inTransitStock"]', { useDataset: true }),
+        nextProcurement: getValue('[data-field="nextProcurement"]', { useDataset: true }),
         sellerSku: getValue('[data-field="sellerSku"]'),
         weight: getValue('[data-field="weight"]'),
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
@@ -11079,7 +11143,11 @@ async function handleAddProductForm() {
       'finalDailyAveragePerDay',
       'initialStockPrediction',
       'leadTime',
-      'reorderPoint'
+      'reorderPoint',
+      'fifteenDayRequirement',
+      'currentStock',
+      'inTransitStock',
+      'nextProcurement'
     ].forEach(field => {
       applyFieldValue(field, initialData[field]);
     });
@@ -11196,7 +11264,17 @@ async function handleAddProductForm() {
         input.classList.add('readonly-input');
       }
 
-      if (['initialStockPrediction', 'leadTime', 'reorderPoint'].includes(field)) {
+      if (
+        [
+          'initialStockPrediction',
+          'leadTime',
+          'reorderPoint',
+          'fifteenDayRequirement',
+          'currentStock',
+          'inTransitStock',
+          'nextProcurement'
+        ].includes(field)
+      ) {
         input.inputMode = 'decimal';
         input.min = '0';
         if (field === 'leadTime') {
@@ -11300,6 +11378,10 @@ async function handleAddProductForm() {
     buildInputCell('initialStockPrediction', '0', 'number');
     buildInputCell('leadTime', '0', 'number');
     buildInputCell('reorderPoint', '0', 'number');
+    buildInputCell('fifteenDayRequirement', '0', 'number');
+    buildInputCell('currentStock', '0', 'number');
+    buildInputCell('inTransitStock', '0', 'number');
+    buildInputCell('nextProcurement', '0', 'number');
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'variant-actions';
@@ -11364,6 +11446,30 @@ async function handleAddProductForm() {
       const handleLeadTimeChange = () => updateReorderPointForRow(row);
       leadTimeInput.addEventListener('input', handleLeadTimeChange);
       leadTimeInput.addEventListener('change', handleLeadTimeChange);
+    }
+
+    const reorderPointInput = row.querySelector('[data-field="reorderPoint"]');
+    if (reorderPointInput) {
+      const handleManualReorderInput = () => {
+        const value = (reorderPointInput.value ?? '').toString().trim();
+        if (!value) {
+          delete reorderPointInput.dataset.userOverride;
+          delete reorderPointInput.dataset.numericValue;
+          updateReorderPointForRow(row);
+          return;
+        }
+
+        const parsed = parseNumericValue(value);
+        reorderPointInput.dataset.userOverride = 'true';
+        if (Number.isFinite(parsed)) {
+          reorderPointInput.dataset.numericValue = parsed;
+        } else {
+          delete reorderPointInput.dataset.numericValue;
+        }
+      };
+
+      reorderPointInput.addEventListener('input', handleManualReorderInput);
+      reorderPointInput.addEventListener('change', handleManualReorderInput);
     }
 
     const manualVariantInput = row.querySelector('[data-field="variantLabel"]');
@@ -11498,6 +11604,10 @@ async function handleAddProductForm() {
       'Prediksi Stok Awal',
       'Lead Time (hari)',
       'Reorder Point',
+      'Kebutuhan 15 Hari',
+      'Stok Saat Ini',
+      'Stok Dalam Perjalanan',
+      'Pengadaan Barang Selanjutnya',
       ''
     ];
 
@@ -11950,6 +12060,10 @@ async function handleAddProductForm() {
         initialStockPrediction: (row.initialStockPrediction ?? '').toString().trim(),
         leadTime: (row.leadTime ?? '').toString().trim(),
         reorderPoint: (row.reorderPoint ?? '').toString().trim(),
+        fifteenDayRequirement: (row.fifteenDayRequirement ?? '').toString().trim(),
+        currentStock: (row.currentStock ?? '').toString().trim(),
+        inTransitStock: (row.inTransitStock ?? '').toString().trim(),
+        nextProcurement: (row.nextProcurement ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
         weight: (row.weight ?? '').toString().trim(),
         stockOutDatePeriodA: formattedStockOutDateA,
@@ -12005,6 +12119,10 @@ async function handleAddProductForm() {
         row.initialStockPrediction,
         row.leadTime,
         row.reorderPoint,
+        row.fifteenDayRequirement,
+        row.currentStock,
+        row.inTransitStock,
+        row.nextProcurement,
         row.sellerSku,
         row.weight,
         row.stockOutDatePeriodA,
