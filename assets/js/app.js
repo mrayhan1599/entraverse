@@ -16115,6 +16115,10 @@ function setWarehouseSourceTab(source) {
   const targetSource = source === WAREHOUSE_SOURCE_MANUAL ? WAREHOUSE_SOURCE_MANUAL : WAREHOUSE_SOURCE_AUTO;
   warehouseActiveSource = targetSource;
 
+  if (document?.body) {
+    document.body.setAttribute('data-warehouse-source', targetSource);
+  }
+
   document.querySelectorAll('[data-warehouse-source-tab]').forEach(button => {
     const isActive = button.dataset.warehouseSourceTab === targetSource;
     button.classList.toggle('is-active', isActive);
