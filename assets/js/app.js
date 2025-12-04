@@ -10527,6 +10527,9 @@ async function handleAddProductForm() {
         dailyAverageSalesPeriodA: getValue('[data-field="dailyAverageSalesPeriodA"]'),
         dailyAverageSalesPeriodB: getValue('[data-field="dailyAverageSalesPeriodB"]'),
         finalDailyAveragePerDay: getValue('[data-field="finalDailyAveragePerDay"]', { useDataset: true }),
+        initialStockPrediction: getValue('[data-field="initialStockPrediction"]'),
+        leadTime: getValue('[data-field="leadTime"]'),
+        reorderPoint: getValue('[data-field="reorderPoint"]'),
         sellerSku: getValue('[data-field="sellerSku"]'),
         weight: getValue('[data-field="weight"]'),
         stockOutDatePeriodA: getValue('[data-field="stockOutDatePeriodA"]'),
@@ -10730,7 +10733,10 @@ async function handleAddProductForm() {
       'stockOutDatePeriodB',
       'stockOutFactorPeriodA',
       'stockOutFactorPeriodB',
-      'finalDailyAveragePerDay'
+      'finalDailyAveragePerDay',
+      'initialStockPrediction',
+      'leadTime',
+      'reorderPoint'
     ].forEach(field => {
       applyFieldValue(field, initialData[field]);
     });
@@ -10846,6 +10852,12 @@ async function handleAddProductForm() {
         input.classList.add('readonly-input');
       }
 
+      if (['initialStockPrediction', 'leadTime', 'reorderPoint'].includes(field)) {
+        input.inputMode = 'decimal';
+        input.min = '0';
+        input.step = field === 'leadTime' ? '0.1' : '1';
+      }
+
       if (field === 'stockOutFactorPeriodA' || field === 'stockOutFactorPeriodB') {
         input.inputMode = 'decimal';
         input.step = '0.01';
@@ -10935,6 +10947,9 @@ async function handleAddProductForm() {
     buildInputCell('stockOutDatePeriodB', '-');
     buildInputCell('stockOutFactorPeriodB', '0');
     buildInputCell('finalDailyAveragePerDay', '0', 'number');
+    buildInputCell('initialStockPrediction', '0', 'number');
+    buildInputCell('leadTime', '0', 'number');
+    buildInputCell('reorderPoint', '0', 'number');
 
     const actionsCell = document.createElement('td');
     actionsCell.className = 'variant-actions';
@@ -11123,6 +11138,9 @@ async function handleAddProductForm() {
       'Tanggal Stok Habis Periode B',
       'Faktor Stok Habis Periode B',
       'Rata-Rata Penjualan per Hari Final',
+      'Prediksi Stok Awal',
+      'Lead Time (hari)',
+      'Reorder Point',
       ''
     ];
 
@@ -11372,9 +11390,6 @@ async function handleAddProductForm() {
       tradeToggle.checked = Boolean(product.tradeIn);
     }
     const inventoryFields = {
-      initialStockPrediction: form.querySelector('#initial-stock-prediction'),
-      leadTime: form.querySelector('#lead-time'),
-      reorderPoint: form.querySelector('#reorder-point'),
       weightGrams: weightInput,
       packageLengthCm: packageLengthInput,
       packageWidthCm: packageWidthInput,
@@ -11511,9 +11526,6 @@ async function handleAddProductForm() {
       return (formData.get('packageVolumeCm3') ?? '').toString().trim();
     })();
     const inventoryData = {
-      initialStockPrediction: (formData.get('initialStockPrediction') ?? '').toString().trim(),
-      leadTime: (formData.get('leadTime') ?? '').toString().trim(),
-      reorderPoint: (formData.get('reorderPoint') ?? '').toString().trim(),
       weightGrams: (formData.get('weightGrams') ?? '').toString().trim(),
       packageLengthCm: lengthValue,
       packageWidthCm: widthValue,
@@ -11578,6 +11590,9 @@ async function handleAddProductForm() {
         dailyAverageSalesPeriodB: (row.dailyAverageSalesPeriodB ?? '').toString().trim(),
         finalDailyAveragePerDay:
           formatDailyAverageSalesValue(parseNumericValue(row.finalDailyAveragePerDay ?? '')) ?? '',
+        initialStockPrediction: (row.initialStockPrediction ?? '').toString().trim(),
+        leadTime: (row.leadTime ?? '').toString().trim(),
+        reorderPoint: (row.reorderPoint ?? '').toString().trim(),
         sellerSku: (row.sellerSku ?? '').toString().trim(),
         weight: (row.weight ?? '').toString().trim(),
         stockOutDatePeriodA: formattedStockOutDateA,
@@ -11630,6 +11645,9 @@ async function handleAddProductForm() {
         row.dailyAverageSalesPeriodA,
         row.dailyAverageSalesPeriodB,
         row.finalDailyAveragePerDay,
+        row.initialStockPrediction,
+        row.leadTime,
+        row.reorderPoint,
         row.sellerSku,
         row.weight,
         row.stockOutDatePeriodA,
