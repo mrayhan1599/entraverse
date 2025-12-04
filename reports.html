@@ -261,6 +261,32 @@
             <span class="report-source-tab__note">Unggah Excel 30 hari ke belakang</span>
           </button>
         </div>
+        <div class="warehouse-auto-controls" data-warehouse-auto-controls>
+          <div class="warehouse-manual-period-tabs" data-warehouse-auto-period-tabs>
+            <button type="button" class="warehouse-manual-period-tab" data-warehouse-auto-period="custom">
+              Periode Custom
+            </button>
+            <button type="button" class="warehouse-manual-period-tab" data-warehouse-auto-period="period-a">
+              Periode A
+            </button>
+            <button type="button" class="warehouse-manual-period-tab" data-warehouse-auto-period="period-b">
+              Periode B
+            </button>
+          </div>
+          <div class="warehouse-auto-custom" data-warehouse-auto-custom hidden>
+            <div class="date-range-filter__custom-inputs">
+              <label class="date-range-filter__input">
+                <span>Mulai</span>
+                <input type="date" data-warehouse-auto-start>
+              </label>
+              <label class="date-range-filter__input">
+                <span>Selesai</span>
+                <input type="date" data-warehouse-auto-end>
+              </label>
+            </div>
+            <button class="btn primary-btn small" type="button" data-warehouse-auto-apply>Terapkan</button>
+          </div>
+        </div>
         <div class="warehouse-manual-upload" data-warehouse-manual-container hidden>
           <div class="warehouse-manual-period-tabs" data-warehouse-manual-period-tabs>
             <button type="button" class="warehouse-manual-period-tab is-active" data-warehouse-manual-period="period-a">

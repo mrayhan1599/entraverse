@@ -655,6 +655,12 @@ const WAREHOUSE_MANUAL_PERIODS = [
   { key: 'period-a', label: 'Periode A' },
   { key: 'period-b', label: 'Periode B' }
 ];
+const DEFAULT_WAREHOUSE_AUTO_SELECTION = resolveWarehouseAutoSelection({ key: null });
+let warehouseAutoSelection = DEFAULT_WAREHOUSE_AUTO_SELECTION;
+let warehouseAutoCustomRange = {
+  start: DEFAULT_WAREHOUSE_AUTO_SELECTION?.start || null,
+  end: DEFAULT_WAREHOUSE_AUTO_SELECTION?.end || null
+};
 const MANUAL_PERIOD_SIGNATURES = WAREHOUSE_MANUAL_PERIODS.reduce((accumulator, period, index) => {
   accumulator[period.key] = `manual-period-${index + 1}`;
   return accumulator;
@@ -12810,7 +12816,8 @@ function getWarehouseAutoPeriods(referenceDate = new Date()) {
     start: toDateOnlyString(periodAStart),
     end: toDateOnlyString(periodAEnd),
     signature: `auto-period-a-${year}-${String(month + 1).padStart(2, '0')}`,
-    isActive: isPeriodAActive
+    isActive: isPeriodAActive,
+    isValid: true
   };
 
   const periodB = {
@@ -12818,7 +12825,8 @@ function getWarehouseAutoPeriods(referenceDate = new Date()) {
     start: toDateOnlyString(periodBStart),
     end: toDateOnlyString(periodBEnd),
     signature: `auto-period-b-${periodBYear}-${String(periodBMonth + 1).padStart(2, '0')}`,
-    isActive: !isPeriodAActive
+    isActive: !isPeriodAActive,
+    isValid: true
   };
 
   return { periodA, periodB };
@@ -12827,6 +12835,23 @@ function getWarehouseAutoPeriods(referenceDate = new Date()) {
 function resolveWarehouseAutoSelection(selection, referenceDate = new Date()) {
   const { periodA, periodB } = getWarehouseAutoPeriods(referenceDate);
   const key = (selection?.key || '').toString();
+  const start = normalizeDateFilterValue(selection?.start ?? selection?.startDate);
+  const end = normalizeDateFilterValue(selection?.end ?? selection?.endDate);
+
+  if (key === 'custom') {
+    const startDate = parseDateOnlyValue(start);
+    const endDate = parseDateOnlyValue(end);
+    const isValid = Boolean(startDate && endDate && startDate <= endDate);
+
+    return {
+      key: 'custom',
+      start: start || null,
+      end: end || null,
+      signature: `auto-custom-${start || ''}-${end || ''}`,
+      isActive: false,
+      isValid
+    };
+  }
 
   if (key === 'period-b') {
     return periodB;
@@ -12837,6 +12862,83 @@ function resolveWarehouseAutoSelection(selection, referenceDate = new Date()) {
   }
 
   return periodA.isActive ? periodA : periodB;
+}
+
+function getWarehouseAutoSelection() {
+  const resolved = resolveWarehouseAutoSelection(warehouseAutoSelection);
+
+  if (resolved?.key === 'custom') {
+    const normalizedStart = normalizeDateFilterValue(warehouseAutoCustomRange.start ?? resolved.start);
+    const normalizedEnd = normalizeDateFilterValue(warehouseAutoCustomRange.end ?? resolved.end);
+    const startDate = parseDateOnlyValue(normalizedStart);
+    const endDate = parseDateOnlyValue(normalizedEnd);
+    const isValid = Boolean(startDate && endDate && startDate <= endDate);
+
+    return {
+      key: 'custom',
+      start: normalizedStart || null,
+      end: normalizedEnd || null,
+      signature: `auto-custom-${normalizedStart || ''}-${normalizedEnd || ''}`,
+      isActive: false,
+      isValid
+    };
+  }
+
+  if (resolved) {
+    return resolved;
+  }
+
+  return resolveWarehouseAutoSelection({ key: null });
+}
+
+function setWarehouseAutoSelection(selection, { triggerSync = false, silent = false } = {}) {
+  const nextSelection = resolveWarehouseAutoSelection(selection) || resolveWarehouseAutoSelection({ key: null });
+
+  if (nextSelection.key === 'custom') {
+    warehouseAutoCustomRange = {
+      start: nextSelection.start || warehouseAutoCustomRange.start || null,
+      end: nextSelection.end || warehouseAutoCustomRange.end || null
+    };
+  }
+
+  warehouseAutoSelection = nextSelection;
+  renderWarehouseAutoSelectionUI();
+
+  if (triggerSync && warehouseActiveSource === WAREHOUSE_SOURCE_AUTO) {
+    const resolved = getWarehouseAutoSelection();
+    if (resolved.key === 'custom' && !resolved.isValid && !silent) {
+      toast.show('Pilih tanggal mulai dan selesai untuk periode custom.');
+      return resolved;
+    }
+    applyFilters({ triggerProfitLoss: false, forceWarehouseSync: true });
+  }
+
+  return getWarehouseAutoSelection();
+}
+
+function renderWarehouseAutoSelectionUI() {
+  const selection = warehouseAutoSelection ?? DEFAULT_WAREHOUSE_AUTO_SELECTION;
+  const buttons = document.querySelectorAll('[data-warehouse-auto-period]');
+  const customContainer = document.querySelector('[data-warehouse-auto-custom]');
+  const startInput = document.querySelector('[data-warehouse-auto-start]');
+  const endInput = document.querySelector('[data-warehouse-auto-end]');
+
+  buttons.forEach(button => {
+    const key = button.dataset.warehouseAutoPeriod;
+    button.classList.toggle('is-active', selection?.key === key);
+  });
+
+  if (customContainer) {
+    customContainer.hidden = selection?.key !== 'custom';
+  }
+
+  if (startInput) {
+    startInput.value = warehouseAutoCustomRange.start || '';
+  }
+
+  if (endInput) {
+    endInput.value = warehouseAutoCustomRange.end || '';
+  }
 }
 
 const DEFAULT_PNL_SUMMARY = Object.freeze({
@@ -15705,6 +15807,16 @@ async function syncWarehouseMovements({ selection, force = false, showToastOnErr
       ? autoPeriod.signature
       : getPeriodSelectionSignature(normalizedSelection);
 
+  if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO && (!autoPeriod || (autoPeriod.key === 'custom' && !autoPeriod.isValid))) {
+    const message = 'Pilih tanggal mulai dan selesai untuk periode custom.';
+    setWarehouseMovementsError(message);
+    renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
+    if (showToastOnError) {
+      toast.show(message);
+    }
+    return { success: false, error: new Error(message) };
+  }
+
   if (!force && signature === warehouseMovementsState.lastSignature && warehouseMovementsState.rows.length) {
     renderSalesReports({ search: document.getElementById('search-input')?.value ?? '' });
     return { success: true, cached: true };
@@ -16061,6 +16173,11 @@ function setWarehouseSourceTab(source) {
     const isActive = button.dataset.warehouseSourceTab === targetSource;
     button.classList.toggle('is-active', isActive);
   });
+
+  const autoControls = document.querySelector('[data-warehouse-auto-controls]');
+  if (autoControls) {
+    autoControls.hidden = targetSource !== WAREHOUSE_SOURCE_AUTO;
+  }
 
   const manualContainer = document.querySelector('[data-warehouse-manual-container]');
   if (manualContainer) {
@@ -16548,6 +16665,10 @@ function initReportsPage() {
     requestSignature: null
   };
 
+  const autoPeriodTabs = document.querySelector('[data-warehouse-auto-period-tabs]');
+  const autoStartInput = document.querySelector('[data-warehouse-auto-start]');
+  const autoEndInput = document.querySelector('[data-warehouse-auto-end]');
+  const autoApplyButton = document.querySelector('[data-warehouse-auto-apply]');
   const manualInput = document.querySelector('[data-warehouse-manual-input]');
   const manualResetButton = document.querySelector('[data-warehouse-manual-reset]');
   const sourceTabs = document.querySelector('[data-warehouse-source-tabs]');
@@ -16573,6 +16694,50 @@ function initReportsPage() {
     });
   }
 
+  if (autoPeriodTabs) {
+    autoPeriodTabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-warehouse-auto-period]');
+      if (!button) {
+        return;
+      }
+
+      const key = button.dataset.warehouseAutoPeriod;
+      setWarehouseAutoSelection({ key }, { triggerSync: key !== 'custom' });
+
+      if (key === 'custom' && autoStartInput) {
+        autoStartInput.focus();
+      }
+    });
+  }
+
+  [autoStartInput, autoEndInput].forEach(input => {
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+      setWarehouseAutoSelection(
+        {
+          key: 'custom',
+          start: autoStartInput?.value,
+          end: autoEndInput?.value
+        },
+        { silent: true }
+      );
+    });
+  });
+
+  if (autoApplyButton) {
+    autoApplyButton.addEventListener('click', () => {
+      setWarehouseAutoSelection(
+        {
+          key: 'custom',
+          start: autoStartInput?.value,
+          end: autoEndInput?.value
+        },
+        { triggerSync: true }
+      );
+    });
+  }
+
   if (manualInput) {
     manualInput.addEventListener('change', event => {
       const file = event.target.files?.[0] || null;
@@ -16589,6 +16754,7 @@ function initReportsPage() {
 
   updateManualUploadUI();
   setWarehouseSourceTab(warehouseActiveSource);
+  renderWarehouseAutoSelectionUI();
   setManualPeriod(warehouseManualActivePeriod);
 
   const restoreManualWarehouseFromSupabase = async () => {
@@ -16793,9 +16959,17 @@ function initReportsPage() {
       search: searchInput ? searchInput.value : ''
     });
 
+    const warehouseSelection =
+      warehouseActiveSource === WAREHOUSE_SOURCE_AUTO ? getWarehouseAutoSelection() : currentPeriodSelection;
+
     if (warehouseActiveSource === WAREHOUSE_SOURCE_AUTO) {
+      if (warehouseSelection?.key === 'custom' && !warehouseSelection?.isValid) {
+        toast.show('Pilih tanggal mulai dan selesai untuk periode custom.');
+        return;
+      }
+
       syncWarehouseMovements({
-        selection: currentPeriodSelection,
+        selection: warehouseSelection,
         force: forceWarehouseSync,
         showToastOnError: triggerProfitLoss
       }).catch(error => {
