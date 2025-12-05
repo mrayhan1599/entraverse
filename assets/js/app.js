@@ -18773,9 +18773,30 @@ function normalizePurchaseOrderItem(line) {
     return null;
   }
 
-  const name = (line.item_name ?? line.product_name ?? line.product ?? line.name ?? '').toString().trim();
-  const description = (line.description ?? line.memo ?? line.detail ?? '').toString().trim();
-  const quantity = parseNumericValue(line.quantity ?? line.qty ?? line.quantity_ordered ?? line.qty_ordered);
+  const name = (
+    line.item_name ??
+    line.product_name ??
+    line.product ??
+    line.name ??
+    line.item?.name ??
+    line.product?.name ??
+    line.item?.product_name ??
+    line.item?.item_name ??
+    ''
+  )
+    .toString()
+    .trim();
+
+  const description = (line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '').toString().trim();
+
+  const quantity = parseNumericValue(
+    line.quantity ??
+      line.qty ??
+      line.quantity_ordered ??
+      line.qty_ordered ??
+      line.quantity_received ??
+      line.qty_received
+  );
   const unit = (line.unit_name ?? line.unit ?? line.uom ?? '').toString().trim();
   const rate = parseNumericValue(line.rate ?? line.price ?? line.unit_price ?? line.price_per_unit);
   const total = parseNumericValue(line.amount ?? line.total ?? line.sub_total ?? line.subtotal ?? line.line_total);
@@ -19086,10 +19107,18 @@ async function refreshPurchaseOrders({ page, perPage } = {}) {
       return;
     }
 
+    const resolvedPerPage = Number.isFinite(pagination?.perPage) ? pagination.perPage : nextPerPage;
+    const resolvedTotalItems = Number.isFinite(pagination?.totalItems)
+      ? pagination.totalItems
+      : Math.max(orders.length, purchaseOrdersState.totalItems || 0);
+    const resolvedTotalPages = Number.isFinite(pagination?.totalPages)
+      ? pagination.totalPages
+      : Math.max(1, Math.ceil(Math.max(1, resolvedTotalItems) / Math.max(1, resolvedPerPage)));
+
     purchaseOrdersState.page = Number.isFinite(pagination?.page) ? pagination.page : nextPage;
-    purchaseOrdersState.perPage = Number.isFinite(pagination?.perPage) ? pagination.perPage : nextPerPage;
-    purchaseOrdersState.totalPages = Number.isFinite(pagination?.totalPages) ? pagination.totalPages : 1;
-    purchaseOrdersState.totalItems = Number.isFinite(pagination?.totalItems) ? pagination.totalItems : orders.length;
+    purchaseOrdersState.perPage = resolvedPerPage;
+    purchaseOrdersState.totalPages = resolvedTotalPages;
+    purchaseOrdersState.totalItems = resolvedTotalItems;
     purchaseOrdersState.hasMore = Boolean(pagination?.hasMore);
     purchaseOrdersState.lastError = '';
 
