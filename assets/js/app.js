@@ -18507,12 +18507,16 @@ async function fetchMekariPurchaseOrders({
     }
   }
 
+  if (pagination.hasMore === null) {
+    pagination.hasMore = orders.length >= safePerPage;
+  }
+
   if (pagination.totalPages === null && pagination.totalItems !== null) {
     pagination.totalPages = Math.max(1, Math.ceil(pagination.totalItems / safePerPage));
   }
 
   if (pagination.totalPages === null) {
-    pagination.totalPages = Math.max(1, safePage);
+    pagination.totalPages = Math.max(1, safePage + (pagination.hasMore ? 1 : 0));
   }
 
   if (pagination.totalItems === null) {
@@ -18729,19 +18733,29 @@ function updatePurchaseOrdersMeta({ renderedCount = 0 } = {}) {
   const totalItems = Math.max(0, Number.parseInt(purchaseOrdersState.totalItems, 10) || 0);
   const currentPage = Math.max(1, Number.parseInt(purchaseOrdersState.page, 10) || 1);
   const perPage = Math.max(1, Number.parseInt(purchaseOrdersState.perPage, 10) || DEFAULT_PURCHASE_ORDER_PAGE_SIZE);
+  const hasMore = Boolean(purchaseOrdersState.hasMore);
 
   if (!meta) {
     return;
   }
 
-  if (!totalItems) {
+  if (!totalItems && !hasMore) {
     meta.textContent = 'Tidak ada pesanan pembelian ditemukan.';
     return;
   }
 
-  const startIndex = Math.min((currentPage - 1) * perPage + 1, totalItems);
-  const endIndex = Math.min(totalItems, startIndex + Math.max(renderedCount, 1) - 1);
-  meta.textContent = `Menampilkan ${startIndex}-${endIndex} dari ${totalItems} pesanan pembelian`;
+  const startIndex = totalItems
+    ? Math.min((currentPage - 1) * perPage + 1, totalItems)
+    : (currentPage - 1) * perPage + 1;
+  const endIndex = Math.max(startIndex, startIndex + Math.max(renderedCount, 1) - 1);
+
+  if (hasMore && totalItems <= endIndex) {
+    meta.textContent = `Menampilkan ${startIndex}-${endIndex}+ pesanan pembelian`;
+    return;
+  }
+
+  const boundedEndIndex = Math.min(totalItems, endIndex);
+  meta.textContent = `Menampilkan ${startIndex}-${boundedEndIndex} dari ${totalItems} pesanan pembelian`;
 }
 
 function getPurchaseOrderDetailElements() {
@@ -19051,16 +19065,18 @@ function syncPurchaseOrdersPagination() {
 
   const totalPages = Math.max(1, Number.parseInt(purchaseOrdersState.totalPages, 10) || 1);
   const currentPage = Math.max(1, Number.parseInt(purchaseOrdersState.page, 10) || 1);
+  const hasMore = Boolean(purchaseOrdersState.hasMore);
 
-  pagination.hidden = totalPages <= 1;
+  pagination.hidden = totalPages <= 1 && !hasMore;
 
   if (paginationInfo) {
-    paginationInfo.textContent = `Halaman ${currentPage} dari ${totalPages}`;
+    const totalDisplay = hasMore ? `${totalPages}+` : totalPages;
+    paginationInfo.textContent = `Halaman ${currentPage} dari ${totalDisplay}`;
   }
 
   if (paginationInput) {
     paginationInput.value = currentPage;
-    paginationInput.max = totalPages;
+    paginationInput.max = hasMore ? '' : totalPages;
   }
 
   if (prevButton) {
@@ -19068,7 +19084,8 @@ function syncPurchaseOrdersPagination() {
   }
 
   if (nextButton) {
-    nextButton.disabled = currentPage >= totalPages;
+    const canGoNext = currentPage < totalPages || hasMore;
+    nextButton.disabled = !canGoNext;
   }
 }
 
@@ -19114,12 +19131,16 @@ async function refreshPurchaseOrders({ page, perPage } = {}) {
     const resolvedTotalPages = Number.isFinite(pagination?.totalPages)
       ? pagination.totalPages
       : Math.max(1, Math.ceil(Math.max(1, resolvedTotalItems) / Math.max(1, resolvedPerPage)));
+    const resolvedHasMore =
+      typeof pagination?.hasMore === 'boolean' ? pagination.hasMore : orders.length >= resolvedPerPage;
 
     purchaseOrdersState.page = Number.isFinite(pagination?.page) ? pagination.page : nextPage;
     purchaseOrdersState.perPage = resolvedPerPage;
-    purchaseOrdersState.totalPages = resolvedTotalPages;
+    purchaseOrdersState.totalPages = resolvedHasMore
+      ? Math.max(resolvedTotalPages, purchaseOrdersState.page + 1)
+      : resolvedTotalPages;
     purchaseOrdersState.totalItems = resolvedTotalItems;
-    purchaseOrdersState.hasMore = Boolean(pagination?.hasMore);
+    purchaseOrdersState.hasMore = resolvedHasMore;
     purchaseOrdersState.lastError = '';
 
     renderPurchaseOrdersTable(orders);
@@ -19142,7 +19163,9 @@ async function refreshPurchaseOrders({ page, perPage } = {}) {
 
 function goToPurchaseOrdersPage(page) {
   const totalPages = Math.max(1, Number.parseInt(purchaseOrdersState.totalPages, 10) || 1);
-  const targetPage = Math.max(1, Math.min(totalPages, Math.floor(Number(page) || 1)));
+  const targetPage = purchaseOrdersState.hasMore
+    ? Math.max(1, Math.floor(Number(page) || 1))
+    : Math.max(1, Math.min(totalPages, Math.floor(Number(page) || 1)));
 
   if (targetPage === purchaseOrdersState.page) {
     return;
