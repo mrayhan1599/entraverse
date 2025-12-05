@@ -18351,7 +18351,13 @@ const purchaseOrdersState = {
   hasMore: false
 };
 
+const purchaseOrderDetailState = {
+  loading: false,
+  currentId: null
+};
+
 let purchaseOrdersRequestId = 0;
+let purchaseOrderDetailRequestId = 0;
 
 function formatPurchaseOrderDate(value) {
   if (!value && value !== 0) {
@@ -18522,6 +18528,80 @@ async function fetchMekariPurchaseOrders({
   };
 }
 
+async function fetchMekariPurchaseOrderDetail(orderId, { integration: integrationOverride } = {}) {
+  const normalizedId = orderId?.toString().trim();
+  if (!normalizedId) {
+    throw new Error('ID pesanan pembelian tidak ditemukan.');
+  }
+
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { baseUrl, token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const url = `${baseUrl}/partner/core/api/v1/purchase_orders/${encodeURIComponent(normalizedId)}`;
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(message);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  const statusText = response?.status ? ` (status ${response.status})` : '';
+  if (!bodyText) {
+    throw new Error(`Respons Mekari Jurnal tidak berisi data${statusText}.`);
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || body?.responseMessage || 'Gagal memuat detail pesanan pembelian.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const order =
+    body?.purchase_order ??
+    body?.purchaseOrder ??
+    body?.data?.purchase_order ??
+    body?.data?.purchaseOrder ??
+    body?.data?.purchase ??
+    body?.data ??
+    body?.result?.purchase_order ??
+    body?.result?.purchaseOrder ??
+    body?.result ??
+    null;
+
+  if (!order || typeof order !== 'object') {
+    throw new Error('Detail pesanan pembelian tidak ditemukan pada respons Mekari Jurnal.');
+  }
+
+  return order;
+}
+
 function getPurchaseOrderElements() {
   const tbody = document.getElementById('purchase-orders-table-body');
   const meta = document.getElementById('purchase-orders-meta');
@@ -18583,6 +18663,10 @@ function normalizePurchaseOrder(record) {
 
   const dueDate = formatPurchaseOrderDate(record.due_date ?? record.dueDate ?? null);
 
+  const detailUrl = record.id
+    ? `https://my.jurnal.id/app/purchase_orders/${encodeURIComponent(record.id)}`
+    : record.url ?? record.detail_url ?? '';
+
   return {
     date: date || dueDate || '—',
     number,
@@ -18590,7 +18674,8 @@ function normalizePurchaseOrder(record) {
     remaining,
     status,
     id: record.id ?? null,
-    token: record.token ?? null
+    token: record.token ?? null,
+    detailUrl
   };
 }
 
@@ -18610,11 +18695,20 @@ function renderPurchaseOrdersTable(orders) {
     return;
   }
 
-  const rows = normalized.map(order => {
-    const linkHref = order.id ? `https://my.jurnal.id/app/purchase_orders/${encodeURIComponent(order.id)}` : '';
-    const actionContent = linkHref
-      ? `<a class="btn ghost-btn small" href="${escapeHtml(linkHref)}" target="_blank" rel="noreferrer noopener">Lihat</a>`
-      : '—';
+  const perPage = Math.max(1, Number.parseInt(purchaseOrdersState.perPage, 10) || DEFAULT_PURCHASE_ORDER_PAGE_SIZE);
+  const currentPage = Math.max(1, Number.parseInt(purchaseOrdersState.page, 10) || 1);
+  const hasManualPagination = normalized.length > perPage && Math.max(purchaseOrdersState.totalItems, normalized.length) > perPage;
+  const startIndex = hasManualPagination ? (currentPage - 1) * perPage : 0;
+  const endIndex = hasManualPagination ? startIndex + perPage : normalized.length;
+  const visibleOrders = normalized.slice(startIndex, endIndex);
+
+  const rows = visibleOrders.map(order => {
+    const actionContent =
+      order.id || order.number
+        ? `<button class="btn ghost-btn small" type="button" data-view-purchase-order data-order-id="${escapeHtml(
+            order.id ?? ''
+          )}" data-order-number="${escapeHtml(order.number)}" data-order-link="${escapeHtml(order.detailUrl)}">Lihat</button>`
+        : '—';
 
     return `<tr>
       <td>${escapeHtml(order.date)}</td>
@@ -18627,7 +18721,7 @@ function renderPurchaseOrdersTable(orders) {
   });
 
   tbody.innerHTML = rows.join('');
-  updatePurchaseOrdersMeta({ renderedCount: normalized.length });
+  updatePurchaseOrdersMeta({ renderedCount: visibleOrders.length });
 }
 
 function updatePurchaseOrdersMeta({ renderedCount = 0 } = {}) {
@@ -18648,6 +18742,284 @@ function updatePurchaseOrdersMeta({ renderedCount = 0 } = {}) {
   const startIndex = Math.min((currentPage - 1) * perPage + 1, totalItems);
   const endIndex = Math.min(totalItems, startIndex + Math.max(renderedCount, 1) - 1);
   meta.textContent = `Menampilkan ${startIndex}-${endIndex} dari ${totalItems} pesanan pembelian`;
+}
+
+function getPurchaseOrderDetailElements() {
+  const modal = document.getElementById('purchase-order-detail-modal');
+
+  return {
+    modal,
+    subtitle: document.getElementById('purchase-order-detail-subtitle'),
+    loading: document.getElementById('purchase-order-detail-loading'),
+    error: document.getElementById('purchase-order-detail-error'),
+    content: document.getElementById('purchase-order-detail-content'),
+    supplier: document.getElementById('purchase-order-detail-supplier'),
+    number: document.getElementById('purchase-order-detail-number'),
+    date: document.getElementById('purchase-order-detail-date'),
+    dueDate: document.getElementById('purchase-order-detail-due-date'),
+    status: document.getElementById('purchase-order-detail-status'),
+    total: document.getElementById('purchase-order-detail-total'),
+    remaining: document.getElementById('purchase-order-detail-remaining'),
+    itemsBody: document.getElementById('purchase-order-detail-items'),
+    emptyText: document.getElementById('purchase-order-detail-empty'),
+    footer: document.getElementById('purchase-order-detail-footer'),
+    externalLink: document.getElementById('purchase-order-detail-link'),
+    closeButtons: modal ? Array.from(modal.querySelectorAll('[data-close-modal]')) : []
+  };
+}
+
+function normalizePurchaseOrderItem(line) {
+  if (!line || typeof line !== 'object') {
+    return null;
+  }
+
+  const name = (line.item_name ?? line.product_name ?? line.product ?? line.name ?? '').toString().trim();
+  const description = (line.description ?? line.memo ?? line.detail ?? '').toString().trim();
+  const quantity = parseNumericValue(line.quantity ?? line.qty ?? line.quantity_ordered ?? line.qty_ordered);
+  const unit = (line.unit_name ?? line.unit ?? line.uom ?? '').toString().trim();
+  const rate = parseNumericValue(line.rate ?? line.price ?? line.unit_price ?? line.price_per_unit);
+  const total = parseNumericValue(line.amount ?? line.total ?? line.sub_total ?? line.subtotal ?? line.line_total);
+
+  if (!name && !description && !Number.isFinite(quantity) && !Number.isFinite(rate) && !Number.isFinite(total)) {
+    return null;
+  }
+
+  return {
+    name: name || '—',
+    description: description || '—',
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    unit,
+    rate: Number.isFinite(rate) ? rate : null,
+    total: Number.isFinite(total) ? total : null
+  };
+}
+
+function normalizePurchaseOrderDetail(order, { fallbackLink = '' } = {}) {
+  if (!order || typeof order !== 'object') {
+    return null;
+  }
+
+  const number = (order.transaction_no ?? order.transactionNo ?? order.no ?? '').toString().trim() || '—';
+  const supplier =
+    (order.person?.display_name ??
+      order.person?.name ??
+      order.vendor?.name ??
+      order.supplier?.name ??
+      order.supplier_name ??
+      order.vendor_name ??
+      '').toString().trim() || '—';
+
+  const status =
+    (order.transaction_status?.name_bahasa ??
+      order.transaction_status?.name ??
+      order.status_bahasa ??
+      order.status_name ??
+      order.status ??
+      '').toString().trim() || '—';
+
+  const transactionDate = formatPurchaseOrderDate(order.transaction_date ?? order.transactionDate ?? order.created_at ?? null);
+  const dueDate = formatPurchaseOrderDate(order.due_date ?? order.dueDate ?? null);
+
+  const totalValue = parseNumericValue(
+    order.total ?? order.grand_total ?? order.amount ?? order.subtotal ?? order.sub_total ?? order.invoice_total ?? null
+  );
+  const remainingValue = parseNumericValue(
+    order.remaining ?? order.amount_receive ?? order.balance ?? order.amount_due ?? order.balance_due ?? order.outstanding ?? null
+  );
+
+  const itemsSource =
+    order.purchase_order_lines ??
+    order.purchaseOrderLines ??
+    order.purchase_order_details ??
+    order.purchaseOrderDetails ??
+    order.items ??
+    order.lines ??
+    order.details ??
+    [];
+
+  const items = (Array.isArray(itemsSource) ? itemsSource : []).map(normalizePurchaseOrderItem).filter(Boolean);
+
+  const externalLink =
+    order.id
+      ? `https://my.jurnal.id/app/purchase_orders/${encodeURIComponent(order.id)}`
+      : fallbackLink || order.detail_url || order.url || '';
+
+  return {
+    number,
+    supplier,
+    status,
+    transactionDate: transactionDate || '—',
+    dueDate: dueDate || '—',
+    total: Number.isFinite(totalValue) ? formatCurrency(totalValue) : '—',
+    remaining: Number.isFinite(remainingValue) ? formatCurrency(remainingValue) : '—',
+    items,
+    externalLink
+  };
+}
+
+function togglePurchaseOrderDetailView({ loading = false, error = '' } = {}) {
+  const { loading: loadingEl, error: errorEl, content } = getPurchaseOrderDetailElements();
+
+  if (loadingEl) {
+    loadingEl.hidden = !loading;
+  }
+
+  if (errorEl) {
+    errorEl.hidden = !error;
+    if (error) {
+      errorEl.textContent = error;
+    }
+  }
+
+  if (content) {
+    content.hidden = Boolean(loading || error);
+  }
+}
+
+function renderPurchaseOrderDetailItems(items) {
+  const { itemsBody, emptyText } = getPurchaseOrderDetailElements();
+  if (!itemsBody) {
+    return;
+  }
+
+  const normalizedItems = (Array.isArray(items) ? items : []).filter(Boolean);
+
+  if (!normalizedItems.length) {
+    itemsBody.innerHTML = '<tr class="empty-state"><td colspan="5">Tidak ada produk pada pesanan ini.</td></tr>';
+    if (emptyText) {
+      emptyText.hidden = false;
+    }
+    return;
+  }
+
+  const rows = normalizedItems.map(item => {
+    const quantityText = Number.isFinite(item.quantity) ? item.quantity.toLocaleString('id-ID') : '—';
+    const unitText = item.unit ? ` ${escapeHtml(item.unit)}` : '';
+    const rateText = Number.isFinite(item.rate) ? formatCurrency(item.rate) : '—';
+    const totalText = Number.isFinite(item.total) ? formatCurrency(item.total) : '—';
+
+    return `<tr>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.description)}</td>
+      <td class="numeric">${quantityText}${unitText}</td>
+      <td class="numeric">${escapeHtml(rateText)}</td>
+      <td class="numeric">${escapeHtml(totalText)}</td>
+    </tr>`;
+  });
+
+  itemsBody.innerHTML = rows.join('');
+
+  if (emptyText) {
+    emptyText.hidden = true;
+  }
+}
+
+function renderPurchaseOrderDetail(detail, { subtitle = '' } = {}) {
+  const { supplier, number, date, dueDate, status, total, remaining, subtitle: subtitleEl, footer, externalLink } =
+    getPurchaseOrderDetailElements();
+
+  if (subtitleEl) {
+    subtitleEl.textContent = subtitle || detail?.number || '';
+  }
+
+  if (supplier) supplier.textContent = detail?.supplier ?? '—';
+  if (number) number.textContent = detail?.number ?? '—';
+  if (date) date.textContent = detail?.transactionDate ?? '—';
+  if (dueDate) dueDate.textContent = detail?.dueDate ?? '—';
+  if (status) status.textContent = detail?.status ?? '—';
+  if (total) total.textContent = detail?.total ?? '—';
+  if (remaining) remaining.textContent = detail?.remaining ?? '—';
+
+  renderPurchaseOrderDetailItems(detail?.items ?? []);
+
+  if (footer) {
+    footer.hidden = !detail?.externalLink;
+  }
+
+  if (externalLink) {
+    if (detail?.externalLink) {
+      externalLink.href = detail.externalLink;
+    } else {
+      externalLink.removeAttribute('href');
+    }
+  }
+}
+
+function closePurchaseOrderDetailModal() {
+  const { modal } = getPurchaseOrderDetailElements();
+
+  if (modal) {
+    modal.hidden = true;
+  }
+  document.body.classList.remove('modal-open');
+  purchaseOrderDetailState.currentId = null;
+}
+
+function openPurchaseOrderDetailModal() {
+  const { modal } = getPurchaseOrderDetailElements();
+
+  if (modal) {
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+}
+
+async function showPurchaseOrderDetail(orderId, { number = '', link = '' } = {}) {
+  const subtitle = number?.toString().trim() || orderId?.toString().trim();
+  const requestId = ++purchaseOrderDetailRequestId;
+  purchaseOrderDetailState.currentId = orderId;
+  purchaseOrderDetailState.loading = true;
+
+  togglePurchaseOrderDetailView({ loading: true, error: '' });
+  openPurchaseOrderDetailModal();
+
+  try {
+    const order = await fetchMekariPurchaseOrderDetail(orderId);
+    if (requestId !== purchaseOrderDetailRequestId) {
+      return;
+    }
+
+    const detail = normalizePurchaseOrderDetail(order, { fallbackLink: link });
+    if (!detail) {
+      throw new Error('Detail pesanan pembelian tidak tersedia.');
+    }
+
+    renderPurchaseOrderDetail(detail, { subtitle });
+    togglePurchaseOrderDetailView({ loading: false, error: '' });
+  } catch (error) {
+    if (requestId !== purchaseOrderDetailRequestId) {
+      return;
+    }
+
+    const message = error?.message || 'Gagal memuat detail pesanan pembelian.';
+    togglePurchaseOrderDetailView({ loading: false, error: message });
+  } finally {
+    if (requestId === purchaseOrderDetailRequestId) {
+      purchaseOrderDetailState.loading = false;
+    }
+  }
+}
+
+function setupPurchaseOrderDetailModal() {
+  const { modal, closeButtons } = getPurchaseOrderDetailElements();
+
+  closeButtons.forEach(button => {
+    button.addEventListener('click', closePurchaseOrderDetailModal);
+  });
+
+  if (modal) {
+    modal.addEventListener('click', event => {
+      if (event.target === modal) {
+        closePurchaseOrderDetailModal();
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.hidden) {
+        closePurchaseOrderDetailModal();
+      }
+    });
+  }
 }
 
 function syncPurchaseOrdersPagination() {
@@ -18752,7 +19124,7 @@ function goToPurchaseOrdersPage(page) {
 }
 
 function setupPurchaseOrdersControls() {
-  const { pageSizeSelect, pagination, paginationInput } = getPurchaseOrderElements();
+  const { pageSizeSelect, pagination, paginationInput, tbody } = getPurchaseOrderElements();
 
   if (pageSizeSelect) {
     syncPurchaseOrdersPageSizeControl();
@@ -18796,11 +19168,31 @@ function setupPurchaseOrdersControls() {
       goToPurchaseOrdersPage(event.target.value);
     });
   }
+
+  if (tbody) {
+    tbody.addEventListener('click', event => {
+      const button = event.target.closest('[data-view-purchase-order]');
+      if (!button) {
+        return;
+      }
+
+      const orderId = button.dataset.orderId || button.dataset.orderNumber;
+      if (!orderId) {
+        toast.show('ID pesanan pembelian tidak ditemukan.');
+        return;
+      }
+
+      const orderNumber = button.dataset.orderNumber || '';
+      const orderLink = button.dataset.orderLink || '';
+      showPurchaseOrderDetail(orderId, { number: orderNumber, link: orderLink });
+    });
+  }
 }
 
 function initPurchasesPage() {
   ensureIntegrationsSeeded();
   setupPurchaseOrdersControls();
+  setupPurchaseOrderDetailModal();
   refreshPurchaseOrders();
 
   document.addEventListener('integrations:changed', () => {
