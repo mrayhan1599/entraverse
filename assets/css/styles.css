@@ -4369,6 +4369,10 @@ body.modal-open {
   display: none !important;
 }
 
+.modal.modal--wide {
+  width: min(900px, calc(100% - 48px));
+}
+
 .modal {
   width: min(420px, calc(100% - 48px));
   background: var(--color-surface);
