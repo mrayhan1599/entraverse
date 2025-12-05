@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entraverse Admin - Penjualan</title>
+  <link rel="icon" type="image/png" href="assets/img/logo/entraverse-logo.png">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body data-page="sales">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <button class="menu-toggle" type="button" aria-label="Buka navigasi" aria-expanded="false" data-sidebar-toggle>
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <a class="topbar-brand" href="dashboard.html" aria-label="Kembali ke dashboard">
+            <div class="logo">
+              <img src="assets/img/logo/entraverse-logo.png" alt="Logo Entraverse" loading="lazy">
+            </div>
+            <div class="brand">
+              <span class="brand-title">Entraverse</span>
+              <span class="brand-subtitle">Admin</span>
+            </div>
+          </a>
+        </div>
+        <div class="topbar-actions">
+          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light,dark,system">
+            <button class="theme-switcher__button" type="button" data-theme-trigger aria-label="Ganti mode tampilan">
+              <span class="theme-switcher__icon" aria-hidden="true" data-theme-icon></span>
+              <span class="visually-hidden" data-theme-label aria-live="polite">Auto (System)</span>
+            </button>
+          </div>
+          <div class="auth-buttons" data-guest-actions hidden>
+            <a class="btn ghost-btn auth-button auth-button--login" href="login.html" aria-label="Login">
+              <span class="auth-button__icon" aria-hidden="true">🔑</span>
+              <span class="auth-button__label">Login</span>
+            </a>
+            <a class="btn primary-btn auth-button auth-button--register" href="register.html" aria-label="Register">
+              <span class="auth-button__icon" aria-hidden="true">📝</span>
+              <span class="auth-button__label">Register</span>
+            </a>
+          </div>
+          <div class="profile-menu" data-profile-menu hidden>
+            <button class="avatar-button" type="button" data-profile-toggle aria-haspopup="true" aria-expanded="false">
+              <span class="avatar" data-avatar-initials>AM</span>
+            </button>
+            <div class="profile-dropdown" data-profile-dropdown role="menu" hidden>
+              <p class="profile-greeting">Hai, <span data-profile-name>Pengguna</span></p>
+              <button type="button" class="btn ghost-btn full-width" data-logout>Keluar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="app-body">
+      <aside class="sidebar" data-sidebar>
+        <nav class="sidebar-nav">
+        <div class="nav-section">
+          <p class="nav-title">E-Commerce</p>
+          <a class="nav-link" href="dashboard.html">
+            <span class="nav-icon" aria-hidden="true">📦</span>
+            Produk
+          </a>
+          <a class="nav-link" href="categories.html">
+            <span class="nav-icon" aria-hidden="true">📂</span>
+            Kategori
+          </a>
+          <a class="nav-link" href="reports.html">
+            <span class="nav-icon" aria-hidden="true">📊</span>
+            Laporan
+          </a>
+          <a class="nav-link active" href="sales.html">
+            <span class="nav-icon" aria-hidden="true">🧾</span>
+            Penjualan
+          </a>
+          <a class="nav-link" href="purchases.html">
+            <span class="nav-icon" aria-hidden="true">🛒</span>
+            Pembelian
+          </a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-title">Vendor</p>
+          <a class="nav-link" href="shipping-vendors.html">
+            <span class="nav-icon" aria-hidden="true">🚚</span>
+            Vendor Pengiriman
+          </a>
+          <a class="nav-link" href="integrations.html">
+            <span class="nav-icon" aria-hidden="true">🔌</span>
+            Integrasi Aplikasi API
+          </a>
+        </div>
+        </nav>
+      </aside>
+      <button class="sidebar-collapse-toggle" type="button" aria-label="Sembunyikan navigasi" aria-expanded="true" data-sidebar-collapse>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m14.5 6-5 6 5 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </button>
+      <div class="sidebar-backdrop" data-sidebar-backdrop></div>
+      <main class="main-content">
+      <section class="content-header">
+        <div class="title-stack">
+          <div class="title-bar">
+            <h1>Penjualan</h1>
+            <div class="title-actions" role="toolbar" aria-label="Aksi penjualan">
+              <button class="btn primary-btn" type="button">Buat penjualan baru</button>
+            </div>
+          </div>
+          <p>Ikuti siklus penjualan mulai dari penawaran hingga penagihan untuk seluruh marketplace Anda.</p>
+        </div>
+      </section>
+      <section class="card">
+        <header class="card-header card-header--metrics">
+          <div class="status-grid">
+            <div class="status-card status-card--primary">
+              <div class="status-card__label">Penagihan belum dibayar</div>
+              <div class="status-card__value">Rp. 87.758.165</div>
+              <p class="status-card__meta">Faktur aktif yang masih menunggu pembayaran.</p>
+            </div>
+            <div class="status-card">
+              <div class="status-card__label">Penagihan telah dibayar</div>
+              <div class="status-card__value">Rp. 15.596.198</div>
+              <p class="status-card__meta">Total pembayaran diterima.</p>
+            </div>
+            <div class="status-card">
+              <div class="status-card__label">Pelunasan diterima 30 hari terakhir</div>
+              <div class="status-card__value">Rp. 1.227.717.965</div>
+              <p class="status-card__meta">Pembayaran yang diselesaikan bulan ini.</p>
+            </div>
+            <div class="status-card status-card--accent">
+              <div class="status-card__label">Saldo pay</div>
+              <div class="status-card__value">Rp. 0</div>
+              <p class="status-card__meta">Dana tersedia di akun Entraverse Pay.</p>
+            </div>
+          </div>
+        </header>
+        <div class="tab-container" data-tab-group="sales-tabs">
+          <div class="tab-nav" role="tablist">
+            <button class="tab-nav__button is-active" type="button" data-tab-button data-tab-target="sales-offers" role="tab" aria-selected="true">Penawaran</button>
+            <button class="tab-nav__button" type="button" data-tab-button data-tab-target="sales-deliveries" role="tab" aria-selected="false">Pesanan Pengiriman</button>
+            <button class="tab-nav__button" type="button" data-tab-button data-tab-target="sales-billing" role="tab" aria-selected="false">Penagihan</button>
+          </div>
+          <div class="tab-panels">
+            <div class="tab-panel is-active" data-tab-panel="sales-offers" role="tabpanel">
+              <div class="table-wrapper">
+                <table class="record-table">
+                  <thead>
+                    <tr>
+                      <th>Tanggal</th>
+                      <th>Nomor</th>
+                      <th>Pelanggan</th>
+                      <th>Jatuh tempo</th>
+                      <th>Status</th>
+                      <th class="numeric">Nilai penawaran</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>05/12/2025</td>
+                      <td>SQ-23009</td>
+                      <td>Tokopedia</td>
+                      <td>17/12/2025</td>
+                      <td><span class="status-badge status-badge--warning">Menunggu persetujuan</span></td>
+                      <td class="numeric">Rp. 12.150.000</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>04/12/2025</td>
+                      <td>SQ-22998</td>
+                      <td>Tokopedia</td>
+                      <td>15/12/2025</td>
+                      <td><span class="status-badge">Dikirim ke pelanggan</span></td>
+                      <td class="numeric">Rp. 8.750.000</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>01/12/2025</td>
+                      <td>SQ-22954</td>
+                      <td>TikTok Shop</td>
+                      <td>12/12/2025</td>
+                      <td><span class="status-badge status-badge--info">Dikonfirmasi</span></td>
+                      <td class="numeric">Rp. 5.325.000</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab-panel="sales-deliveries" role="tabpanel" hidden>
+              <div class="table-wrapper">
+                <table class="record-table">
+                  <thead>
+                    <tr>
+                      <th>Tanggal</th>
+                      <th>Nomor</th>
+                      <th>Pelanggan</th>
+                      <th>Sisa tagihan</th>
+                      <th>Status</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>05/12/2025</td>
+                      <td>DO-92044</td>
+                      <td>Tokopedia</td>
+                      <td class="numeric">Rp. 5.531.800</td>
+                      <td><span class="status-badge status-badge--warning">Menunggu pembayaran</span></td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>04/12/2025</td>
+                      <td>DO-92043</td>
+                      <td>TikTok Shop</td>
+                      <td class="numeric">Rp. 2.345.000</td>
+                      <td><span class="status-badge">Terkirim</span></td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>30/11/2025</td>
+                      <td>DO-92012</td>
+                      <td>Shopee</td>
+                      <td class="numeric">Rp. 0</td>
+                      <td><span class="status-badge status-badge--success">Selesai</span></td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab-panel="sales-billing" role="tabpanel" hidden>
+              <div class="table-wrapper">
+                <table class="record-table">
+                  <thead>
+                    <tr>
+                      <th>Tanggal</th>
+                      <th>Nomor</th>
+                      <th>Pelanggan</th>
+                      <th>Jatuh tempo</th>
+                      <th>Status</th>
+                      <th class="numeric">Sisa tagihan</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>05/12/2025</td>
+                      <td>INV-57682</td>
+                      <td>Tokopedia</td>
+                      <td>19/12/2025</td>
+                      <td><span class="status-badge status-badge--warning">Menunggu pembayaran</span></td>
+                      <td class="numeric">Rp. 5.531.800</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>04/12/2025</td>
+                      <td>INV-57678</td>
+                      <td>Shopee</td>
+                      <td>18/12/2025</td>
+                      <td><span class="status-badge status-badge--info">Dikirim ke pelanggan</span></td>
+                      <td class="numeric">Rp. 2.900.000</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                    <tr>
+                      <td>02/12/2025</td>
+                      <td>INV-57621</td>
+                      <td>BliBli</td>
+                      <td>16/12/2025</td>
+                      <td><span class="status-badge status-badge--success">Dibayar sebagian</span></td>
+                      <td class="numeric">Rp. 850.000</td>
+                      <td><button class="ghost-link" type="button">Tindakan</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

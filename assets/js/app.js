@@ -18336,6 +18336,45 @@ function initCategories() {
   });
 }
 
+function setupTabbedSections() {
+  const tabGroups = document.querySelectorAll('[data-tab-group]');
+
+  tabGroups.forEach(group => {
+    const buttons = group.querySelectorAll('[data-tab-button]');
+    const panels = group.querySelectorAll('[data-tab-panel]');
+
+    if (!buttons.length || !panels.length) {
+      return;
+    }
+
+    const setActiveTab = targetId => {
+      buttons.forEach(button => {
+        const isActive = button.dataset.tabTarget === targetId;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+
+      panels.forEach(panel => {
+        const isMatch = panel.dataset.tabPanel === targetId;
+        panel.classList.toggle('is-active', isMatch);
+        panel.hidden = !isMatch;
+      });
+    };
+
+    const defaultButton = group.querySelector('[data-tab-button].is-active') ?? buttons[0];
+    setActiveTab(defaultButton?.dataset.tabTarget ?? buttons[0].dataset.tabTarget);
+
+    buttons.forEach(button => {
+      button.addEventListener('click', () => {
+        const targetId = button.dataset.tabTarget;
+        if (targetId) {
+          setActiveTab(targetId);
+        }
+      });
+    });
+  });
+}
+
 function initPage() {
   document.addEventListener('DOMContentLoaded', async () => {
     const page = document.body.dataset.page;
@@ -18345,6 +18384,7 @@ function initPage() {
     setupTopbarBrandNavigation();
     setupThemeControls();
     setupActionMenus();
+    setupTabbedSections();
 
     if (page === 'login') {
       const existingUser = getCurrentUser();
@@ -18368,6 +18408,8 @@ function initPage() {
         'shipping',
         'integrations',
         'reports',
+        'sales',
+        'purchases',
         'product-mapping-auto',
         'product-mapping-manual'
       ].includes(page)
