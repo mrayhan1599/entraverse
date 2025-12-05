@@ -18871,7 +18871,20 @@ function normalizePurchaseOrderItem(line) {
     .toString()
     .trim();
 
-  const sku = (line.sku ?? line.item_sku ?? line.product_sku ?? line.item?.sku ?? line.product?.sku ?? '').toString().trim();
+  const sku = (
+    line.sku ??
+    line.item_sku ??
+    line.product_sku ??
+    line.item?.sku ??
+    line.product?.sku ??
+    line.product?.code ??
+    line.item?.code ??
+    line.product?.product_custom_id ??
+    line.item?.product_custom_id ??
+    ''
+  )
+    .toString()
+    .trim();
 
   const description = (line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '').toString().trim();
 
@@ -18883,7 +18896,7 @@ function normalizePurchaseOrderItem(line) {
       line.quantity_received ??
       line.qty_received
   );
-  const unit = (line.unit_name ?? line.unit ?? line.uom ?? '').toString().trim();
+  const unit = (line.unit_name ?? line.unit ?? line.unit?.name ?? line.uom ?? '').toString().trim();
   const rate = parseNumericValue(line.rate ?? line.price ?? line.unit_price ?? line.price_per_unit);
   const total = parseNumericValue(line.amount ?? line.total ?? line.sub_total ?? line.subtotal ?? line.line_total);
 
@@ -18950,6 +18963,10 @@ function normalizePurchaseOrderDetail(order, { fallbackLink = '' } = {}) {
     order.purchaseOrderLines ??
     order.purchase_order_details ??
     order.purchaseOrderDetails ??
+    order.transaction_lines_attributes ??
+    order.transactionLinesAttributes ??
+    order.transaction_lines ??
+    order.transactionLines ??
     order.items ??
     order.lines ??
     order.details ??
