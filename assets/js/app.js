@@ -18400,6 +18400,10 @@ async function fetchMekariPurchaseOrders({
   const params = new URLSearchParams();
   params.set('page', safePage.toString());
   params.set('per_page', safePerPage.toString());
+  // Mekari Jurnal terkadang menggunakan penamaan parameter berbeda. Sertakan opsi tambahan
+  // agar backend selalu menerima batas baris sesuai pilihan pengguna.
+  params.set('page_size', safePerPage.toString());
+  params.set('limit', safePerPage.toString());
   if (sortKey) {
     params.set('sort_key', sortKey);
   }
@@ -19179,6 +19183,13 @@ function setupPurchaseOrdersControls() {
   const { pageSizeSelect, pagination, paginationInput, tbody } = getPurchaseOrderElements();
 
   if (pageSizeSelect) {
+    const initialPageSize = Number(pageSizeSelect.value);
+    if (PURCHASE_ORDER_PAGE_SIZES.includes(initialPageSize)) {
+      purchaseOrdersState.perPage = initialPageSize;
+    } else {
+      purchaseOrdersState.perPage = DEFAULT_PURCHASE_ORDER_PAGE_SIZE;
+    }
+
     syncPurchaseOrdersPageSizeControl();
     pageSizeSelect.addEventListener('change', event => {
       const value = Number(event.target.value);
