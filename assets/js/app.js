@@ -18338,6 +18338,476 @@ function initCategories() {
   });
 }
 
+const PURCHASE_ORDER_PAGE_SIZES = [10, 25, 50, 100, 200];
+const DEFAULT_PURCHASE_ORDER_PAGE_SIZE = PURCHASE_ORDER_PAGE_SIZES[0];
+
+const purchaseOrdersState = {
+  page: 1,
+  perPage: DEFAULT_PURCHASE_ORDER_PAGE_SIZE,
+  totalPages: 1,
+  totalItems: 0,
+  loading: false,
+  lastError: '',
+  hasMore: false
+};
+
+let purchaseOrdersRequestId = 0;
+
+function formatPurchaseOrderDate(value) {
+  if (!value && value !== 0) {
+    return '';
+  }
+
+  const parsedFromStockOut = parseStockOutDate(value);
+  if (parsedFromStockOut) {
+    return parsedFromStockOut.toLocaleDateString('id-ID');
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  return parsed.toLocaleDateString('id-ID');
+}
+
+async function fetchMekariPurchaseOrders({
+  page = 1,
+  perPage = DEFAULT_PURCHASE_ORDER_PAGE_SIZE,
+  sortKey = 'transaction_date',
+  sortOrder = 'desc',
+  integration: integrationOverride
+} = {}) {
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { baseUrl, token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const safePage = Math.max(1, Math.floor(Number(page) || 1));
+  const safePerPage = Math.max(1, Math.min(200, Math.floor(Number(perPage) || DEFAULT_PURCHASE_ORDER_PAGE_SIZE)));
+
+  const params = new URLSearchParams();
+  params.set('page', safePage.toString());
+  params.set('per_page', safePerPage.toString());
+  if (sortKey) {
+    params.set('sort_key', sortKey);
+  }
+  if (sortOrder) {
+    params.set('sort_order', sortOrder);
+  }
+
+  const url = `${baseUrl}/partner/core/api/v1/purchase_orders?${params.toString()}`;
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(message);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  const statusText = response?.status ? ` (status ${response.status})` : '';
+  if (!bodyText) {
+    throw new Error(`Respons Mekari Jurnal tidak berisi data${statusText}.`);
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || body?.responseMessage || 'Gagal memuat pesanan pembelian Mekari.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const ordersCandidates = [
+    body?.purchase_orders,
+    body?.data?.purchase_orders,
+    body?.data?.purchaseOrders,
+    body?.data,
+    body?.result?.purchase_orders,
+    body?.result?.purchaseOrders,
+    body?.result
+  ];
+
+  const orders = ordersCandidates.find(candidate => Array.isArray(candidate)) || [];
+
+  const parseNumber = value => {
+    const parsed = parseNumericValue(value);
+    return parsed !== null && Number.isFinite(parsed) ? Number(parsed) : null;
+  };
+
+  const pagination = {
+    page: safePage,
+    perPage: safePerPage,
+    totalPages: null,
+    totalItems: null,
+    hasMore: null
+  };
+
+  const headerTotalPages = parseNumber(
+    response.headers?.get('X-Total-Pages') || response.headers?.get('X-TotalPages') || response.headers?.get('X-Pagination-Total-Pages')
+  );
+  if (headerTotalPages !== null) {
+    pagination.totalPages = Math.max(1, headerTotalPages);
+  }
+
+  const headerTotalItems = parseNumber(
+    response.headers?.get('X-Total-Count') || response.headers?.get('X-TotalCount') || response.headers?.get('X-Total-Entries')
+  );
+  if (headerTotalItems !== null) {
+    pagination.totalItems = Math.max(0, headerTotalItems);
+  }
+
+  const metaCandidates = [body?.meta, body?.data?.meta, body?.pagination, body?.pager, body?.result?.meta];
+  for (const meta of metaCandidates) {
+    if (!meta || typeof meta !== 'object') {
+      continue;
+    }
+    if (pagination.totalPages === null) {
+      const metaTotalPages = parseNumber(meta.total_pages ?? meta.totalPages ?? meta.total_page ?? meta.totalPage);
+      if (metaTotalPages !== null) {
+        pagination.totalPages = Math.max(1, metaTotalPages);
+      }
+    }
+    if (pagination.totalItems === null) {
+      const metaTotalItems = parseNumber(meta.total_count ?? meta.total ?? meta.total_items ?? meta.totalItems);
+      if (metaTotalItems !== null) {
+        pagination.totalItems = Math.max(0, metaTotalItems);
+      }
+    }
+    if (pagination.hasMore === null && meta.has_more !== undefined) {
+      pagination.hasMore = Boolean(meta.has_more);
+    }
+  }
+
+  if (pagination.totalPages === null && pagination.totalItems !== null) {
+    pagination.totalPages = Math.max(1, Math.ceil(pagination.totalItems / safePerPage));
+  }
+
+  if (pagination.totalPages === null) {
+    pagination.totalPages = Math.max(1, safePage);
+  }
+
+  if (pagination.totalItems === null) {
+    pagination.totalItems = orders.length + (safePage - 1) * safePerPage;
+    if (pagination.hasMore === false) {
+      pagination.totalItems = Math.max(pagination.totalItems, orders.length + (pagination.totalPages - 1) * safePerPage);
+    }
+  }
+
+  return {
+    orders,
+    pagination
+  };
+}
+
+function getPurchaseOrderElements() {
+  const tbody = document.getElementById('purchase-orders-table-body');
+  const meta = document.getElementById('purchase-orders-meta');
+  const pageSizeSelect = document.getElementById('purchase-orders-page-size');
+  const pagination = document.getElementById('purchase-orders-pagination');
+
+  return {
+    tbody,
+    meta,
+    pageSizeSelect,
+    pagination,
+    paginationInfo: pagination?.querySelector('[data-pagination-info]') || null,
+    paginationInput: pagination?.querySelector('[data-pagination-input]') || null,
+    prevButton: pagination?.querySelector('[data-pagination="prev"]') || null,
+    nextButton: pagination?.querySelector('[data-pagination="next"]') || null
+  };
+}
+
+function renderPurchaseOrdersMessage(message, { className = 'empty-state' } = {}) {
+  const { tbody, meta } = getPurchaseOrderElements();
+  if (!tbody) {
+    return;
+  }
+
+  tbody.innerHTML = `<tr class="${className}"><td colspan="6">${escapeHtml(message)}</td></tr>`;
+
+  if (meta) {
+    meta.textContent = message;
+  }
+}
+
+function normalizePurchaseOrder(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const date = formatPurchaseOrderDate(record.transaction_date ?? record.transactionDate ?? record.created_at ?? record.createdAt);
+  const number = (record.transaction_no ?? record.transactionNo ?? record.no ?? '').toString().trim() || '—';
+  const supplier =
+    (record.person?.display_name ??
+      record.person?.name ??
+      record.vendor?.name ??
+      record.supplier?.name ??
+      record.supplier_name ??
+      record.vendor_name ??
+      '').toString().trim() || '—';
+
+  const status =
+    (record.transaction_status?.name_bahasa ??
+      record.transaction_status?.name ??
+      record.status_bahasa ??
+      record.status_name ??
+      record.status ??
+      '').toString().trim() || '—';
+
+  const remainingFormatted = (record.remaining_currency_format ?? record.remainingCurrencyFormat ?? '').toString().trim();
+  const remainingNumber = parseNumericValue(record.remaining ?? record.amount_receive ?? record.amountReceive ?? record.original_amount);
+  const remaining = remainingFormatted || (Number.isFinite(remainingNumber) ? formatCurrency(remainingNumber) : '—');
+
+  const dueDate = formatPurchaseOrderDate(record.due_date ?? record.dueDate ?? null);
+
+  return {
+    date: date || dueDate || '—',
+    number,
+    supplier,
+    remaining,
+    status,
+    id: record.id ?? null,
+    token: record.token ?? null
+  };
+}
+
+function renderPurchaseOrdersTable(orders) {
+  const { tbody } = getPurchaseOrderElements();
+  if (!tbody) {
+    return;
+  }
+
+  const normalized = (Array.isArray(orders) ? orders : []).map(normalizePurchaseOrder).filter(Boolean);
+
+  if (!normalized.length) {
+    renderPurchaseOrdersMessage('Tidak ada pesanan pembelian ditemukan.', { className: 'empty-state' });
+    purchaseOrdersState.totalItems = 0;
+    purchaseOrdersState.totalPages = 1;
+    updatePurchaseOrdersMeta({ renderedCount: 0 });
+    return;
+  }
+
+  const rows = normalized.map(order => {
+    const linkHref = order.id ? `https://my.jurnal.id/app/purchase_orders/${encodeURIComponent(order.id)}` : '';
+    const actionContent = linkHref
+      ? `<a class="btn ghost-btn small" href="${escapeHtml(linkHref)}" target="_blank" rel="noreferrer noopener">Lihat</a>`
+      : '—';
+
+    return `<tr>
+      <td>${escapeHtml(order.date)}</td>
+      <td><strong>${escapeHtml(order.number)}</strong></td>
+      <td>${escapeHtml(order.supplier)}</td>
+      <td class="numeric">${escapeHtml(order.remaining)}</td>
+      <td>${escapeHtml(order.status)}</td>
+      <td>${actionContent}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+  updatePurchaseOrdersMeta({ renderedCount: normalized.length });
+}
+
+function updatePurchaseOrdersMeta({ renderedCount = 0 } = {}) {
+  const { meta } = getPurchaseOrderElements();
+  const totalItems = Math.max(0, Number.parseInt(purchaseOrdersState.totalItems, 10) || 0);
+  const currentPage = Math.max(1, Number.parseInt(purchaseOrdersState.page, 10) || 1);
+  const perPage = Math.max(1, Number.parseInt(purchaseOrdersState.perPage, 10) || DEFAULT_PURCHASE_ORDER_PAGE_SIZE);
+
+  if (!meta) {
+    return;
+  }
+
+  if (!totalItems) {
+    meta.textContent = 'Tidak ada pesanan pembelian ditemukan.';
+    return;
+  }
+
+  const startIndex = Math.min((currentPage - 1) * perPage + 1, totalItems);
+  const endIndex = Math.min(totalItems, startIndex + Math.max(renderedCount, 1) - 1);
+  meta.textContent = `Menampilkan ${startIndex}-${endIndex} dari ${totalItems} pesanan pembelian`;
+}
+
+function syncPurchaseOrdersPagination() {
+  const { pagination, paginationInfo, paginationInput, prevButton, nextButton } = getPurchaseOrderElements();
+  if (!pagination) {
+    return;
+  }
+
+  const totalPages = Math.max(1, Number.parseInt(purchaseOrdersState.totalPages, 10) || 1);
+  const currentPage = Math.max(1, Number.parseInt(purchaseOrdersState.page, 10) || 1);
+
+  pagination.hidden = totalPages <= 1;
+
+  if (paginationInfo) {
+    paginationInfo.textContent = `Halaman ${currentPage} dari ${totalPages}`;
+  }
+
+  if (paginationInput) {
+    paginationInput.value = currentPage;
+    paginationInput.max = totalPages;
+  }
+
+  if (prevButton) {
+    prevButton.disabled = currentPage <= 1;
+  }
+
+  if (nextButton) {
+    nextButton.disabled = currentPage >= totalPages;
+  }
+}
+
+function syncPurchaseOrdersPageSizeControl() {
+  const { pageSizeSelect } = getPurchaseOrderElements();
+  if (!pageSizeSelect) {
+    return;
+  }
+
+  const currentValue = purchaseOrdersState.perPage;
+  if (!PURCHASE_ORDER_PAGE_SIZES.includes(Number(currentValue))) {
+    purchaseOrdersState.perPage = DEFAULT_PURCHASE_ORDER_PAGE_SIZE;
+  }
+
+  pageSizeSelect.value = purchaseOrdersState.perPage.toString();
+}
+
+async function refreshPurchaseOrders({ page, perPage } = {}) {
+  const { tbody } = getPurchaseOrderElements();
+  if (!tbody) {
+    return;
+  }
+
+  const requestId = ++purchaseOrdersRequestId;
+  const nextPage = Number.isFinite(page) ? Number(page) : purchaseOrdersState.page;
+  const nextPerPage = Number.isFinite(perPage) ? Number(perPage) : purchaseOrdersState.perPage;
+
+  purchaseOrdersState.loading = true;
+  renderPurchaseOrdersMessage('Memuat pesanan pembelian dari Mekari Jurnal…', { className: 'loading-state' });
+  syncPurchaseOrdersPagination();
+
+  try {
+    const { orders, pagination } = await fetchMekariPurchaseOrders({ page: nextPage, perPage: nextPerPage });
+
+    if (requestId !== purchaseOrdersRequestId) {
+      return;
+    }
+
+    purchaseOrdersState.page = Number.isFinite(pagination?.page) ? pagination.page : nextPage;
+    purchaseOrdersState.perPage = Number.isFinite(pagination?.perPage) ? pagination.perPage : nextPerPage;
+    purchaseOrdersState.totalPages = Number.isFinite(pagination?.totalPages) ? pagination.totalPages : 1;
+    purchaseOrdersState.totalItems = Number.isFinite(pagination?.totalItems) ? pagination.totalItems : orders.length;
+    purchaseOrdersState.hasMore = Boolean(pagination?.hasMore);
+    purchaseOrdersState.lastError = '';
+
+    renderPurchaseOrdersTable(orders);
+  } catch (error) {
+    if (requestId !== purchaseOrdersRequestId) {
+      return;
+    }
+
+    purchaseOrdersState.lastError = error?.message || 'Gagal memuat pesanan pembelian.';
+    purchaseOrdersState.totalItems = 0;
+    purchaseOrdersState.totalPages = 1;
+    renderPurchaseOrdersMessage(purchaseOrdersState.lastError, { className: 'error-state' });
+  } finally {
+    if (requestId === purchaseOrdersRequestId) {
+      purchaseOrdersState.loading = false;
+      syncPurchaseOrdersPagination();
+    }
+  }
+}
+
+function goToPurchaseOrdersPage(page) {
+  const totalPages = Math.max(1, Number.parseInt(purchaseOrdersState.totalPages, 10) || 1);
+  const targetPage = Math.max(1, Math.min(totalPages, Math.floor(Number(page) || 1)));
+
+  if (targetPage === purchaseOrdersState.page) {
+    return;
+  }
+
+  purchaseOrdersState.page = targetPage;
+  refreshPurchaseOrders({ page: targetPage });
+}
+
+function setupPurchaseOrdersControls() {
+  const { pageSizeSelect, pagination, paginationInput } = getPurchaseOrderElements();
+
+  if (pageSizeSelect) {
+    syncPurchaseOrdersPageSizeControl();
+    pageSizeSelect.addEventListener('change', event => {
+      const value = Number(event.target.value);
+      if (!PURCHASE_ORDER_PAGE_SIZES.includes(value)) {
+        return;
+      }
+      purchaseOrdersState.perPage = value;
+      purchaseOrdersState.page = 1;
+      refreshPurchaseOrders({ page: 1, perPage: value });
+    });
+  }
+
+  if (pagination) {
+    pagination.addEventListener('click', event => {
+      const button = event.target.closest('[data-pagination]');
+      if (!button) {
+        return;
+      }
+
+      const action = button.dataset.pagination;
+      if (action === 'prev') {
+        goToPurchaseOrdersPage(purchaseOrdersState.page - 1);
+      } else if (action === 'next') {
+        goToPurchaseOrdersPage(purchaseOrdersState.page + 1);
+      }
+    });
+  }
+
+  if (paginationInput) {
+    paginationInput.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') {
+        return;
+      }
+      event.preventDefault();
+      goToPurchaseOrdersPage(event.target.value);
+    });
+
+    paginationInput.addEventListener('change', event => {
+      goToPurchaseOrdersPage(event.target.value);
+    });
+  }
+}
+
+function initPurchasesPage() {
+  ensureIntegrationsSeeded();
+  setupPurchaseOrdersControls();
+  refreshPurchaseOrders();
+
+  document.addEventListener('integrations:changed', () => {
+    refreshPurchaseOrders({ page: 1 });
+  });
+}
+
 function setupTabbedSections() {
   const tabGroups = document.querySelectorAll('[data-tab-group]');
 
@@ -18455,6 +18925,10 @@ function initPage() {
 
     if (page === 'product-mapping-manual') {
       await initProductMappingManualPage();
+    }
+
+    if (page === 'purchases') {
+      await initPurchasesPage();
     }
 
   });

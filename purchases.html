@@ -207,13 +207,60 @@
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody id="purchase-orders-table-body">
                     <tr>
                       <td colspan="6" class="empty-state">Belum ada pesanan pembelian. Data akan muncul setelah terhubung ke Mekari Jurnal.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-orders-meta">Menampilkan 0 pesanan pembelian</span>
+                    <div class="table-controls">
+                      <label class="page-size-selector" for="purchase-orders-page-size">
+                        <span class="page-size-label">Tampilkan</span>
+                        <select id="purchase-orders-page-size" aria-label="Jumlah pesanan per halaman">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="table-footer__pagination">
+                    <nav
+                      class="table-pagination"
+                      id="purchase-orders-pagination"
+                      aria-label="Navigasi pesanan pembelian"
+                      hidden
+                    >
+                      <button type="button" class="btn ghost-btn small" data-pagination="prev" aria-label="Sebelumnya">
+                        ‹
+                      </button>
+                      <div class="table-pagination__jump">
+                        <label class="visually-hidden" for="purchase-orders-pagination-input">Loncat ke halaman pesanan pembelian</label>
+                        <input
+                          type="number"
+                          id="purchase-orders-pagination-input"
+                          class="table-pagination__input"
+                          min="1"
+                          inputmode="numeric"
+                          data-pagination-input
+                          aria-label="Loncat ke halaman tertentu"
+                        />
+                      </div>
+                      <button type="button" class="btn ghost-btn small" data-pagination="next" aria-label="Berikutnya">
+                        ›
+                      </button>
+                      <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                    </nav>
+                  </div>
+                </div>
+              </footer>
             </div>
             <div class="tab-panel" data-tab-panel="purchase-shipments" role="tabpanel" hidden>
               <div class="table-wrapper">
