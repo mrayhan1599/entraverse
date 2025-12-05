@@ -6276,6 +6276,52 @@ function formatCurrency(value) {
   }).format(value);
 }
 
+const currencyFormatterCache = new Map();
+
+function formatCurrencyWithCode(value, currencyCode = 'IDR', { minimumFractionDigits } = {}) {
+  const normalizedCurrency = (currencyCode || 'IDR').toString().toUpperCase();
+  const digits =
+    typeof minimumFractionDigits === 'number'
+      ? minimumFractionDigits
+      : normalizedCurrency === 'IDR'
+      ? 0
+      : 2;
+
+  const cacheKey = `${normalizedCurrency}:${digits}`;
+  let formatter = currencyFormatterCache.get(cacheKey);
+
+  if (!formatter) {
+    formatter = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: normalizedCurrency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+    currencyFormatterCache.set(cacheKey, formatter);
+  }
+
+  return formatter.format(value ?? 0);
+}
+
+function resolveCurrencyCode(rawCurrency, defaultCode = 'IDR') {
+  const candidate = (rawCurrency ?? '').toString().trim();
+  if (!candidate) {
+    return defaultCode;
+  }
+
+  const compactCandidate = candidate.replace(/\s+/g, '');
+  if (compactCandidate.toUpperCase() === 'IDR' || compactCandidate === 'Rp') {
+    return 'IDR';
+  }
+
+  if (compactCandidate.toUpperCase() === 'USD' || compactCandidate === '$' || compactCandidate.toUpperCase() === 'US$') {
+    return 'USD';
+  }
+
+  const cleaned = compactCandidate.replace(/[^A-Za-z]/g, '').toUpperCase();
+  return cleaned || defaultCode;
+}
+
 function formatCurrencyCompact(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -18356,6 +18402,9 @@ const purchaseOrderDetailState = {
   currentId: null
 };
 
+const purchaseOrderDetailsCache = new Map();
+const purchaseOrderDetailInflight = new Map();
+
 let purchaseOrdersRequestId = 0;
 let purchaseOrderDetailRequestId = 0;
 
@@ -18667,7 +18716,18 @@ function normalizePurchaseOrder(record) {
 
   const remainingFormatted = (record.remaining_currency_format ?? record.remainingCurrencyFormat ?? '').toString().trim();
   const remainingNumber = parseNumericValue(record.remaining ?? record.amount_receive ?? record.amountReceive ?? record.original_amount);
-  const remaining = remainingFormatted || (Number.isFinite(remainingNumber) ? formatCurrency(remainingNumber) : '—');
+  const resolvedCurrency = resolveCurrencyCode(
+    record.currency?.code ??
+      record.currency?.currency_code ??
+      record.currency_code ??
+      record.currencyCode ??
+      record.currency ??
+      record.currency_symbol ??
+      'IDR'
+  );
+  const remaining =
+    remainingFormatted ||
+    (Number.isFinite(remainingNumber) ? formatCurrencyWithCode(remainingNumber, resolvedCurrency) : '—');
 
   const dueDate = formatPurchaseOrderDate(record.due_date ?? record.dueDate ?? null);
 
@@ -18681,6 +18741,7 @@ function normalizePurchaseOrder(record) {
     supplier,
     remaining,
     status,
+    currency: resolvedCurrency,
     id: record.id ?? null,
     token: record.token ?? null,
     detailUrl
@@ -18718,18 +18779,23 @@ function renderPurchaseOrdersTable(orders) {
           )}" data-order-number="${escapeHtml(order.number)}" data-order-link="${escapeHtml(order.detailUrl)}">Lihat</button>`
         : '—';
 
-    return `<tr>
+    const rowId = escapeHtml(order.id ?? order.number ?? '');
+
+    return `<tr data-purchase-order-row="${rowId}">
       <td>${escapeHtml(order.date)}</td>
       <td><strong>${escapeHtml(order.number)}</strong></td>
       <td>${escapeHtml(order.supplier)}</td>
-      <td class="numeric">${escapeHtml(order.remaining)}</td>
-      <td>${escapeHtml(order.status)}</td>
+      <td class="numeric" data-purchase-order-remaining>${escapeHtml(order.remaining)}</td>
+      <td data-purchase-order-status>${escapeHtml(order.status)}</td>
       <td>${actionContent}</td>
     </tr>`;
   });
 
   tbody.innerHTML = rows.join('');
   updatePurchaseOrdersMeta({ renderedCount: visibleOrders.length });
+  prefetchPurchaseOrderDetails(visibleOrders).catch(error => {
+    console.warn('Prefetch detail pesanan pembelian gagal', error);
+  });
 }
 
 function updatePurchaseOrdersMeta({ renderedCount = 0 } = {}) {
@@ -18805,6 +18871,8 @@ function normalizePurchaseOrderItem(line) {
     .toString()
     .trim();
 
+  const sku = (line.sku ?? line.item_sku ?? line.product_sku ?? line.item?.sku ?? line.product?.sku ?? '').toString().trim();
+
   const description = (line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '').toString().trim();
 
   const quantity = parseNumericValue(
@@ -18824,6 +18892,7 @@ function normalizePurchaseOrderItem(line) {
   }
 
   return {
+    sku: sku || '—',
     name: name || '—',
     description: description || '—',
     quantity: Number.isFinite(quantity) ? quantity : null,
@@ -18859,6 +18928,16 @@ function normalizePurchaseOrderDetail(order, { fallbackLink = '' } = {}) {
   const transactionDate = formatPurchaseOrderDate(order.transaction_date ?? order.transactionDate ?? order.created_at ?? null);
   const dueDate = formatPurchaseOrderDate(order.due_date ?? order.dueDate ?? null);
 
+  const resolvedCurrency = resolveCurrencyCode(
+    order.currency?.code ??
+      order.currency?.currency_code ??
+      order.currency_code ??
+      order.currencyCode ??
+      order.currency ??
+      order.currency_symbol ??
+      'IDR'
+  );
+
   const totalValue = parseNumericValue(
     order.total ?? order.grand_total ?? order.amount ?? order.subtotal ?? order.sub_total ?? order.invoice_total ?? null
   );
@@ -18889,8 +18968,9 @@ function normalizePurchaseOrderDetail(order, { fallbackLink = '' } = {}) {
     status,
     transactionDate: transactionDate || '—',
     dueDate: dueDate || '—',
-    total: Number.isFinite(totalValue) ? formatCurrency(totalValue) : '—',
-    remaining: Number.isFinite(remainingValue) ? formatCurrency(remainingValue) : '—',
+    total: Number.isFinite(totalValue) ? formatCurrencyWithCode(totalValue, resolvedCurrency) : '—',
+    remaining: Number.isFinite(remainingValue) ? formatCurrencyWithCode(remainingValue, resolvedCurrency) : '—',
+    currency: resolvedCurrency,
     items,
     externalLink
   };
@@ -18915,7 +18995,7 @@ function togglePurchaseOrderDetailView({ loading = false, error = '' } = {}) {
   }
 }
 
-function renderPurchaseOrderDetailItems(items) {
+function renderPurchaseOrderDetailItems(items, currencyCode = 'IDR') {
   const { itemsBody, emptyText } = getPurchaseOrderDetailElements();
   if (!itemsBody) {
     return;
@@ -18924,7 +19004,7 @@ function renderPurchaseOrderDetailItems(items) {
   const normalizedItems = (Array.isArray(items) ? items : []).filter(Boolean);
 
   if (!normalizedItems.length) {
-    itemsBody.innerHTML = '<tr class="empty-state"><td colspan="5">Tidak ada produk pada pesanan ini.</td></tr>';
+    itemsBody.innerHTML = '<tr class="empty-state"><td colspan="6">Tidak ada produk pada pesanan ini.</td></tr>';
     if (emptyText) {
       emptyText.hidden = false;
     }
@@ -18934,10 +19014,11 @@ function renderPurchaseOrderDetailItems(items) {
   const rows = normalizedItems.map(item => {
     const quantityText = Number.isFinite(item.quantity) ? item.quantity.toLocaleString('id-ID') : '—';
     const unitText = item.unit ? ` ${escapeHtml(item.unit)}` : '';
-    const rateText = Number.isFinite(item.rate) ? formatCurrency(item.rate) : '—';
-    const totalText = Number.isFinite(item.total) ? formatCurrency(item.total) : '—';
+    const rateText = Number.isFinite(item.rate) ? formatCurrencyWithCode(item.rate, currencyCode) : '—';
+    const totalText = Number.isFinite(item.total) ? formatCurrencyWithCode(item.total, currencyCode) : '—';
 
     return `<tr>
+      <td>${escapeHtml(item.sku)}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.description)}</td>
       <td class="numeric">${quantityText}${unitText}</td>
@@ -18969,7 +19050,7 @@ function renderPurchaseOrderDetail(detail, { subtitle = '' } = {}) {
   if (total) total.textContent = detail?.total ?? '—';
   if (remaining) remaining.textContent = detail?.remaining ?? '—';
 
-  renderPurchaseOrderDetailItems(detail?.items ?? []);
+  renderPurchaseOrderDetailItems(detail?.items ?? [], detail?.currency ?? 'IDR');
 
   if (footer) {
     footer.hidden = !detail?.externalLink;
@@ -18982,6 +19063,109 @@ function renderPurchaseOrderDetail(detail, { subtitle = '' } = {}) {
       externalLink.removeAttribute('href');
     }
   }
+}
+
+function escapeCssIdentifier(value) {
+  try {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+      return CSS.escape(value);
+    }
+  } catch (error) {
+    // Fall through
+  }
+
+  return value.replace(/"/g, '\\"');
+}
+
+function updatePurchaseOrderRowFromDetail(orderId, detail) {
+  const { tbody } = getPurchaseOrderElements();
+  if (!tbody) {
+    return;
+  }
+
+  const normalizedId = orderId?.toString().trim();
+  if (!normalizedId) {
+    return;
+  }
+
+  const selectorId = escapeCssIdentifier(normalizedId);
+  const row = tbody.querySelector(`[data-purchase-order-row="${selectorId}"]`);
+  if (!row) {
+    return;
+  }
+
+  const remainingCell = row.querySelector('[data-purchase-order-remaining]');
+  if (remainingCell && detail?.remaining) {
+    remainingCell.textContent = detail.remaining;
+  }
+
+  const statusCell = row.querySelector('[data-purchase-order-status]');
+  if (statusCell && detail?.status) {
+    statusCell.textContent = detail.status;
+  }
+}
+
+async function loadPurchaseOrderDetail(orderId, { fallbackLink = '' } = {}) {
+  const normalizedId = orderId?.toString().trim();
+  if (!normalizedId) {
+    throw new Error('ID pesanan pembelian tidak ditemukan.');
+  }
+
+  if (purchaseOrderDetailsCache.has(normalizedId)) {
+    return purchaseOrderDetailsCache.get(normalizedId);
+  }
+
+  if (purchaseOrderDetailInflight.has(normalizedId)) {
+    return purchaseOrderDetailInflight.get(normalizedId);
+  }
+
+  const detailPromise = (async () => {
+    const order = await fetchMekariPurchaseOrderDetail(normalizedId);
+    const detail = normalizePurchaseOrderDetail(order, { fallbackLink });
+
+    if (detail) {
+      purchaseOrderDetailsCache.set(normalizedId, detail);
+      updatePurchaseOrderRowFromDetail(normalizedId, detail);
+    }
+
+    return detail;
+  })();
+
+  purchaseOrderDetailInflight.set(normalizedId, detailPromise);
+
+  try {
+    return await detailPromise;
+  } finally {
+    purchaseOrderDetailInflight.delete(normalizedId);
+  }
+}
+
+async function prefetchPurchaseOrderDetails(orders, { concurrency = 3 } = {}) {
+  const queue = (Array.isArray(orders) ? orders : [])
+    .map(order => ({
+      id: order.id ?? order.number ?? '',
+      link: order.detailUrl ?? ''
+    }))
+    .filter(entry => entry.id && !purchaseOrderDetailsCache.has(entry.id) && !purchaseOrderDetailInflight.has(entry.id));
+
+  if (!queue.length) {
+    return;
+  }
+
+  let index = 0;
+  const worker = async () => {
+    while (index < queue.length) {
+      const current = queue[index++];
+      try {
+        await loadPurchaseOrderDetail(current.id, { fallbackLink: current.link });
+      } catch (error) {
+        console.warn('Gagal memuat detail pesanan pembelian', error);
+      }
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, worker);
+  await Promise.all(workers);
 }
 
 function closePurchaseOrderDetailModal() {
@@ -19009,16 +19193,22 @@ async function showPurchaseOrderDetail(orderId, { number = '', link = '' } = {})
   purchaseOrderDetailState.currentId = orderId;
   purchaseOrderDetailState.loading = true;
 
-  togglePurchaseOrderDetailView({ loading: true, error: '' });
   openPurchaseOrderDetailModal();
 
+  const cachedDetail = purchaseOrderDetailsCache.get(orderId);
+  if (cachedDetail) {
+    renderPurchaseOrderDetail(cachedDetail, { subtitle });
+    togglePurchaseOrderDetailView({ loading: false, error: '' });
+  } else {
+    togglePurchaseOrderDetailView({ loading: true, error: '' });
+  }
+
   try {
-    const order = await fetchMekariPurchaseOrderDetail(orderId);
+    const detail = await loadPurchaseOrderDetail(orderId, { fallbackLink: link });
     if (requestId !== purchaseOrderDetailRequestId) {
       return;
     }
 
-    const detail = normalizePurchaseOrderDetail(order, { fallbackLink: link });
     if (!detail) {
       throw new Error('Detail pesanan pembelian tidak tersedia.');
     }
