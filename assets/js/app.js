@@ -20162,6 +20162,132 @@ async function fetchMekariPurchaseDocuments(
   return { records, pagination };
 }
 
+const PURCHASE_INVOICE_AGGREGATE_PAGE_SIZE = 200;
+const PURCHASE_INVOICE_MAX_PAGES = 25;
+
+async function fetchAllPurchaseInvoices({ integration: integrationOverride } = {}) {
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const invoices = [];
+  let page = 1;
+  let totalPages = null;
+
+  while (page <= (totalPages ?? PURCHASE_INVOICE_MAX_PAGES)) {
+    const { records, pagination } = await fetchMekariPurchaseDocuments('invoice', {
+      page,
+      perPage: PURCHASE_INVOICE_AGGREGATE_PAGE_SIZE,
+      integration
+    });
+
+    const currentRecords = Array.isArray(records) ? records : [];
+    invoices.push(...currentRecords);
+
+    const resolvedPerPage = Math.max(
+      1,
+      Number.parseInt(pagination?.perPage, 10) || PURCHASE_INVOICE_AGGREGATE_PAGE_SIZE
+    );
+
+    if (Number.isFinite(pagination?.totalPages)) {
+      totalPages = Math.max(1, pagination.totalPages);
+    }
+
+    const hasMore =
+      typeof pagination?.hasMore === 'boolean'
+        ? pagination.hasMore
+        : totalPages !== null
+          ? page < totalPages
+          : currentRecords.length >= resolvedPerPage;
+
+    if (!hasMore) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return invoices;
+}
+
+function calculateUnpaidPurchaseInvoices(records) {
+  const invoices = Array.isArray(records) ? records : [];
+  let total = 0;
+  let currency = 'IDR';
+
+  invoices.forEach(record => {
+    const currencyCandidate = resolvePurchaseDocumentCurrency(record);
+    if (currencyCandidate) {
+      currency = currencyCandidate;
+    }
+
+    const remainingCandidate = resolveFirstAvailableValue(record, [
+      'remaining',
+      'remaining_amount',
+      'amount_due',
+      'amountDue',
+      'outstanding_amount',
+      'amount_due_left'
+    ]);
+
+    const remainingValue = parseNumericValue(remainingCandidate);
+    if (Number.isFinite(remainingValue) && remainingValue > 0) {
+      total += remainingValue;
+    }
+  });
+
+  return { total, currency };
+}
+
+function getPurchaseMetricsElements() {
+  return {
+    unpaidValue: document.getElementById('purchase-unpaid-invoices-value'),
+    unpaidMeta: document.getElementById('purchase-unpaid-invoices-meta')
+  };
+}
+
+function renderUnpaidPurchaseInvoicesMetric({ value, message, loading = false, error = '' } = {}) {
+  const { unpaidValue, unpaidMeta } = getPurchaseMetricsElements();
+  if (!unpaidValue || !unpaidMeta) {
+    return;
+  }
+
+  if (loading) {
+    unpaidValue.textContent = 'Loading...';
+    unpaidMeta.textContent = 'Menarik data faktur pembelian dari Mekari Jurnal…';
+    return;
+  }
+
+  if (error) {
+    unpaidValue.textContent = '—';
+    unpaidMeta.textContent = error;
+    return;
+  }
+
+  unpaidValue.textContent = value ?? '—';
+  unpaidMeta.textContent = message ?? 'Data faktur pembelian belum tersedia.';
+}
+
+async function refreshPurchaseMetrics() {
+  renderUnpaidPurchaseInvoicesMetric({ loading: true });
+
+  try {
+    const invoices = await fetchAllPurchaseInvoices();
+    const { total, currency } = calculateUnpaidPurchaseInvoices(invoices);
+    const formatted = formatCurrencyWithCode(total, currency || 'IDR');
+    const message =
+      total > 0
+        ? 'Total sisa tagihan faktur pembelian dari Mekari Jurnal.'
+        : 'Tidak ada faktur pembelian yang belum dibayar.';
+
+    renderUnpaidPurchaseInvoicesMetric({ value: formatted, message });
+  } catch (error) {
+    const message = error?.message || 'Gagal memuat faktur pembelian dari Mekari Jurnal.';
+    renderUnpaidPurchaseInvoicesMetric({ error: message });
+  }
+}
+
 async function fetchMekariPurchaseDocumentDetail(type, id, { integration: integrationOverride } = {}) {
   const config = PURCHASE_DOCUMENT_CONFIG[type];
   if (!config) {
@@ -20687,10 +20813,12 @@ function initPurchasesPage() {
   setupPurchaseDocumentDetailModal();
   refreshPurchaseOrders();
   refreshPurchaseDocuments();
+  refreshPurchaseMetrics();
 
   document.addEventListener('integrations:changed', () => {
     refreshPurchaseOrders({ page: 1 });
     refreshPurchaseDocuments();
+    refreshPurchaseMetrics();
   });
 }
 
