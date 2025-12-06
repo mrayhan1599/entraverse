@@ -164,7 +164,7 @@
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody id="purchase-requests-table-body">
                     <tr>
                       <td colspan="7" class="empty-state">Belum ada permintaan pembelian. Hubungkan Mekari Jurnal untuk melihat data.</td>
                     </tr>
@@ -186,7 +186,7 @@
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody id="purchase-offers-table-body">
                     <tr>
                       <td colspan="7" class="empty-state">Belum ada penawaran pembelian. Integrasikan Mekari Jurnal untuk menarik data.</td>
                     </tr>
@@ -275,7 +275,7 @@
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody id="purchase-shipments-table-body">
                     <tr>
                       <td colspan="6" class="empty-state">Belum ada pengiriman. Hubungkan Mekari Jurnal untuk melihat status penerimaan.</td>
                     </tr>
@@ -297,7 +297,7 @@
                       <th>Aksi</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody id="purchase-invoices-table-body">
                     <tr>
                       <td colspan="7" class="empty-state">Belum ada faktur pembelian. Data akan ditampilkan setelah integrasi Mekari Jurnal aktif.</td>
                     </tr>
@@ -353,6 +353,55 @@
             <p class="table-note" id="purchase-order-detail-empty" hidden>Belum ada produk pada pesanan ini.</p>
             <div class="modal-actions" id="purchase-order-detail-footer" hidden>
               <a class="btn ghost-btn" id="purchase-order-detail-link" href="#" target="_blank" rel="noreferrer noopener">Buka di Mekari Jurnal</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="purchase-document-detail-modal" hidden>
+      <div class="modal modal--wide" role="dialog" aria-modal="true" aria-labelledby="purchase-document-detail-title">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <p class="eyebrow" id="purchase-document-detail-type">Detail Pembelian</p>
+            <h2 id="purchase-document-detail-title">Detail transaksi</h2>
+            <p class="table-note" id="purchase-document-detail-subtitle">Memuat detail transaksi…</p>
+          </div>
+          <button class="icon-btn small" type="button" data-close-modal aria-label="Tutup detail pembelian">✕</button>
+        </div>
+        <div class="modal-body" id="purchase-document-detail-body">
+          <div id="purchase-document-detail-error" class="empty-state" hidden>Gagal memuat detail pembelian.</div>
+          <div id="purchase-document-detail-loading" class="loading-state">Mengambil detail pembelian…</div>
+          <div id="purchase-document-detail-content" hidden>
+            <ul class="detail-list">
+              <li><span>Pemasok</span><span id="purchase-document-detail-supplier">—</span></li>
+              <li><span>Nomor transaksi</span><span id="purchase-document-detail-number">—</span></li>
+              <li><span>Tanggal transaksi</span><span id="purchase-document-detail-date">—</span></li>
+              <li><span>Jatuh tempo / pengiriman</span><span id="purchase-document-detail-due-date">—</span></li>
+              <li><span>Status</span><span id="purchase-document-detail-status">—</span></li>
+              <li><span>Total</span><span id="purchase-document-detail-total">—</span></li>
+              <li><span>Sisa tagihan</span><span id="purchase-document-detail-remaining">—</span></li>
+            </ul>
+            <div class="table-wrapper" aria-live="polite">
+              <table class="record-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Barang</th>
+                    <th class="numeric">Kuantitas</th>
+                    <th class="numeric">Harga satuan</th>
+                    <th class="numeric">Total</th>
+                  </tr>
+                </thead>
+                <tbody id="purchase-document-detail-items">
+                  <tr class="loading-state">
+                    <td colspan="5">Memuat detail produk…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="table-note" id="purchase-document-detail-empty" hidden>Belum ada produk pada transaksi ini.</p>
+            <div class="modal-actions" id="purchase-document-detail-footer" hidden>
+              <a class="btn ghost-btn" id="purchase-document-detail-link" href="#" target="_blank" rel="noreferrer noopener">Buka di Mekari Jurnal</a>
             </div>
           </div>
         </div>
