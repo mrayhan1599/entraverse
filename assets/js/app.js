@@ -19606,7 +19606,7 @@ function renderPurchaseDocumentMessage(type, message, className = 'empty-state')
     return;
   }
 
-  const fallbackColspan = type === 'delivery' ? 6 : 7;
+  const fallbackColspan = type === 'delivery' ? 6 : type === 'invoice' ? 8 : 7;
   const colSpan = tbody.querySelector('tr')?.children?.length || fallbackColspan;
   tbody.innerHTML = `<tr class="${className}"><td colspan="${colSpan}">${escapeHtml(message)}</td></tr>`;
 
@@ -19677,6 +19677,43 @@ function resolvePurchaseDocumentCurrency(record) {
   );
 }
 
+function resolveFirstAvailableValue(record, keys = []) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  for (const key of keys) {
+    if (!key) {
+      continue;
+    }
+    const value = record[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function formatPurchaseDocumentAmount(record, numericKeys, formatKeys, currency) {
+  const numericCandidate = resolveFirstAvailableValue(record, numericKeys);
+  const numericValue = parseNumericValue(numericCandidate);
+
+  if (Number.isFinite(numericValue)) {
+    return formatCurrencyWithCode(numericValue, currency);
+  }
+
+  const formattedCandidate = resolveFirstAvailableValue(record, formatKeys);
+  if (formattedCandidate !== null && formattedCandidate !== undefined) {
+    const formatted = formattedCandidate.toString().trim();
+    if (formatted) {
+      return formatted;
+    }
+  }
+
+  return '—';
+}
+
 function normalizePurchaseDocument(type, record) {
   if (!record || typeof record !== 'object') {
     return null;
@@ -19711,27 +19748,43 @@ function normalizePurchaseDocument(type, record) {
     .trim() || '—';
 
   const currency = resolvePurchaseDocumentCurrency(record);
-  const totalNumber = parseNumericValue(
-    record.total ||
-      record.total_amount ||
-      record.total_amount_after_tax ||
-      record.amount ||
-      record.amount_due ||
-      record.amount_due_left ||
-      record.grand_total ||
-      record.total_after_tax
+  const total = formatPurchaseDocumentAmount(
+    record,
+    [
+      'total',
+      'total_amount',
+      'total_amount_after_tax',
+      'amount',
+      'amount_due',
+      'amountDue',
+      'amount_due_left',
+      'grand_total',
+      'total_after_tax',
+      'original_amount'
+    ],
+    [
+      'total_currency_format',
+      'total_amount_currency_format',
+      'amount_currency_format',
+      'original_amount_currency_format',
+      'grand_total_currency_format',
+      'amount_due_currency_format'
+    ],
+    currency
   );
-  const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
 
-  const remainingNumber = parseNumericValue(
-    record.remaining ||
-      record.remaining_amount ||
-      record.amount_due ||
-      record.amountDue ||
-      record.outstanding_amount ||
-      record.amount_due_left
+  const remaining = formatPurchaseDocumentAmount(
+    record,
+    ['remaining', 'remaining_amount', 'amount_due', 'amountDue', 'outstanding_amount', 'amount_due_left'],
+    [
+      'remaining_currency_format',
+      'remaining_amount_currency_format',
+      'outstanding_amount_currency_format',
+      'amount_due_currency_format',
+      'amount_due_left_currency_format'
+    ],
+    currency
   );
-  const remaining = Number.isFinite(remainingNumber) ? formatCurrencyWithCode(remainingNumber, currency) : '—';
 
   const quantityNumber = parseNumericValue(record.total_quantity ?? record.quantity ?? record.qty);
   const quantity = Number.isFinite(quantityNumber) ? quantityNumber : null;
@@ -19787,7 +19840,22 @@ function renderPurchaseDocumentTable(type, records) {
       </tr>`;
     }
 
-    if (type === 'invoice' || type === 'offer' || type === 'request') {
+    if (type === 'invoice') {
+      const amountValue = entry.total || '—';
+      const remainingValue = entry.remaining || '—';
+      return `<tr>
+        <td>${escapeHtml(entry.date)}</td>
+        <td><strong>${escapeHtml(entry.number)}</strong></td>
+        <td>${escapeHtml(entry.supplier)}</td>
+        <td>${escapeHtml(entry.dueDate)}</td>
+        <td>${escapeHtml(entry.status)}</td>
+        <td class="numeric">${escapeHtml(amountValue)}</td>
+        <td class="numeric">${escapeHtml(remainingValue)}</td>
+        <td>${actionContent}</td>
+      </tr>`;
+    }
+
+    if (type === 'offer' || type === 'request') {
       const amountValue = entry.total || '—';
       return `<tr>
         <td>${escapeHtml(entry.date)}</td>
@@ -19894,12 +19962,33 @@ function extractPurchaseDocumentItems(record) {
           item.unit_price_after_tax
       );
       const currency = resolvePurchaseDocumentCurrency(item) || resolvePurchaseDocumentCurrency(record);
-      const unitPrice = Number.isFinite(unitPriceNumber) ? formatCurrencyWithCode(unitPriceNumber, currency) : '—';
+      const unitPriceFormatted = resolveFirstAvailableValue(item, [
+        'rate_currency_format',
+        'unit_price_currency_format',
+        'price_currency_format',
+        'unit_cost_currency_format',
+        'unit_rate_currency_format',
+        'price_after_tax_currency_format',
+        'unit_price_after_tax_currency_format'
+      ]);
+      const unitPrice =
+        (unitPriceFormatted && unitPriceFormatted.toString().trim()) ||
+        (Number.isFinite(unitPriceNumber) ? formatCurrencyWithCode(unitPriceNumber, currency) : '—');
 
       const totalNumber = parseNumericValue(
         item.total ?? item.subtotal ?? item.amount ?? item.line_total ?? item.total_after_tax ?? item.total_amount
       );
-      const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
+      const totalFormatted = resolveFirstAvailableValue(item, [
+        'total_currency_format',
+        'subtotal_currency_format',
+        'amount_currency_format',
+        'line_total_currency_format',
+        'total_after_tax_currency_format',
+        'total_amount_currency_format'
+      ]);
+      const total =
+        (totalFormatted && totalFormatted.toString().trim()) ||
+        (Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—');
 
       return {
         sku: sku.toString().trim() || '—',
@@ -20218,16 +20307,42 @@ function renderPurchaseDocumentDetail(type, record, { subtitle = '', fallbackLin
 
   const normalized = normalizePurchaseDocument(type, record) || {};
   const currency = resolvePurchaseDocumentCurrency(record);
-  const totalNumber = parseNumericValue(
-    record.total || record.total_amount || record.amount || record.amount_due || record.amount_due_left || record.grand_total
+  const total = formatPurchaseDocumentAmount(
+    record,
+    [
+      'total',
+      'total_amount',
+      'total_amount_after_tax',
+      'amount',
+      'amount_due',
+      'amountDue',
+      'amount_due_left',
+      'grand_total',
+      'total_after_tax',
+      'original_amount'
+    ],
+    [
+      'total_currency_format',
+      'total_amount_currency_format',
+      'amount_currency_format',
+      'original_amount_currency_format',
+      'grand_total_currency_format',
+      'amount_due_currency_format'
+    ],
+    currency
   );
-  const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : normalized.total || '—';
-  const remainingNumber = parseNumericValue(
-    record.remaining || record.remaining_amount || record.amount_due || record.amountDue || record.outstanding_amount
+  const remaining = formatPurchaseDocumentAmount(
+    record,
+    ['remaining', 'remaining_amount', 'amount_due', 'amountDue', 'outstanding_amount', 'amount_due_left'],
+    [
+      'remaining_currency_format',
+      'remaining_amount_currency_format',
+      'outstanding_amount_currency_format',
+      'amount_due_currency_format',
+      'amount_due_left_currency_format'
+    ],
+    currency
   );
-  const remaining = Number.isFinite(remainingNumber)
-    ? formatCurrencyWithCode(remainingNumber, currency)
-    : normalized.remaining || '—';
 
   if (elements.typeLabel) {
     elements.typeLabel.textContent = PURCHASE_DOCUMENT_CONFIG[type]?.label || 'Detail Pembelian';
