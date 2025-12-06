@@ -18879,6 +18879,9 @@ function normalizePurchaseOrderItem(line) {
     line.name ??
     line.item?.name ??
     line.product?.name ??
+    line.product?.product_name ??
+    line.product?.title ??
+    line.product?.product?.name ??
     line.item?.product_name ??
     line.item?.item_name ??
     primaryProduct?.name ??
@@ -18901,7 +18904,15 @@ function normalizePurchaseOrderItem(line) {
     '';
   const sku = toSafeText(skuCandidate);
 
-  const description = toSafeText(line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '');
+  const description = toSafeText(
+    line.description ??
+      line.memo ??
+      line.detail ??
+      line.item?.description ??
+      line.product?.description ??
+      primaryProduct?.description ??
+      ''
+  );
 
   const quantity = parseNumericValue(
     line.quantity ??
