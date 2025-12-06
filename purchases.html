@@ -193,6 +193,53 @@
                   </tbody>
                 </table>
               </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-offers-meta">Menampilkan 0 penawaran pembelian</span>
+                    <div class="table-controls">
+                      <label class="page-size-selector" for="purchase-offers-page-size">
+                        <span class="page-size-label">Tampilkan</span>
+                        <select id="purchase-offers-page-size" aria-label="Jumlah penawaran per halaman">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="table-footer__pagination">
+                    <nav
+                      class="table-pagination"
+                      id="purchase-offers-pagination"
+                      aria-label="Navigasi penawaran pembelian"
+                      hidden
+                    >
+                      <button type="button" class="btn ghost-btn small" data-pagination="prev" aria-label="Sebelumnya">
+                        ‹
+                      </button>
+                      <div class="table-pagination__jump">
+                        <label class="visually-hidden" for="purchase-offers-pagination-input">Loncat ke halaman penawaran pembelian</label>
+                        <input
+                          type="number"
+                          id="purchase-offers-pagination-input"
+                          class="table-pagination__input"
+                          min="1"
+                          inputmode="numeric"
+                          data-pagination-input
+                          aria-label="Loncat ke halaman tertentu"
+                        />
+                      </div>
+                      <button type="button" class="btn ghost-btn small" data-pagination="next" aria-label="Berikutnya">
+                        ›
+                      </button>
+                      <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                    </nav>
+                  </div>
+                </div>
+              </footer>
             </div>
             <div class="tab-panel" data-tab-panel="purchase-orders" role="tabpanel" hidden>
               <div class="table-wrapper">
@@ -282,6 +329,53 @@
                   </tbody>
                 </table>
               </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-shipments-meta">Menampilkan 0 pengiriman pembelian</span>
+                    <div class="table-controls">
+                      <label class="page-size-selector" for="purchase-shipments-page-size">
+                        <span class="page-size-label">Tampilkan</span>
+                        <select id="purchase-shipments-page-size" aria-label="Jumlah pengiriman per halaman">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="table-footer__pagination">
+                    <nav
+                      class="table-pagination"
+                      id="purchase-shipments-pagination"
+                      aria-label="Navigasi pengiriman pembelian"
+                      hidden
+                    >
+                      <button type="button" class="btn ghost-btn small" data-pagination="prev" aria-label="Sebelumnya">
+                        ‹
+                      </button>
+                      <div class="table-pagination__jump">
+                        <label class="visually-hidden" for="purchase-shipments-pagination-input">Loncat ke halaman pengiriman pembelian</label>
+                        <input
+                          type="number"
+                          id="purchase-shipments-pagination-input"
+                          class="table-pagination__input"
+                          min="1"
+                          inputmode="numeric"
+                          data-pagination-input
+                          aria-label="Loncat ke halaman tertentu"
+                        />
+                      </div>
+                      <button type="button" class="btn ghost-btn small" data-pagination="next" aria-label="Berikutnya">
+                        ›
+                      </button>
+                      <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                    </nav>
+                  </div>
+                </div>
+              </footer>
             </div>
             <div class="tab-panel" data-tab-panel="purchase-invoices" role="tabpanel" hidden>
               <div class="table-wrapper">
@@ -304,6 +398,53 @@
                   </tbody>
                 </table>
               </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-invoices-meta">Menampilkan 0 faktur pembelian</span>
+                    <div class="table-controls">
+                      <label class="page-size-selector" for="purchase-invoices-page-size">
+                        <span class="page-size-label">Tampilkan</span>
+                        <select id="purchase-invoices-page-size" aria-label="Jumlah faktur per halaman">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="table-footer__pagination">
+                    <nav
+                      class="table-pagination"
+                      id="purchase-invoices-pagination"
+                      aria-label="Navigasi faktur pembelian"
+                      hidden
+                    >
+                      <button type="button" class="btn ghost-btn small" data-pagination="prev" aria-label="Sebelumnya">
+                        ‹
+                      </button>
+                      <div class="table-pagination__jump">
+                        <label class="visually-hidden" for="purchase-invoices-pagination-input">Loncat ke halaman faktur pembelian</label>
+                        <input
+                          type="number"
+                          id="purchase-invoices-pagination-input"
+                          class="table-pagination__input"
+                          min="1"
+                          inputmode="numeric"
+                          data-pagination-input
+                          aria-label="Loncat ke halaman tertentu"
+                        />
+                      </div>
+                      <button type="button" class="btn ghost-btn small" data-pagination="next" aria-label="Berikutnya">
+                        ›
+                      </button>
+                      <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                    </nav>
+                  </div>
+                </div>
+              </footer>
             </div>
           </div>
         </div>

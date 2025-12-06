@@ -19515,7 +19515,10 @@ const PURCHASE_DOCUMENT_CONFIG = {
     detailKeys: ['purchase_quote', 'purchaseQuote', 'purchase', 'data', 'result'],
     tableBodyId: 'purchase-offers-table-body',
     label: 'Penawaran Pembelian',
-    appPath: 'purchase_quotes'
+    appPath: 'purchase_quotes',
+    metaId: 'purchase-offers-meta',
+    pageSizeId: 'purchase-offers-page-size',
+    paginationId: 'purchase-offers-pagination'
   },
   delivery: {
     endpoint: 'purchase_deliveries',
@@ -19523,7 +19526,10 @@ const PURCHASE_DOCUMENT_CONFIG = {
     detailKeys: ['purchase_delivery', 'purchaseDelivery', 'purchase', 'data', 'result'],
     tableBodyId: 'purchase-shipments-table-body',
     label: 'Pengiriman Pembelian',
-    appPath: 'purchase_deliveries'
+    appPath: 'purchase_deliveries',
+    metaId: 'purchase-shipments-meta',
+    pageSizeId: 'purchase-shipments-page-size',
+    paginationId: 'purchase-shipments-pagination'
   },
   invoice: {
     endpoint: 'purchase_invoices',
@@ -19531,15 +19537,33 @@ const PURCHASE_DOCUMENT_CONFIG = {
     detailKeys: ['purchase_invoice', 'purchaseInvoice', 'purchase', 'data', 'result'],
     tableBodyId: 'purchase-invoices-table-body',
     label: 'Faktur Pembelian',
-    appPath: 'purchase_invoices'
+    appPath: 'purchase_invoices',
+    metaId: 'purchase-invoices-meta',
+    pageSizeId: 'purchase-invoices-page-size',
+    paginationId: 'purchase-invoices-pagination'
   }
 };
 
+const PURCHASE_DOCUMENT_PAGE_SIZES = PURCHASE_ORDER_PAGE_SIZES;
+const DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE = PURCHASE_DOCUMENT_PAGE_SIZES[0];
+
+function createPurchaseDocumentState() {
+  return {
+    page: 1,
+    perPage: DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE,
+    totalPages: 1,
+    totalItems: 0,
+    loading: false,
+    lastError: '',
+    hasMore: false
+  };
+}
+
 const purchaseDocumentState = {
-  request: { loading: false, lastError: '' },
-  offer: { loading: false, lastError: '' },
-  delivery: { loading: false, lastError: '' },
-  invoice: { loading: false, lastError: '' }
+  request: createPurchaseDocumentState(),
+  offer: createPurchaseDocumentState(),
+  delivery: createPurchaseDocumentState(),
+  invoice: createPurchaseDocumentState()
 };
 
 const purchaseDocumentRequestIds = {
@@ -19557,12 +19581,27 @@ function getPurchaseDocumentElements(type) {
 
   return {
     config,
-    tbody: document.getElementById(config.tableBodyId)
+    tbody: document.getElementById(config.tableBodyId),
+    meta: config.metaId ? document.getElementById(config.metaId) : null,
+    pageSizeSelect: config.pageSizeId ? document.getElementById(config.pageSizeId) : null,
+    pagination: config.paginationId ? document.getElementById(config.paginationId) : null,
+    paginationInfo: config.paginationId
+      ? document.querySelector(`#${config.paginationId} [data-pagination-info]`)
+      : null,
+    paginationInput: config.paginationId
+      ? document.querySelector(`#${config.paginationId} [data-pagination-input]`)
+      : null,
+    prevButton: config.paginationId
+      ? document.querySelector(`#${config.paginationId} [data-pagination="prev"]`)
+      : null,
+    nextButton: config.paginationId
+      ? document.querySelector(`#${config.paginationId} [data-pagination="next"]`)
+      : null
   };
 }
 
 function renderPurchaseDocumentMessage(type, message, className = 'empty-state') {
-  const { tbody } = getPurchaseDocumentElements(type);
+  const { tbody, meta } = getPurchaseDocumentElements(type);
   if (!tbody) {
     return;
   }
@@ -19570,17 +19609,41 @@ function renderPurchaseDocumentMessage(type, message, className = 'empty-state')
   const fallbackColspan = type === 'delivery' ? 6 : 7;
   const colSpan = tbody.querySelector('tr')?.children?.length || fallbackColspan;
   tbody.innerHTML = `<tr class="${className}"><td colspan="${colSpan}">${escapeHtml(message)}</td></tr>`;
+
+  if (meta) {
+    meta.textContent = message;
+  }
 }
 
-function resolvePurchaseDocumentNumber(record) {
+function resolvePurchaseDocumentDisplayNumber(record) {
   return (
-    record.id ||
     record.transaction_no ||
     record.transactionNo ||
-    record.no ||
-    record.number ||
     record.document_number ||
     record.documentNumber ||
+    record.number ||
+    record.no ||
+    record.code ||
+    record.id ||
+    ''
+  )
+    .toString()
+    .trim();
+}
+
+function resolvePurchaseDocumentId(record) {
+  return (
+    record.id ||
+    record.document_id ||
+    record.documentId ||
+    record.uuid ||
+    record.purchase_id ||
+    record.purchaseId ||
+    record.number ||
+    record.transaction_no ||
+    record.document_number ||
+    record.documentNumber ||
+    record.no ||
     record.code ||
     ''
   )
@@ -19625,7 +19688,7 @@ function normalizePurchaseDocument(type, record) {
   const dueDate = formatPurchaseOrderDate(
     record.due_date ?? record.dueDate ?? record.delivery_date ?? record.deliveryDate ?? record.expected_delivery_date ?? null
   );
-  const number = resolvePurchaseDocumentNumber(record) || '—';
+  const number = resolvePurchaseDocumentDisplayNumber(record) || '—';
   const supplier = resolvePurchaseDocumentSupplier(record) || '—';
   const status = (
     record.transaction_status?.name_bahasa ||
@@ -19653,7 +19716,7 @@ function normalizePurchaseDocument(type, record) {
   const quantityNumber = parseNumericValue(record.total_quantity ?? record.quantity ?? record.qty);
   const quantity = Number.isFinite(quantityNumber) ? quantityNumber : null;
 
-  const id = resolvePurchaseDocumentNumber(record) || record.id || null;
+  const id = resolvePurchaseDocumentId(record) || null;
   const detailUrl = id
     ? `https://my.jurnal.id/app/${PURCHASE_DOCUMENT_CONFIG[type]?.appPath ?? 'purchases'}/${encodeURIComponent(id)}`
     : record.url || record.detail_url || '';
@@ -19793,7 +19856,10 @@ function extractPurchaseDocumentItems(record) {
     .filter(item => item !== null);
 }
 
-async function fetchMekariPurchaseDocuments(type, { integration: integrationOverride } = {}) {
+async function fetchMekariPurchaseDocuments(
+  type,
+  { page = 1, perPage = DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE, integration: integrationOverride } = {}
+) {
   const config = PURCHASE_DOCUMENT_CONFIG[type];
   if (!config) {
     throw new Error('Jenis dokumen pembelian tidak dikenali.');
@@ -19809,7 +19875,16 @@ async function fetchMekariPurchaseDocuments(type, { integration: integrationOver
     throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
   }
 
-  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}`);
+  const safePage = Math.max(1, Math.floor(Number(page) || 1));
+  const safePerPage = Math.max(1, Math.min(200, Math.floor(Number(perPage) || DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE)));
+
+  const params = new URLSearchParams();
+  params.set('page', safePage.toString());
+  params.set('per_page', safePerPage.toString());
+  params.set('page_size', safePerPage.toString());
+  params.set('limit', safePerPage.toString());
+
+  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}?${params.toString()}`);
   const headers = new Headers({ Accept: 'application/json' });
   headers.set('Authorization', token);
 
@@ -19871,7 +19946,75 @@ async function fetchMekariPurchaseDocuments(type, { integration: integrationOver
     records = body;
   }
 
-  return records;
+  const parseNumber = value => {
+    const parsed = parseNumericValue(value);
+    return parsed !== null && Number.isFinite(parsed) ? Number(parsed) : null;
+  };
+
+  const pagination = {
+    page: safePage,
+    perPage: safePerPage,
+    totalPages: null,
+    totalItems: null,
+    hasMore: null
+  };
+
+  const headerTotalPages = parseNumber(
+    response.headers?.get('X-Total-Pages') || response.headers?.get('X-TotalPages') || response.headers?.get('X-Pagination-Total-Pages')
+  );
+  if (headerTotalPages !== null) {
+    pagination.totalPages = Math.max(1, headerTotalPages);
+  }
+
+  const headerTotalItems = parseNumber(
+    response.headers?.get('X-Total-Count') || response.headers?.get('X-TotalCount') || response.headers?.get('X-Total-Entries')
+  );
+  if (headerTotalItems !== null) {
+    pagination.totalItems = Math.max(0, headerTotalItems);
+  }
+
+  const metaCandidates = [body?.meta, body?.data?.meta, body?.pagination, body?.pager, body?.result?.meta];
+  for (const meta of metaCandidates) {
+    if (!meta || typeof meta !== 'object') {
+      continue;
+    }
+    if (pagination.totalPages === null) {
+      const metaTotalPages = parseNumber(meta.total_pages ?? meta.totalPages ?? meta.total_page ?? meta.totalPage);
+      if (metaTotalPages !== null) {
+        pagination.totalPages = Math.max(1, metaTotalPages);
+      }
+    }
+    if (pagination.totalItems === null) {
+      const metaTotalItems = parseNumber(meta.total_count ?? meta.total ?? meta.total_items ?? meta.totalItems);
+      if (metaTotalItems !== null) {
+        pagination.totalItems = Math.max(0, metaTotalItems);
+      }
+    }
+    if (pagination.hasMore === null && meta.has_more !== undefined) {
+      pagination.hasMore = Boolean(meta.has_more);
+    }
+  }
+
+  if (pagination.hasMore === null) {
+    pagination.hasMore = records.length >= safePerPage;
+  }
+
+  if (pagination.totalPages === null && pagination.totalItems !== null) {
+    pagination.totalPages = Math.max(1, Math.ceil(pagination.totalItems / safePerPage));
+  }
+
+  if (pagination.totalPages === null) {
+    pagination.totalPages = Math.max(1, safePage + (pagination.hasMore ? 1 : 0));
+  }
+
+  if (pagination.totalItems === null) {
+    pagination.totalItems = records.length + (safePage - 1) * safePerPage;
+    if (pagination.hasMore === false) {
+      pagination.totalItems = Math.max(pagination.totalItems, records.length + (pagination.totalPages - 1) * safePerPage);
+    }
+  }
+
+  return { records, pagination };
 }
 
 async function fetchMekariPurchaseDocumentDetail(type, id, { integration: integrationOverride } = {}) {
@@ -20143,34 +20286,204 @@ async function refreshPurchaseDocuments(type) {
 
   for (const docType of types) {
     const { config } = getPurchaseDocumentElements(docType);
+    const state = purchaseDocumentState[docType];
     if (!config) {
       continue;
     }
 
     const requestId = ++purchaseDocumentRequestIds[docType];
-    purchaseDocumentState[docType].loading = true;
+    state.loading = true;
     renderPurchaseDocumentMessage(docType, `Memuat ${config.label} dari Mekari Jurnal…`, 'loading-state');
 
     try {
-      const records = await fetchMekariPurchaseDocuments(docType);
+      const { records, pagination } = await fetchMekariPurchaseDocuments(docType, {
+        page: state.page,
+        perPage: state.perPage
+      });
       if (requestId !== purchaseDocumentRequestIds[docType]) {
         continue;
       }
+
+      const resolvedPerPage = Math.max(
+        1,
+        Math.min(200, Number.parseInt(pagination?.perPage, 10) || state.perPage || DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE)
+      );
+
+      const resolvedHasMore =
+        typeof pagination?.hasMore === 'boolean' ? pagination.hasMore : records.length >= resolvedPerPage;
+
+      const resolvedTotalItems = Number.isFinite(pagination?.totalItems)
+        ? Math.max(0, pagination.totalItems)
+        : Math.max(records.length, state.totalItems || 0);
+
+      const resolvedPage = Math.max(1, Number.parseInt(pagination?.page, 10) || state.page || 1);
+      const resolvedTotalPagesRaw = Number.isFinite(pagination?.totalPages)
+        ? Math.max(1, pagination.totalPages)
+        : Math.max(1, Math.ceil(resolvedTotalItems / resolvedPerPage));
+      const resolvedTotalPages = resolvedHasMore
+        ? Math.max(resolvedTotalPagesRaw, resolvedPage + 1)
+        : resolvedTotalPagesRaw;
+
+      state.page = resolvedPage;
+      state.perPage = resolvedPerPage;
+      state.totalPages = resolvedTotalPages;
+      state.totalItems = resolvedTotalItems;
+      state.hasMore = resolvedHasMore;
+      state.lastError = '';
+
       renderPurchaseDocumentTable(docType, records);
-      purchaseDocumentState[docType].lastError = '';
     } catch (error) {
       if (requestId !== purchaseDocumentRequestIds[docType]) {
         continue;
       }
       const message = error?.message || `Gagal memuat ${config.label.toLowerCase()}.`;
-      purchaseDocumentState[docType].lastError = message;
+      state.lastError = message;
+      state.totalItems = 0;
+      state.totalPages = 1;
+      state.hasMore = false;
       renderPurchaseDocumentMessage(docType, message, 'error-state');
     } finally {
       if (requestId === purchaseDocumentRequestIds[docType]) {
-        purchaseDocumentState[docType].loading = false;
+        state.loading = false;
+        syncPurchaseDocumentPagination(docType);
       }
     }
   }
+}
+
+function syncPurchaseDocumentPagination(type) {
+  const { config, meta, pagination, paginationInfo, paginationInput, prevButton, nextButton, pageSizeSelect } =
+    getPurchaseDocumentElements(type);
+  const state = purchaseDocumentState[type];
+  if (!config || !state) {
+    return;
+  }
+
+  const labelLower = config.label.toLowerCase();
+  const totalItems = Math.max(0, Number.parseInt(state.totalItems, 10) || 0);
+  const totalPages = Math.max(1, Number.parseInt(state.totalPages, 10) || 1);
+  const currentPage = Math.max(1, Number.parseInt(state.page, 10) || 1);
+  const hasMore = Boolean(state.hasMore);
+
+  if (meta) {
+    meta.textContent = `Menampilkan ${totalItems} ${labelLower}`;
+  }
+
+  if (pageSizeSelect) {
+    const currentValue = Number(pageSizeSelect.value);
+    if (!PURCHASE_DOCUMENT_PAGE_SIZES.includes(currentValue)) {
+      pageSizeSelect.value = state.perPage.toString();
+    } else {
+      state.perPage = currentValue;
+    }
+  }
+
+  if (!pagination) {
+    return;
+  }
+
+  const shouldHidePagination = totalPages <= 1 && !hasMore;
+  pagination.hidden = shouldHidePagination;
+
+  if (shouldHidePagination) {
+    return;
+  }
+
+  if (paginationInfo) {
+    const suffix = hasMore ? '+' : '';
+    paginationInfo.textContent = `Halaman ${currentPage} dari ${totalPages}${suffix}`;
+  }
+
+  if (paginationInput) {
+    paginationInput.value = currentPage;
+    paginationInput.max = hasMore ? '' : totalPages;
+  }
+
+  if (prevButton) {
+    prevButton.disabled = currentPage <= 1;
+  }
+
+  if (nextButton) {
+    nextButton.disabled = !hasMore && currentPage >= totalPages;
+  }
+}
+
+function goToPurchaseDocumentPage(type, page) {
+  const state = purchaseDocumentState[type];
+  const { config } = getPurchaseDocumentElements(type);
+  if (!state || !config) {
+    return;
+  }
+
+  const totalPages = Math.max(1, Number.parseInt(state.totalPages, 10) || 1);
+  const targetPage = state.hasMore
+    ? Math.max(1, Math.floor(Number(page) || 1))
+    : Math.max(1, Math.min(totalPages, Math.floor(Number(page) || 1)));
+
+  if (targetPage === state.page) {
+    return;
+  }
+
+  state.page = targetPage;
+  refreshPurchaseDocuments(type);
+}
+
+function setupPurchaseDocumentControls() {
+  Object.keys(PURCHASE_DOCUMENT_CONFIG).forEach(type => {
+    const { pageSizeSelect, pagination, paginationInput } = getPurchaseDocumentElements(type);
+    const state = purchaseDocumentState[type];
+    if (!state) {
+      return;
+    }
+
+    if (pageSizeSelect) {
+      const initialValue = Number(pageSizeSelect.value);
+      state.perPage = PURCHASE_DOCUMENT_PAGE_SIZES.includes(initialValue)
+        ? initialValue
+        : DEFAULT_PURCHASE_DOCUMENT_PAGE_SIZE;
+      pageSizeSelect.value = state.perPage.toString();
+
+      pageSizeSelect.addEventListener('change', event => {
+        const value = Number(event.target.value);
+        if (!PURCHASE_DOCUMENT_PAGE_SIZES.includes(value)) {
+          return;
+        }
+        state.perPage = value;
+        state.page = 1;
+        refreshPurchaseDocuments(type);
+      });
+    }
+
+    if (pagination) {
+      pagination.addEventListener('click', event => {
+        const button = event.target.closest('[data-pagination]');
+        if (!button) {
+          return;
+        }
+
+        const action = button.dataset.pagination;
+        if (action === 'prev') {
+          goToPurchaseDocumentPage(type, state.page - 1);
+        } else if (action === 'next') {
+          goToPurchaseDocumentPage(type, state.page + 1);
+        }
+      });
+    }
+
+    if (paginationInput) {
+      paginationInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        event.preventDefault();
+        goToPurchaseDocumentPage(type, event.target.value);
+      });
+
+      paginationInput.addEventListener('change', event => {
+        goToPurchaseDocumentPage(type, event.target.value);
+      });
+    }
+  });
 }
 
 function setupPurchaseDocumentActions() {
@@ -20198,6 +20511,7 @@ function initPurchasesPage() {
   ensureIntegrationsSeeded();
   setupPurchaseOrdersControls();
   setupPurchaseOrderDetailModal();
+  setupPurchaseDocumentControls();
   setupPurchaseDocumentActions();
   setupPurchaseDocumentDetailModal();
   refreshPurchaseOrders();
