@@ -18875,10 +18875,12 @@ function normalizePurchaseOrderItem(line) {
   const nameCandidate =
     line.item_name ??
     line.product_name ??
-    line.product ??
     line.name ??
     line.item?.name ??
     line.product?.name ??
+    line.product?.product_name ??
+    line.product?.title ??
+    line.product?.product?.name ??
     line.item?.product_name ??
     line.item?.item_name ??
     primaryProduct?.name ??
@@ -18901,7 +18903,15 @@ function normalizePurchaseOrderItem(line) {
     '';
   const sku = toSafeText(skuCandidate);
 
-  const description = toSafeText(line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '');
+  const description = toSafeText(
+    line.description ??
+      line.memo ??
+      line.detail ??
+      line.item?.description ??
+      line.product?.description ??
+      primaryProduct?.description ??
+      ''
+  );
 
   const quantity = parseNumericValue(
     line.quantity ??
@@ -18924,7 +18934,6 @@ function normalizePurchaseOrderItem(line) {
   return {
     sku: sku || '—',
     name: name || '—',
-    description: description || '—',
     quantity: Number.isFinite(quantity) ? quantity : null,
     unit,
     rate: Number.isFinite(rate) ? rate : null,
@@ -19038,7 +19047,7 @@ function renderPurchaseOrderDetailItems(items, currencyCode = 'IDR') {
   const normalizedItems = (Array.isArray(items) ? items : []).filter(Boolean);
 
   if (!normalizedItems.length) {
-    itemsBody.innerHTML = '<tr class="empty-state"><td colspan="6">Tidak ada produk pada pesanan ini.</td></tr>';
+    itemsBody.innerHTML = '<tr class="empty-state"><td colspan="5">Tidak ada produk pada pesanan ini.</td></tr>';
     if (emptyText) {
       emptyText.hidden = false;
     }
@@ -19054,7 +19063,6 @@ function renderPurchaseOrderDetailItems(items, currencyCode = 'IDR') {
     return `<tr>
       <td>${escapeHtml(item.sku)}</td>
       <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(item.description)}</td>
       <td class="numeric">${quantityText}${unitText}</td>
       <td class="numeric">${escapeHtml(rateText)}</td>
       <td class="numeric">${escapeHtml(totalText)}</td>
