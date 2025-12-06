@@ -19835,6 +19835,7 @@ function extractPurchaseDocumentItems(record) {
     record.purchaseDeliveryLineItems,
     record.purchase_invoice_line_items,
     record.purchaseInvoiceLineItems,
+    record.transaction_line_attributes,
     record.purchase_line_items,
     record.purchaseLineItems,
     record.purchase_lines,
