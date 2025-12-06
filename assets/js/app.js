@@ -18857,7 +18857,22 @@ function normalizePurchaseOrderItem(line) {
     return null;
   }
 
-  const name = (
+  const toSafeText = value => {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value.toString().trim();
+    }
+
+    return '';
+  };
+
+  const productEntries = Array.isArray(line.products)
+    ? line.products
+    : line.product && typeof line.product === 'object'
+      ? [line.product]
+      : [];
+  const primaryProduct = productEntries.find(entry => entry && typeof entry === 'object') ?? null;
+
+  const nameCandidate =
     line.item_name ??
     line.product_name ??
     line.product ??
@@ -18866,12 +18881,11 @@ function normalizePurchaseOrderItem(line) {
     line.product?.name ??
     line.item?.product_name ??
     line.item?.item_name ??
-    ''
-  )
-    .toString()
-    .trim();
+    primaryProduct?.name ??
+    '';
+  const name = toSafeText(nameCandidate);
 
-  const sku = (
+  const skuCandidate =
     line.sku ??
     line.item_sku ??
     line.product_sku ??
@@ -18881,12 +18895,13 @@ function normalizePurchaseOrderItem(line) {
     line.item?.code ??
     line.product?.product_custom_id ??
     line.item?.product_custom_id ??
-    ''
-  )
-    .toString()
-    .trim();
+    primaryProduct?.sku ??
+    primaryProduct?.code ??
+    primaryProduct?.product_custom_id ??
+    '';
+  const sku = toSafeText(skuCandidate);
 
-  const description = (line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '').toString().trim();
+  const description = toSafeText(line.description ?? line.memo ?? line.detail ?? line.item?.description ?? '');
 
   const quantity = parseNumericValue(
     line.quantity ??
@@ -18894,9 +18909,11 @@ function normalizePurchaseOrderItem(line) {
       line.quantity_ordered ??
       line.qty_ordered ??
       line.quantity_received ??
-      line.qty_received
+      line.qty_received ??
+      primaryProduct?.quantity ??
+      primaryProduct?.qty
   );
-  const unit = (line.unit_name ?? line.unit ?? line.unit?.name ?? line.uom ?? '').toString().trim();
+  const unit = toSafeText(line.unit_name ?? line.unit ?? line.unit?.name ?? line.uom ?? '');
   const rate = parseNumericValue(line.rate ?? line.price ?? line.unit_price ?? line.price_per_unit);
   const total = parseNumericValue(line.amount ?? line.total ?? line.sub_total ?? line.subtotal ?? line.line_total);
 
