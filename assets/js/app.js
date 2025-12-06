@@ -13247,6 +13247,12 @@ function resolveMekariApiDetails(integration) {
     'https://api.jurnal.id';
   const baseUrl = rawBaseUrl ? rawBaseUrl.trim().replace(/\/+$/, '') : 'https://api.jurnal.id';
 
+  const rawAuthorizationPath =
+    (typeof config.authorizationPath === 'string' && config.authorizationPath) ||
+    (typeof integration?.authorizationPath === 'string' && integration.authorizationPath) ||
+    '';
+  const authorizationPath = rawAuthorizationPath ? rawAuthorizationPath.trim().replace(/^\/+|\/+$/g, '') : '';
+
   const rawToken =
     (typeof config.accessToken === 'string' && config.accessToken) ||
     (typeof integration?.accessToken === 'string' && integration.accessToken) ||
@@ -13255,8 +13261,18 @@ function resolveMekariApiDetails(integration) {
 
   return {
     baseUrl: baseUrl || 'https://api.jurnal.id',
+    authorizationPath,
     token
   };
+}
+
+function buildMekariAuthorizedUrl(integration, path) {
+  const { baseUrl, authorizationPath } = resolveMekariApiDetails(integration);
+  const normalizedBase = (baseUrl || 'https://api.jurnal.id').replace(/\/+$/, '');
+  const normalizedAuth = authorizationPath ? authorizationPath.replace(/^\/+|\/+$/g, '') : '';
+  const prefix = normalizedAuth ? `${normalizedBase}/${normalizedAuth}` : normalizedBase;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${prefix}${normalizedPath}`;
 }
 
 function resolveVariantSuffix(row) {
@@ -19484,14 +19500,712 @@ function setupPurchaseOrdersControls() {
   }
 }
 
+const PURCHASE_DOCUMENT_CONFIG = {
+  request: {
+    endpoint: 'purchase_request',
+    collectionKeys: ['purchase_requests', 'purchaseRequests', 'purchase_request', 'purchaseRequest'],
+    detailKeys: ['purchase_request', 'purchaseRequest', 'purchase', 'data', 'result'],
+    tableBodyId: 'purchase-requests-table-body',
+    label: 'Permintaan Pembelian',
+    appPath: 'purchase_requests'
+  },
+  offer: {
+    endpoint: 'purchase_quotes',
+    collectionKeys: ['purchase_quotes', 'purchaseQuotes', 'purchase_quote', 'purchaseQuote'],
+    detailKeys: ['purchase_quote', 'purchaseQuote', 'purchase', 'data', 'result'],
+    tableBodyId: 'purchase-offers-table-body',
+    label: 'Penawaran Pembelian',
+    appPath: 'purchase_quotes'
+  },
+  delivery: {
+    endpoint: 'purchase_deliveries',
+    collectionKeys: ['purchase_deliveries', 'purchaseDeliveries', 'purchase_delivery', 'purchaseDelivery'],
+    detailKeys: ['purchase_delivery', 'purchaseDelivery', 'purchase', 'data', 'result'],
+    tableBodyId: 'purchase-shipments-table-body',
+    label: 'Pengiriman Pembelian',
+    appPath: 'purchase_deliveries'
+  },
+  invoice: {
+    endpoint: 'purchase_invoices',
+    collectionKeys: ['purchase_invoices', 'purchaseInvoices', 'purchase_invoice', 'purchaseInvoice'],
+    detailKeys: ['purchase_invoice', 'purchaseInvoice', 'purchase', 'data', 'result'],
+    tableBodyId: 'purchase-invoices-table-body',
+    label: 'Faktur Pembelian',
+    appPath: 'purchase_invoices'
+  }
+};
+
+const purchaseDocumentState = {
+  request: { loading: false, lastError: '' },
+  offer: { loading: false, lastError: '' },
+  delivery: { loading: false, lastError: '' },
+  invoice: { loading: false, lastError: '' }
+};
+
+const purchaseDocumentRequestIds = {
+  request: 0,
+  offer: 0,
+  delivery: 0,
+  invoice: 0
+};
+
+function getPurchaseDocumentElements(type) {
+  const config = PURCHASE_DOCUMENT_CONFIG[type];
+  if (!config) {
+    return { config: null, tbody: null };
+  }
+
+  return {
+    config,
+    tbody: document.getElementById(config.tableBodyId)
+  };
+}
+
+function renderPurchaseDocumentMessage(type, message, className = 'empty-state') {
+  const { tbody } = getPurchaseDocumentElements(type);
+  if (!tbody) {
+    return;
+  }
+
+  const fallbackColspan = type === 'delivery' ? 6 : 7;
+  const colSpan = tbody.querySelector('tr')?.children?.length || fallbackColspan;
+  tbody.innerHTML = `<tr class="${className}"><td colspan="${colSpan}">${escapeHtml(message)}</td></tr>`;
+}
+
+function resolvePurchaseDocumentNumber(record) {
+  return (
+    record.id ||
+    record.transaction_no ||
+    record.transactionNo ||
+    record.no ||
+    record.number ||
+    record.document_number ||
+    record.documentNumber ||
+    record.code ||
+    ''
+  )
+    .toString()
+    .trim();
+}
+
+function resolvePurchaseDocumentSupplier(record) {
+  return (
+    record.person?.display_name ||
+    record.person?.name ||
+    record.vendor?.name ||
+    record.supplier?.name ||
+    record.supplier_name ||
+    record.vendor_name ||
+    ''
+  )
+    .toString()
+    .trim();
+}
+
+function resolvePurchaseDocumentCurrency(record) {
+  return resolveCurrencyCode(
+    record.currency?.code ??
+      record.currency?.currency_code ??
+      record.currency_code ??
+      record.currencyCode ??
+      record.currency ??
+      record.currency_symbol ??
+      'IDR'
+  );
+}
+
+function normalizePurchaseDocument(type, record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const date = formatPurchaseOrderDate(
+    record.transaction_date ?? record.transactionDate ?? record.date ?? record.created_at ?? record.createdAt ?? null
+  );
+  const dueDate = formatPurchaseOrderDate(
+    record.due_date ?? record.dueDate ?? record.delivery_date ?? record.deliveryDate ?? record.expected_delivery_date ?? null
+  );
+  const number = resolvePurchaseDocumentNumber(record) || '—';
+  const supplier = resolvePurchaseDocumentSupplier(record) || '—';
+  const status = (
+    record.transaction_status?.name_bahasa ||
+    record.transaction_status?.name ||
+    record.status_bahasa ||
+    record.status_name ||
+    record.status ||
+    record.state ||
+    ''
+  )
+    .toString()
+    .trim() || '—';
+
+  const currency = resolvePurchaseDocumentCurrency(record);
+  const totalNumber = parseNumericValue(
+    record.total || record.total_amount || record.amount || record.amount_due || record.amount_due_left || record.grand_total
+  );
+  const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
+
+  const remainingNumber = parseNumericValue(
+    record.remaining || record.remaining_amount || record.amount_due || record.amountDue || record.outstanding_amount
+  );
+  const remaining = Number.isFinite(remainingNumber) ? formatCurrencyWithCode(remainingNumber, currency) : '—';
+
+  const quantityNumber = parseNumericValue(record.total_quantity ?? record.quantity ?? record.qty);
+  const quantity = Number.isFinite(quantityNumber) ? quantityNumber : null;
+
+  const id = resolvePurchaseDocumentNumber(record) || record.id || null;
+  const detailUrl = id
+    ? `https://my.jurnal.id/app/${PURCHASE_DOCUMENT_CONFIG[type]?.appPath ?? 'purchases'}/${encodeURIComponent(id)}`
+    : record.url || record.detail_url || '';
+
+  return {
+    id,
+    date: date || dueDate || '—',
+    number,
+    supplier,
+    status,
+    total,
+    remaining,
+    dueDate: dueDate || '—',
+    quantity,
+    detailUrl
+  };
+}
+
+function renderPurchaseDocumentTable(type, records) {
+  const { tbody } = getPurchaseDocumentElements(type);
+  if (!tbody) {
+    return;
+  }
+
+  const normalized = (Array.isArray(records) ? records : []).map(record => normalizePurchaseDocument(type, record)).filter(Boolean);
+
+  if (!normalized.length) {
+    renderPurchaseDocumentMessage(type, 'Tidak ada data ditemukan.', 'empty-state');
+    return;
+  }
+
+  const rows = normalized.map(entry => {
+    const actionContent =
+      entry.id || entry.number
+        ? `<button class="btn ghost-btn small" type="button" data-view-purchase-document data-document-type="${type}" data-document-id="${escapeHtml(
+            entry.id ?? ''
+          )}" data-document-number="${escapeHtml(entry.number)}" data-document-link="${escapeHtml(entry.detailUrl)}">Lihat</button>`
+        : '—';
+
+    if (type === 'delivery') {
+      return `<tr>
+        <td>${escapeHtml(entry.date)}</td>
+        <td><strong>${escapeHtml(entry.number)}</strong></td>
+        <td>${escapeHtml(entry.supplier)}</td>
+        <td>${escapeHtml(entry.status)}</td>
+        <td class="numeric">${entry.quantity !== null && entry.quantity !== undefined ? escapeHtml(entry.quantity) : '—'}</td>
+        <td>${actionContent}</td>
+      </tr>`;
+    }
+
+    if (type === 'invoice' || type === 'offer' || type === 'request') {
+      const amountValue = entry.total || '—';
+      return `<tr>
+        <td>${escapeHtml(entry.date)}</td>
+        <td><strong>${escapeHtml(entry.number)}</strong></td>
+        <td>${escapeHtml(entry.supplier)}</td>
+        <td>${escapeHtml(entry.dueDate)}</td>
+        <td>${escapeHtml(entry.status)}</td>
+        <td class="numeric">${escapeHtml(amountValue)}</td>
+        <td>${actionContent}</td>
+      </tr>`;
+    }
+
+    return `<tr>
+      <td>${escapeHtml(entry.date)}</td>
+      <td><strong>${escapeHtml(entry.number)}</strong></td>
+      <td>${escapeHtml(entry.supplier)}</td>
+      <td>${escapeHtml(entry.status)}</td>
+      <td class="numeric">${entry.quantity !== null && entry.quantity !== undefined ? escapeHtml(entry.quantity) : '—'}</td>
+      <td>${actionContent}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+function extractPurchaseDocumentItems(record) {
+  if (!record || typeof record !== 'object') {
+    return [];
+  }
+
+  const candidates = [
+    record.purchase_request_lines,
+    record.purchaseRequestLines,
+    record.purchase_quote_lines,
+    record.purchaseQuoteLines,
+    record.purchase_delivery_lines,
+    record.purchaseDeliveryLines,
+    record.purchase_invoice_lines,
+    record.purchaseInvoiceLines,
+    record.purchase_lines,
+    record.purchaseLines,
+    record.lines,
+    record.items,
+    record.details
+  ];
+
+  const lineItems = candidates.find(candidate => Array.isArray(candidate)) || [];
+
+  return lineItems
+    .map(item => {
+      const sku =
+        item.sku ||
+        item.product_sku ||
+        item.product?.sku ||
+        item.product?.code ||
+        item.item?.sku ||
+        item.item?.code ||
+        '';
+
+      const name =
+        item.product_name ||
+        item.product?.name ||
+        item.item?.name ||
+        item.name ||
+        item.description ||
+        '';
+
+      const quantityNumber = parseNumericValue(item.quantity ?? item.qty ?? item.quantity_requested ?? item.requested_quantity);
+      const quantity = Number.isFinite(quantityNumber) ? quantityNumber : null;
+
+      const unitPriceNumber = parseNumericValue(item.unit_price ?? item.price_per_unit ?? item.price);
+      const currency = resolvePurchaseDocumentCurrency(item) || resolvePurchaseDocumentCurrency(record);
+      const unitPrice = Number.isFinite(unitPriceNumber) ? formatCurrencyWithCode(unitPriceNumber, currency) : '—';
+
+      const totalNumber = parseNumericValue(item.total ?? item.subtotal ?? item.amount);
+      const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
+
+      return {
+        sku: sku.toString().trim() || '—',
+        name: name.toString().trim() || '—',
+        quantity,
+        unitPrice,
+        total
+      };
+    })
+    .filter(item => item !== null);
+}
+
+async function fetchMekariPurchaseDocuments(type, { integration: integrationOverride } = {}) {
+  const config = PURCHASE_DOCUMENT_CONFIG[type];
+  if (!config) {
+    throw new Error('Jenis dokumen pembelian tidak dikenali.');
+  }
+
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}`);
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(message);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  const statusText = response?.status ? ` (status ${response.status})` : '';
+  if (!bodyText) {
+    throw new Error(`Respons Mekari Jurnal tidak berisi data${statusText}.`);
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || body?.responseMessage || 'Gagal memuat data pembelian Mekari.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const collectionKeys = config.collectionKeys || [];
+  const candidates = [body, body?.data, body?.result];
+  let records = [];
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+    for (const key of collectionKeys) {
+      if (Array.isArray(candidate[key])) {
+        records = candidate[key];
+        break;
+      }
+    }
+    if (records.length) {
+      break;
+    }
+  }
+
+  if (!records.length && Array.isArray(body)) {
+    records = body;
+  }
+
+  return records;
+}
+
+async function fetchMekariPurchaseDocumentDetail(type, id, { integration: integrationOverride } = {}) {
+  const config = PURCHASE_DOCUMENT_CONFIG[type];
+  if (!config) {
+    throw new Error('Jenis dokumen pembelian tidak dikenali.');
+  }
+
+  const normalizedId = id?.toString().trim();
+  if (!normalizedId) {
+    throw new Error('ID dokumen pembelian tidak ditemukan.');
+  }
+
+  const integration = integrationOverride ?? (await resolveMekariIntegration());
+  if (!integration) {
+    throw new Error('Integrasi Mekari Jurnal belum dikonfigurasi.');
+  }
+
+  const { token } = resolveMekariApiDetails(integration);
+  if (!token) {
+    throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
+  }
+
+  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}/${encodeURIComponent(normalizedId)}`);
+  const headers = new Headers({ Accept: 'application/json' });
+  headers.set('Authorization', token);
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers });
+  } catch (networkError) {
+    const message = networkError?.message || networkError || 'Gagal terhubung ke API Mekari Jurnal.';
+    throw new Error(message);
+  }
+
+  let bodyText = '';
+  try {
+    bodyText = await response.text();
+  } catch (error) {
+    bodyText = '';
+  }
+
+  const statusText = response?.status ? ` (status ${response.status})` : '';
+  if (!bodyText) {
+    throw new Error(`Respons Mekari Jurnal tidak berisi data${statusText}.`);
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch (parseError) {
+    throw new Error(`Respons Mekari Jurnal tidak valid${statusText}.`);
+  }
+
+  if (!response.ok) {
+    const status = response?.status ? `status ${response.status}` : '';
+    const message =
+      body?.error || body?.message || body?.response_message || body?.responseMessage || 'Gagal memuat detail pembelian Mekari.';
+    const trace = body?.trace_id || body?.request_id || null;
+    throw new Error(`${status}${trace ? ` • Trace ${trace}` : ''} • ${message}`.trim());
+  }
+
+  const detailKeys = config.detailKeys || [];
+  const candidates = [body, body?.data, body?.result];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') {
+      continue;
+    }
+    for (const key of detailKeys) {
+      if (candidate[key] && typeof candidate[key] === 'object') {
+        return candidate[key];
+      }
+    }
+  }
+
+  if (body && typeof body === 'object') {
+    return body;
+  }
+
+  throw new Error('Detail dokumen pembelian tidak tersedia.');
+}
+
+function getPurchaseDocumentDetailElements() {
+  const modal = document.getElementById('purchase-document-detail-modal');
+
+  return {
+    modal,
+    typeLabel: document.getElementById('purchase-document-detail-type'),
+    title: document.getElementById('purchase-document-detail-title'),
+    subtitle: document.getElementById('purchase-document-detail-subtitle'),
+    loading: document.getElementById('purchase-document-detail-loading'),
+    error: document.getElementById('purchase-document-detail-error'),
+    content: document.getElementById('purchase-document-detail-content'),
+    supplier: document.getElementById('purchase-document-detail-supplier'),
+    number: document.getElementById('purchase-document-detail-number'),
+    date: document.getElementById('purchase-document-detail-date'),
+    dueDate: document.getElementById('purchase-document-detail-due-date'),
+    status: document.getElementById('purchase-document-detail-status'),
+    total: document.getElementById('purchase-document-detail-total'),
+    remaining: document.getElementById('purchase-document-detail-remaining'),
+    itemsBody: document.getElementById('purchase-document-detail-items'),
+    emptyText: document.getElementById('purchase-document-detail-empty'),
+    footer: document.getElementById('purchase-document-detail-footer'),
+    externalLink: document.getElementById('purchase-document-detail-link'),
+    closeButtons: modal ? Array.from(modal.querySelectorAll('[data-close-modal]')) : []
+  };
+}
+
+function togglePurchaseDocumentDetail({ loading = false, error = '' } = {}) {
+  const elements = getPurchaseDocumentDetailElements();
+  if (!elements.modal) {
+    return;
+  }
+
+  elements.modal.hidden = false;
+  elements.loading.hidden = !loading;
+  elements.error.hidden = !error;
+  elements.content.hidden = loading || Boolean(error);
+
+  if (elements.subtitle) {
+    elements.subtitle.textContent = loading
+      ? 'Memuat detail pembelian…'
+      : error
+      ? error
+      : 'Detail pembelian dari Mekari Jurnal';
+  }
+
+  if (elements.error) {
+    elements.error.textContent = error || '';
+  }
+}
+
+function closePurchaseDocumentDetailModal() {
+  const { modal } = getPurchaseDocumentDetailElements();
+  if (modal) {
+    modal.hidden = true;
+  }
+}
+
+function renderPurchaseDocumentDetail(type, record, { subtitle = '', fallbackLink = '' } = {}) {
+  const elements = getPurchaseDocumentDetailElements();
+  if (!elements.modal) {
+    return;
+  }
+
+  const normalized = normalizePurchaseDocument(type, record) || {};
+  const currency = resolvePurchaseDocumentCurrency(record);
+  const totalNumber = parseNumericValue(
+    record.total || record.total_amount || record.amount || record.amount_due || record.amount_due_left || record.grand_total
+  );
+  const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : normalized.total || '—';
+  const remainingNumber = parseNumericValue(
+    record.remaining || record.remaining_amount || record.amount_due || record.amountDue || record.outstanding_amount
+  );
+  const remaining = Number.isFinite(remainingNumber)
+    ? formatCurrencyWithCode(remainingNumber, currency)
+    : normalized.remaining || '—';
+
+  if (elements.typeLabel) {
+    elements.typeLabel.textContent = PURCHASE_DOCUMENT_CONFIG[type]?.label || 'Detail Pembelian';
+  }
+  if (elements.title) {
+    elements.title.textContent = normalized.number || 'Detail pembelian';
+  }
+  if (elements.subtitle) {
+    elements.subtitle.textContent = subtitle || 'Detail pembelian dari Mekari Jurnal';
+  }
+
+  if (elements.supplier) {
+    elements.supplier.textContent = normalized.supplier || '—';
+  }
+  if (elements.number) {
+    elements.number.textContent = normalized.number || '—';
+  }
+  if (elements.date) {
+    elements.date.textContent = normalized.date || '—';
+  }
+  if (elements.dueDate) {
+    elements.dueDate.textContent = normalized.dueDate || '—';
+  }
+  if (elements.status) {
+    elements.status.textContent = normalized.status || '—';
+  }
+  if (elements.total) {
+    elements.total.textContent = total || '—';
+  }
+  if (elements.remaining) {
+    elements.remaining.textContent = remaining || '—';
+  }
+
+  if (elements.itemsBody) {
+    const lines = extractPurchaseDocumentItems(record);
+    if (!lines.length) {
+      elements.itemsBody.innerHTML = '<tr><td colspan="5" class="empty-state">Belum ada produk pada transaksi ini.</td></tr>';
+      if (elements.emptyText) {
+        elements.emptyText.hidden = false;
+      }
+    } else {
+      const rows = lines.map(item => {
+        return `<tr>
+          <td>${escapeHtml(item.sku)}</td>
+          <td>${escapeHtml(item.name)}</td>
+          <td class="numeric">${item.quantity !== null && item.quantity !== undefined ? escapeHtml(item.quantity) : '—'}</td>
+          <td class="numeric">${escapeHtml(item.unitPrice)}</td>
+          <td class="numeric">${escapeHtml(item.total)}</td>
+        </tr>`;
+      });
+      elements.itemsBody.innerHTML = rows.join('');
+      if (elements.emptyText) {
+        elements.emptyText.hidden = true;
+      }
+    }
+  }
+
+  if (elements.externalLink) {
+    const url = normalized.detailUrl || fallbackLink || '#';
+    elements.externalLink.href = url;
+    elements.footer.hidden = !url || url === '#';
+  }
+}
+
+async function showPurchaseDocumentDetail(type, id, { number = '', link = '' } = {}) {
+  const requestId = ++purchaseDocumentRequestIds[type];
+  togglePurchaseDocumentDetail({ loading: true, error: '' });
+
+  try {
+    const detail = await fetchMekariPurchaseDocumentDetail(type, id);
+    if (requestId !== purchaseDocumentRequestIds[type]) {
+      return;
+    }
+
+    renderPurchaseDocumentDetail(type, detail, {
+      subtitle: number ? `Detail ${number}` : 'Detail pembelian dari Mekari Jurnal',
+      fallbackLink: link
+    });
+    togglePurchaseDocumentDetail({ loading: false, error: '' });
+  } catch (error) {
+    if (requestId !== purchaseDocumentRequestIds[type]) {
+      return;
+    }
+    togglePurchaseDocumentDetail({ loading: false, error: error?.message || 'Gagal memuat detail pembelian.' });
+  }
+}
+
+function setupPurchaseDocumentDetailModal() {
+  const { modal, closeButtons } = getPurchaseDocumentDetailElements();
+
+  closeButtons.forEach(button => {
+    button.addEventListener('click', closePurchaseDocumentDetailModal);
+  });
+
+  if (modal) {
+    modal.addEventListener('click', event => {
+      if (event.target === modal) {
+        closePurchaseDocumentDetailModal();
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.hidden) {
+        closePurchaseDocumentDetailModal();
+      }
+    });
+  }
+}
+
+async function refreshPurchaseDocuments(type) {
+  const types = type ? [type] : Object.keys(PURCHASE_DOCUMENT_CONFIG);
+
+  for (const docType of types) {
+    const { config } = getPurchaseDocumentElements(docType);
+    if (!config) {
+      continue;
+    }
+
+    const requestId = ++purchaseDocumentRequestIds[docType];
+    purchaseDocumentState[docType].loading = true;
+    renderPurchaseDocumentMessage(docType, `Memuat ${config.label} dari Mekari Jurnal…`, 'loading-state');
+
+    try {
+      const records = await fetchMekariPurchaseDocuments(docType);
+      if (requestId !== purchaseDocumentRequestIds[docType]) {
+        continue;
+      }
+      renderPurchaseDocumentTable(docType, records);
+      purchaseDocumentState[docType].lastError = '';
+    } catch (error) {
+      if (requestId !== purchaseDocumentRequestIds[docType]) {
+        continue;
+      }
+      const message = error?.message || `Gagal memuat ${config.label.toLowerCase()}.`;
+      purchaseDocumentState[docType].lastError = message;
+      renderPurchaseDocumentMessage(docType, message, 'error-state');
+    } finally {
+      if (requestId === purchaseDocumentRequestIds[docType]) {
+        purchaseDocumentState[docType].loading = false;
+      }
+    }
+  }
+}
+
+function setupPurchaseDocumentActions() {
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-view-purchase-document]');
+    if (!button) {
+      return;
+    }
+
+    const type = button.dataset.documentType;
+    const id = button.dataset.documentId || button.dataset.documentNumber;
+    const link = button.dataset.documentLink || '';
+    const number = button.dataset.documentNumber || '';
+
+    if (!type || !id) {
+      toast.show('ID dokumen pembelian tidak ditemukan.');
+      return;
+    }
+
+    showPurchaseDocumentDetail(type, id, { number, link });
+  });
+}
+
 function initPurchasesPage() {
   ensureIntegrationsSeeded();
   setupPurchaseOrdersControls();
   setupPurchaseOrderDetailModal();
+  setupPurchaseDocumentActions();
+  setupPurchaseDocumentDetailModal();
   refreshPurchaseOrders();
+  refreshPurchaseDocuments();
 
   document.addEventListener('integrations:changed', () => {
     refreshPurchaseOrders({ page: 1 });
+    refreshPurchaseDocuments();
   });
 }
 
