@@ -19686,7 +19686,15 @@ function normalizePurchaseDocument(type, record) {
     record.transaction_date ?? record.transactionDate ?? record.date ?? record.created_at ?? record.createdAt ?? null
   );
   const dueDate = formatPurchaseOrderDate(
-    record.due_date ?? record.dueDate ?? record.delivery_date ?? record.deliveryDate ?? record.expected_delivery_date ?? null
+    record.due_date ??
+    record.dueDate ??
+    record.delivery_date ??
+    record.deliveryDate ??
+    record.expected_delivery_date ??
+    record.expectedDeliveryDate ??
+    record.issue_date ??
+    record.issueDate ??
+    null
   );
   const number = resolvePurchaseDocumentDisplayNumber(record) || '—';
   const supplier = resolvePurchaseDocumentSupplier(record) || '—';
@@ -19704,12 +19712,24 @@ function normalizePurchaseDocument(type, record) {
 
   const currency = resolvePurchaseDocumentCurrency(record);
   const totalNumber = parseNumericValue(
-    record.total || record.total_amount || record.amount || record.amount_due || record.amount_due_left || record.grand_total
+    record.total ||
+      record.total_amount ||
+      record.total_amount_after_tax ||
+      record.amount ||
+      record.amount_due ||
+      record.amount_due_left ||
+      record.grand_total ||
+      record.total_after_tax
   );
   const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
 
   const remainingNumber = parseNumericValue(
-    record.remaining || record.remaining_amount || record.amount_due || record.amountDue || record.outstanding_amount
+    record.remaining ||
+      record.remaining_amount ||
+      record.amount_due ||
+      record.amountDue ||
+      record.outstanding_amount ||
+      record.amount_due_left
   );
   const remaining = Number.isFinite(remainingNumber) ? formatCurrencyWithCode(remainingNumber, currency) : '—';
 
@@ -19807,9 +19827,20 @@ function extractPurchaseDocumentItems(record) {
     record.purchaseDeliveryLines,
     record.purchase_invoice_lines,
     record.purchaseInvoiceLines,
+    record.purchase_request_line_items,
+    record.purchaseRequestLineItems,
+    record.purchase_quote_line_items,
+    record.purchaseQuoteLineItems,
+    record.purchase_delivery_line_items,
+    record.purchaseDeliveryLineItems,
+    record.purchase_invoice_line_items,
+    record.purchaseInvoiceLineItems,
+    record.purchase_line_items,
+    record.purchaseLineItems,
     record.purchase_lines,
     record.purchaseLines,
     record.lines,
+    record.line_items,
     record.items,
     record.details
   ];
@@ -19825,6 +19856,7 @@ function extractPurchaseDocumentItems(record) {
         item.product?.code ||
         item.item?.sku ||
         item.item?.code ||
+        item.item_sku ||
         '';
 
       const name =
@@ -19833,16 +19865,36 @@ function extractPurchaseDocumentItems(record) {
         item.item?.name ||
         item.name ||
         item.description ||
+        item.item_name ||
         '';
 
-      const quantityNumber = parseNumericValue(item.quantity ?? item.qty ?? item.quantity_requested ?? item.requested_quantity);
+      const quantityNumber = parseNumericValue(
+        item.quantity ??
+          item.qty ??
+          item.quantity_requested ??
+          item.requested_quantity ??
+          item.quantity_delivered ??
+          item.quantity_received ??
+          item.quantity_invoiced
+      );
       const quantity = Number.isFinite(quantityNumber) ? quantityNumber : null;
 
-      const unitPriceNumber = parseNumericValue(item.unit_price ?? item.price_per_unit ?? item.price);
+      const unitPriceNumber = parseNumericValue(
+        item.unit_price ??
+          item.price_per_unit ??
+          item.price ??
+          item.unit_cost ??
+          item.unit_rate ??
+          item.rate ??
+          item.price_after_tax ??
+          item.unit_price_after_tax
+      );
       const currency = resolvePurchaseDocumentCurrency(item) || resolvePurchaseDocumentCurrency(record);
       const unitPrice = Number.isFinite(unitPriceNumber) ? formatCurrencyWithCode(unitPriceNumber, currency) : '—';
 
-      const totalNumber = parseNumericValue(item.total ?? item.subtotal ?? item.amount);
+      const totalNumber = parseNumericValue(
+        item.total ?? item.subtotal ?? item.amount ?? item.line_total ?? item.total_after_tax ?? item.total_amount
+      );
       const total = Number.isFinite(totalNumber) ? formatCurrencyWithCode(totalNumber, currency) : '—';
 
       return {
