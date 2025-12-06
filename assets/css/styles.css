@@ -3105,6 +3105,12 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   line-height: 1.4;
 }
 
+.purchase-tab-container .record-table th:nth-child(2),
+.purchase-tab-container .record-table td:nth-child(2) {
+  min-width: 160px;
+  white-space: nowrap;
+}
+
 .record-table {
   width: 100%;
   border-collapse: collapse;
