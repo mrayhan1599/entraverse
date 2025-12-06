@@ -3090,6 +3090,21 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   display: none;
 }
 
+.purchase-tab-container .table-wrapper {
+  min-width: 100%;
+}
+
+.purchase-tab-container .record-table {
+  min-width: 840px;
+  table-layout: fixed;
+}
+
+.purchase-tab-container .record-table th,
+.purchase-tab-container .record-table td {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
 .record-table {
   width: 100%;
   border-collapse: collapse;
