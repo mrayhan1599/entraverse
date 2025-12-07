@@ -19606,7 +19606,7 @@ function renderPurchaseDocumentMessage(type, message, className = 'empty-state')
     return;
   }
 
-  const fallbackColspan = type === 'delivery' ? 6 : type === 'invoice' ? 8 : 7;
+  const fallbackColspan = type === 'delivery' ? 6 : type === 'invoice' ? 8 : type === 'offer' ? 6 : 7;
   const colSpan = tbody.querySelector('tr')?.children?.length || fallbackColspan;
   tbody.innerHTML = `<tr class="${className}"><td colspan="${colSpan}">${escapeHtml(message)}</td></tr>`;
 
@@ -19855,13 +19855,25 @@ function renderPurchaseDocumentTable(type, records) {
       </tr>`;
     }
 
-    if (type === 'offer' || type === 'request') {
+    if (type === 'request') {
       const amountValue = entry.total || '—';
       return `<tr>
         <td>${escapeHtml(entry.date)}</td>
         <td><strong>${escapeHtml(entry.number)}</strong></td>
         <td>${escapeHtml(entry.supplier)}</td>
         <td>${escapeHtml(entry.dueDate)}</td>
+        <td>${escapeHtml(entry.status)}</td>
+        <td class="numeric">${escapeHtml(amountValue)}</td>
+        <td>${actionContent}</td>
+      </tr>`;
+    }
+
+    if (type === 'offer') {
+      const amountValue = entry.total || '—';
+      return `<tr>
+        <td>${escapeHtml(entry.date)}</td>
+        <td><strong>${escapeHtml(entry.number)}</strong></td>
+        <td>${escapeHtml(entry.supplier)}</td>
         <td>${escapeHtml(entry.status)}</td>
         <td class="numeric">${escapeHtml(amountValue)}</td>
         <td>${actionContent}</td>
