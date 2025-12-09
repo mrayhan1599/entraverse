@@ -19991,10 +19991,13 @@ function extractPurchaseDocumentItems(record) {
       const sku =
         item.sku ||
         item.product_sku ||
+        item.product_code ||
         item.product?.sku ||
         item.product?.code ||
+        item.product?.product_code ||
         item.item?.sku ||
         item.item?.code ||
+        item.item?.product_code ||
         item.item_sku ||
         '';
 
