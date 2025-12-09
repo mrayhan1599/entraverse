@@ -18442,6 +18442,19 @@ function formatPurchaseOrderDate(value) {
   return parsed.toLocaleDateString('id-ID');
 }
 
+function parseSortableDate(value) {
+  if (!value && value !== 0) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
 async function fetchMekariPurchaseOrders({
   page = 1,
   perPage = DEFAULT_PURCHASE_ORDER_PAGE_SIZE,
@@ -19507,7 +19520,10 @@ const PURCHASE_DOCUMENT_CONFIG = {
     detailKeys: ['purchase_request', 'purchaseRequest', 'purchase', 'data', 'result'],
     tableBodyId: 'purchase-requests-table-body',
     label: 'Permintaan Pembelian',
-    appPath: 'purchase_requests'
+    appPath: 'purchase_requests',
+    metaId: 'purchase-requests-meta',
+    pageSizeId: 'purchase-requests-page-size',
+    paginationId: 'purchase-requests-pagination'
   },
   offer: {
     endpoint: 'purchase_quotes',
@@ -19628,7 +19644,7 @@ function renderPurchaseDocumentMessage(type, message, className = 'empty-state')
     return;
   }
 
-  const fallbackColspan = type === 'delivery' ? 6 : type === 'invoice' ? 8 : type === 'offer' ? 6 : 7;
+  const fallbackColspan = type === 'delivery' ? 6 : type === 'invoice' ? 8 : type === 'offer' ? 6 : type === 'request' ? 6 : 7;
   const colSpan = tbody.querySelector('tr')?.children?.length || fallbackColspan;
   tbody.innerHTML = `<tr class="${className}"><td colspan="${colSpan}">${escapeHtml(message)}</td></tr>`;
 
@@ -19741,10 +19757,9 @@ function normalizePurchaseDocument(type, record) {
     return null;
   }
 
-  const date = formatPurchaseOrderDate(
-    record.transaction_date ?? record.transactionDate ?? record.date ?? record.created_at ?? record.createdAt ?? null
-  );
-  const dueDate = formatPurchaseOrderDate(
+  const transactionDateValue =
+    record.transaction_date ?? record.transactionDate ?? record.date ?? record.created_at ?? record.createdAt ?? null;
+  const dueDateValue =
     record.due_date ??
     record.dueDate ??
     record.delivery_date ??
@@ -19753,8 +19768,10 @@ function normalizePurchaseDocument(type, record) {
     record.expectedDeliveryDate ??
     record.issue_date ??
     record.issueDate ??
-    null
-  );
+    null;
+
+  const date = formatPurchaseOrderDate(transactionDateValue ?? dueDateValue);
+  const dueDate = formatPurchaseOrderDate(dueDateValue);
   const number = resolvePurchaseDocumentDisplayNumber(record) || '—';
   const supplier = resolvePurchaseDocumentSupplier(record) || '—';
   const status = (
@@ -19826,7 +19843,8 @@ function normalizePurchaseDocument(type, record) {
     remaining,
     dueDate: dueDate || '—',
     quantity,
-    detailUrl
+    detailUrl,
+    sortTimestamp: parseSortableDate(transactionDateValue ?? dueDateValue)?.getTime() ?? null
   };
 }
 
@@ -19843,7 +19861,18 @@ function renderPurchaseDocumentTable(type, records) {
     return;
   }
 
-  const rows = normalized.map(entry => {
+  const sortedRecords =
+    type === 'request'
+      ? normalized
+          .slice()
+          .sort((first, second) => {
+            const left = Number.isFinite(second.sortTimestamp) ? second.sortTimestamp : -Infinity;
+            const right = Number.isFinite(first.sortTimestamp) ? first.sortTimestamp : -Infinity;
+            return left - right;
+          })
+      : normalized;
+
+  const rows = sortedRecords.map(entry => {
     const actionContent =
       entry.id || entry.number
         ? `<button class="btn ghost-btn small" type="button" data-view-purchase-document data-document-type="${type}" data-document-id="${escapeHtml(
@@ -19883,7 +19912,6 @@ function renderPurchaseDocumentTable(type, records) {
         <td>${escapeHtml(entry.date)}</td>
         <td><strong>${escapeHtml(entry.number)}</strong></td>
         <td>${escapeHtml(entry.supplier)}</td>
-        <td>${escapeHtml(entry.dueDate)}</td>
         <td>${escapeHtml(entry.status)}</td>
         <td class="numeric">${escapeHtml(amountValue)}</td>
         <td>${actionContent}</td>
