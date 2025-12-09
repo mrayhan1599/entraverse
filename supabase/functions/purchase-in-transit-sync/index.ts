@@ -176,7 +176,34 @@ function normalizePurchaseOrder(entry: Record<string, unknown>): PurchaseOrder |
     .trim()
   if (!externalId) return null
 
-  const status = normalizeStatus(entry?.status ?? (entry as any)?.transaction_status?.name ?? (entry as any)?.transaction_status_name)
+  const statusFromField = normalizeStatus(
+    entry?.status ?? (entry as any)?.transaction_status?.name ?? (entry as any)?.transaction_status_name
+  )
+
+  // Be tolerant to vendors that mark the document as "approved" or "closed" while
+  // still having unpaid balance. Fall back to unpaid when the remaining amount
+  // is positive, otherwise treat it as paid if fully settled.
+  const remainingAmount = parseNumber(
+    (entry as any)?.remaining ?? (entry as any)?.balance ?? (entry as any)?.balance_due ?? (entry as any)?.amount_due ?? 0,
+    0
+  )
+  const totalAmount = parseNumber(
+    entry?.total ?? entry?.total_amount ?? entry?.totalAmount ?? (entry as any)?.original_amount ?? 0,
+    0
+  )
+  const receivedAmount = parseNumber(
+    (entry as any)?.payment_received_amount ?? (entry as any)?.paid_amount ?? (entry as any)?.amount_receive ?? 0,
+    0
+  )
+
+  const status =
+    statusFromField ||
+    (remainingAmount > 0 || (totalAmount > 0 && receivedAmount < totalAmount)
+      ? "unpaid"
+      : totalAmount > 0 && receivedAmount >= totalAmount
+        ? "paid"
+        : null)
+
   if (!status) return null
   const vendorName = entry?.supplier_name ?? entry?.vendor_name ?? entry?.supplier
   const rawItems = Array.isArray(entry?.items)
