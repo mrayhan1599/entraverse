@@ -134,7 +134,6 @@
                       <th>Tanggal</th>
                       <th>Nomor</th>
                       <th>Pemasok</th>
-                      <th>Jatuh tempo</th>
                       <th>Status</th>
                       <th class="numeric">Estimasi</th>
                       <th>Aksi</th>
@@ -142,11 +141,58 @@
                   </thead>
                   <tbody id="purchase-requests-table-body">
                     <tr>
-                      <td colspan="7" class="empty-state">Belum ada permintaan pembelian. Hubungkan Mekari Jurnal untuk melihat data.</td>
+                      <td colspan="6" class="empty-state">Belum ada permintaan pembelian. Hubungkan Mekari Jurnal untuk melihat data.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-requests-meta">Menampilkan 0 permintaan pembelian</span>
+                    <div class="table-controls">
+                      <label class="page-size-selector" for="purchase-requests-page-size">
+                        <span class="page-size-label">Tampilkan</span>
+                        <select id="purchase-requests-page-size" aria-label="Jumlah permintaan per halaman">
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                          <option value="200">200</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="table-footer__pagination">
+                    <nav
+                      class="table-pagination"
+                      id="purchase-requests-pagination"
+                      aria-label="Navigasi permintaan pembelian"
+                      hidden
+                    >
+                      <button type="button" class="btn ghost-btn small" data-pagination="prev" aria-label="Sebelumnya">
+                        ‹
+                      </button>
+                      <div class="table-pagination__jump">
+                        <label class="visually-hidden" for="purchase-requests-pagination-input">Loncat ke halaman permintaan pembelian</label>
+                        <input
+                          type="number"
+                          id="purchase-requests-pagination-input"
+                          class="table-pagination__input"
+                          min="1"
+                          inputmode="numeric"
+                          data-pagination-input
+                          aria-label="Loncat ke halaman tertentu"
+                        />
+                      </div>
+                      <button type="button" class="btn ghost-btn small" data-pagination="next" aria-label="Berikutnya">
+                        ›
+                      </button>
+                      <span class="table-pagination__info" data-pagination-info>Halaman 1 dari 1</span>
+                    </nav>
+                  </div>
+                </div>
+              </footer>
             </div>
             <div class="tab-panel" data-tab-panel="purchase-offers" role="tabpanel" hidden>
               <div class="table-wrapper">
