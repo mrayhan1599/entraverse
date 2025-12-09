@@ -43,12 +43,6 @@ function normalizePath(value?: string | null) {
   return trimmed.replace(/^\/+/, "").replace(/\/+$/, "")
 }
 
-function normalizeSku(value: unknown) {
-  const raw = (value ?? "").toString().trim()
-  if (!raw) return ""
-  return raw.replace(/\s+/g, "").toLowerCase()
-}
-
 function parseNumber(value: unknown, fallback = 0) {
   if (typeof value === "number" && Number.isFinite(value)) return value
   const normalized = (value ?? "").toString().replace(/[^0-9,.-]/g, "").replace(/,/g, ".").trim()
@@ -352,16 +346,11 @@ async function refreshInTransitAggregation(client: SupabaseClient) {
   }
 
   const totals = new Map<string, number>()
-  const normalizedTotals = new Map<string, number>()
   data?.forEach(row => {
     const sku = (row as any).sku as string
     const qty = parseNumber((row as any).quantity, 0)
     if (!sku) return
     totals.set(sku, (totals.get(sku) ?? 0) + qty)
-
-    const normalizedSku = normalizeSku(sku)
-    if (!normalizedSku) return
-    normalizedTotals.set(normalizedSku, (normalizedTotals.get(normalizedSku) ?? 0) + qty)
   })
 
   const nowIso = new Date().toISOString()
@@ -395,69 +384,7 @@ async function refreshInTransitAggregation(client: SupabaseClient) {
     }
   }
 
-  return { aggregatedCount: records.length, normalizedTotals }
-}
-
-async function updateProductInTransitStock(client: SupabaseClient, normalizedTotals: Map<string, number>) {
-  const { data, error } = await client.from("products").select("id, variant_pricing")
-
-  if (error) {
-    throw new Error(`Gagal membaca produk untuk stok dalam perjalanan: ${error.message}`)
-  }
-
-  let productsUpdated = 0
-  let variantsUpdated = 0
-
-  const updates = (data ?? []).reduce<{ id: string; variant_pricing: unknown; updated_at: string }[]>(
-    (acc, record) => {
-      const pricingRows = Array.isArray((record as any)?.variant_pricing)
-        ? ((record as any).variant_pricing as Record<string, unknown>[]).map(row => ({ ...(row ?? {}) }))
-        : []
-
-      if (!pricingRows.length || !(record as any)?.id) return acc
-
-      let changed = false
-      const updatedPricing = pricingRows.map(row => {
-        const normalizedSku = normalizeSku(row.sellerSku ?? row.sku)
-        if (!normalizedSku) return row
-
-        const targetQty = normalizedTotals.get(normalizedSku) ?? 0
-        const currentValue = row.inTransitStock ?? row.in_transit_stock
-        const currentQty = parseNumber(currentValue, 0)
-
-        if (currentQty !== targetQty || (currentValue === undefined && targetQty !== 0)) {
-          changed = true
-          variantsUpdated += 1
-          return { ...row, inTransitStock: targetQty, in_transit_stock: targetQty }
-        }
-
-        return row
-      })
-
-      if (!changed) return acc
-
-      productsUpdated += 1
-      acc.push({
-        id: (record as any).id,
-        variant_pricing: updatedPricing,
-        updated_at: new Date().toISOString()
-      })
-
-      return acc
-    },
-    []
-  )
-
-  for (const payload of updates) {
-    const { id, ...rest } = payload
-    const { error: updateError } = await client.from("products").update(rest).eq("id", id)
-
-    if (updateError) {
-      throw new Error(`Gagal memperbarui stok dalam perjalanan produk: ${updateError.message}`)
-    }
-  }
-
-  return { productsUpdated, variantsUpdated }
+  return records.length
 }
 
 async function getIntegration(client: SupabaseClient, name = DEFAULT_INTEGRATION_NAME) {
@@ -520,8 +447,7 @@ Deno.serve(async req => {
     })
     const unpaidOrders = orders.filter(order => !IGNORED_STATUSES.has(order.status))
     const upsertSummary = await upsertPurchaseOrders(client, unpaidOrders)
-    const { aggregatedCount, normalizedTotals } = await refreshInTransitAggregation(client)
-    const productUpdateSummary = await updateProductInTransitStock(client, normalizedTotals)
+    const aggregatedCount = await refreshInTransitAggregation(client)
 
     return jsonResponse(200, {
       success: true,
@@ -529,9 +455,7 @@ Deno.serve(async req => {
       processedUnpaid: unpaidOrders.length,
       upserted: upsertSummary.inserted,
       cleared: upsertSummary.cleared,
-      aggregatedSkus: aggregatedCount,
-      productsUpdated: productUpdateSummary.productsUpdated,
-      variantsUpdated: productUpdateSummary.variantsUpdated
+      aggregatedSkus: aggregatedCount
     })
   } catch (error) {
     console.error("purchase-in-transit-sync failed", error)
