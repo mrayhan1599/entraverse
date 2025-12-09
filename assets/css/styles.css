@@ -4691,11 +4691,6 @@ body.modal-open {
     z-index: 1200;
   }
 
-  body.sidebar-open .topbar {
-    opacity: 0;
-    pointer-events: none;
-  }
-
   .topbar-left {
     width: 100%;
   }
