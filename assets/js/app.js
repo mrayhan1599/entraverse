@@ -20096,6 +20096,10 @@ async function fetchMekariPurchaseDocuments(
   params.set('per_page', safePerPage.toString());
   params.set('page_size', safePerPage.toString());
   params.set('limit', safePerPage.toString());
+  // Pastikan urutan data konsisten (terbaru ke terlama) di semua halaman
+  params.set('sort', 'desc');
+  params.set('sort_order', 'desc');
+  params.set('sort_key', 'transaction_date');
 
   const url = buildMekariAuthorizedUrl(
     purchaseIntegration,
