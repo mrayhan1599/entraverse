@@ -11378,6 +11378,12 @@ async function handleAddProductForm() {
           input.tabIndex = -1;
           input.setAttribute('aria-readonly', 'true');
           input.classList.add('readonly-input');
+        } else if (field === 'inTransitStock') {
+          input.step = '1';
+          input.readOnly = true;
+          input.tabIndex = -1;
+          input.setAttribute('aria-readonly', 'true');
+          input.classList.add('readonly-input');
         } else {
           input.step = '1';
         }
