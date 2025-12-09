@@ -18447,6 +18447,11 @@ function parseSortableDate(value) {
     return null;
   }
 
+  const parsedFromStockOut = parseStockOutDate(value);
+  if (parsedFromStockOut) {
+    return parsedFromStockOut;
+  }
+
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return null;
