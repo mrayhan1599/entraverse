@@ -87,7 +87,8 @@ body[data-page="shipping"],
 body[data-page="other-vendors"],
 body[data-page="integrations"],
 body[data-page="reports"] {
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 a {
@@ -364,9 +365,10 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  height: 100vh;
+  min-height: 100dvh;
+  height: auto;
   max-width: 100vw;
-  overflow: hidden;
+  overflow-x: hidden;
   position: relative;
 }
 
