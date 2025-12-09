@@ -427,7 +427,15 @@ async function updateProductInTransitStock(client: SupabaseClient, normalizedTot
       let changed = false
       const updatedPricing = pricingRows.map(row => {
         const normalizedSku = normalizeSku(
-          row.sellerSku ?? (row as any)?.sellerSKU ?? row.sku ?? (row as any)?.SKU ?? (row as any)?.variantSku
+          row.sellerSku ??
+            (row as any)?.sellerSKU ??
+            row.sku ??
+            (row as any)?.SKU ??
+            (row as any)?.variantSku ??
+            (row as any)?.productCode ??
+            (row as any)?.product_code ??
+            (row as any)?.productSKU ??
+            (row as any)?.product_sku
         )
         if (!normalizedSku) return row
 
