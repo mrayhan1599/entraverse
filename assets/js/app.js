@@ -19502,7 +19502,7 @@ function setupPurchaseOrdersControls() {
 
 const PURCHASE_DOCUMENT_CONFIG = {
   request: {
-    endpoint: 'purchase_request',
+    endpoint: 'partner/core/api/v1/purchase_requests',
     collectionKeys: ['purchase_requests', 'purchaseRequests', 'purchase_request', 'purchaseRequest'],
     detailKeys: ['purchase_request', 'purchaseRequest', 'purchase', 'data', 'result'],
     tableBodyId: 'purchase-requests-table-body',
@@ -19572,6 +19572,15 @@ const purchaseDocumentRequestIds = {
   delivery: 0,
   invoice: 0
 };
+
+function buildPurchaseDocumentPath(endpoint) {
+  const normalized = (endpoint || '').toString().trim().replace(/^\/+/, '');
+  if (!normalized) {
+    return '/api/v1/purchase_documents';
+  }
+
+  return normalized.startsWith('partner/') ? `/${normalized}` : `/api/v1/${normalized}`;
+}
 
 function getPurchaseDocumentElements(type) {
   const config = PURCHASE_DOCUMENT_CONFIG[type];
@@ -20041,7 +20050,7 @@ async function fetchMekariPurchaseDocuments(
   params.set('page_size', safePerPage.toString());
   params.set('limit', safePerPage.toString());
 
-  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}?${params.toString()}`);
+  const url = buildMekariAuthorizedUrl(integration, `${buildPurchaseDocumentPath(config.endpoint)}?${params.toString()}`);
   const headers = new Headers({ Accept: 'application/json' });
   headers.set('Authorization', token);
 
@@ -20321,7 +20330,10 @@ async function fetchMekariPurchaseDocumentDetail(type, id, { integration: integr
     throw new Error('Token API Mekari Jurnal belum tersedia. Perbarui pengaturan integrasi.');
   }
 
-  const url = buildMekariAuthorizedUrl(integration, `/api/v1/${config.endpoint}/${encodeURIComponent(normalizedId)}`);
+  const url = buildMekariAuthorizedUrl(
+    integration,
+    `${buildPurchaseDocumentPath(config.endpoint)}/${encodeURIComponent(normalizedId)}`
+  );
   const headers = new Headers({ Accept: 'application/json' });
   headers.set('Authorization', token);
 
