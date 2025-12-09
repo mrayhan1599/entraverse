@@ -32,6 +32,7 @@
   --radius-sm: 8px;
   --shadow-sm: 0 12px 28px rgba(30, 64, 175, 0.08);
   --shadow-md: 0 20px 48px rgba(30, 64, 175, 0.12);
+  --topbar-mobile-height: 96px;
   font-family: 'DM Sans', sans-serif;
 }
 
@@ -4632,6 +4633,14 @@ body.modal-open {
 }
 
 @media (max-width: 960px) {
+  :root {
+    --topbar-mobile-height: 96px;
+  }
+
+  .app-shell {
+    padding-top: calc(var(--topbar-mobile-height) + env(safe-area-inset-top, 0px));
+  }
+
   .menu-toggle {
     display: inline-flex;
   }
@@ -4646,7 +4655,7 @@ body.modal-open {
 
   .sidebar {
     position: fixed;
-    top: 0;
+    top: calc(var(--topbar-mobile-height) + env(safe-area-inset-top, 0px));
     left: 0;
     bottom: 0;
     width: min(var(--sidebar-width), 320px, 85vw);
@@ -4670,6 +4679,12 @@ body.modal-open {
   .topbar {
     align-items: flex-start;
     gap: 16px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: env(safe-area-inset-top, 0px);
+    padding-top: calc(15px + env(safe-area-inset-top, 0px));
+    z-index: 1200;
   }
 
   .topbar-left {
