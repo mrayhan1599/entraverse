@@ -6489,6 +6489,22 @@ function setupSidebarToggle() {
     sidebar.setAttribute('aria-hidden', 'false');
   };
 
+  let closeButton = sidebar.querySelector('[data-sidebar-close]');
+
+  if (!closeButton) {
+    closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'sidebar-close';
+    closeButton.setAttribute('aria-label', 'Tutup navigasi');
+    closeButton.setAttribute('data-sidebar-close', '');
+    closeButton.innerHTML = `
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </svg>
+    `;
+    sidebar.prepend(closeButton);
+  }
+
   const openSidebar = () => {
     document.body.classList.remove('sidebar-collapsed');
     document.body.classList.add('sidebar-open');
@@ -6507,6 +6523,8 @@ function setupSidebarToggle() {
   toggleButtons.forEach(button => {
     button.addEventListener('click', toggleSidebar);
   });
+
+  closeButton?.addEventListener('click', closeSidebar);
 
   backdrop?.addEventListener('click', closeSidebar);
 
