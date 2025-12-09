@@ -234,13 +234,19 @@ function normalizePurchaseOrder(entry: Record<string, unknown>): PurchaseOrder |
 }
 
 function normalizePurchaseOrderItem(entry: Record<string, unknown>): PurchaseOrderItem | null {
+  const product = (entry as any)?.product ?? {}
+
   const sku = (
     entry?.sku ??
     (entry as any)?.SKU ??
     entry?.product_code ??
     entry?.item_code ??
+    product?.product_code ??
+    product?.code ??
     (entry as any)?.product_sku ??
     (entry as any)?.productSKU ??
+    product?.product_sku ??
+    product?.sku ??
     ""
   )
     .toString()
