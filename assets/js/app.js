@@ -20110,17 +20110,32 @@ async function fetchMekariPurchaseDocuments(
   const candidates = [body, body?.data, body?.result];
   let records = [];
 
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== 'object') {
-      continue;
+  const extractRecords = source => {
+    if (!source || typeof source !== 'object') {
+      return null;
     }
+
     for (const key of collectionKeys) {
-      if (Array.isArray(candidate[key])) {
-        records = candidate[key];
-        break;
+      const value = source[key];
+      if (Array.isArray(value)) {
+        return value;
+      }
+
+      if (value && typeof value === 'object') {
+        const nested = value.data || value.items || value.records || value.rows || value.entries;
+        if (Array.isArray(nested)) {
+          return nested;
+        }
       }
     }
-    if (records.length) {
+
+    return null;
+  };
+
+  for (const candidate of candidates) {
+    const extracted = extractRecords(candidate);
+    if (Array.isArray(extracted) && extracted.length) {
+      records = extracted;
       break;
     }
   }
