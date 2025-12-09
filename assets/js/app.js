@@ -20111,7 +20111,15 @@ async function fetchMekariPurchaseDocuments(
   let records = [];
 
   const extractRecords = source => {
-    if (!source || typeof source !== 'object') {
+    if (!source) {
+      return null;
+    }
+
+    if (Array.isArray(source)) {
+      return source;
+    }
+
+    if (typeof source !== 'object') {
       return null;
     }
 
