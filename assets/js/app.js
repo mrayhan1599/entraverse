@@ -5859,22 +5859,63 @@ function parseNumericValue(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function formatLocalizedNumberInput(value, { allowDecimal = true } = {}) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  let sanitized = value.toString().replace(/[^0-9.,]/g, '');
+
+  if (allowDecimal) {
+    if (!sanitized.includes(',') && sanitized.includes('.')) {
+      const firstDot = sanitized.indexOf('.');
+      sanitized = `${sanitized.slice(0, firstDot)},${sanitized.slice(firstDot + 1).replace(/\./g, '')}`;
+    } else {
+      sanitized = sanitized.replace(/\.(?=\d{3}(?:\.|,|$))/g, '');
+    }
+
+    const [integerPart = '', ...decimalParts] = sanitized.replace(/\./g, '').split(',');
+    const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const decimal = decimalParts.join('');
+    return decimal ? `${groupedInteger},${decimal}` : groupedInteger;
+  }
+
+  sanitized = sanitized.replace(/[^0-9]/g, '');
+  return sanitized.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
 function normalizeFeeComponent(component) {
   if (!component || typeof component !== 'object') {
     return null;
   }
 
+  const label = (component.label ?? component.name ?? '').toString().trim();
+  const valueTypeCandidate = (component.valueType ?? component.type ?? component.mode ?? '').toString().toLowerCase();
+  const valueCandidate =
+    component.value ?? component.amount ?? component.percent ?? component.rate ?? component.flat ?? '';
+
+  let valueType = valueTypeCandidate;
+  if (!valueType) {
+    if (component.percent !== undefined || `${valueCandidate}`.includes('%')) {
+      valueType = 'percent';
+    } else if (component.flat !== undefined || component.amount !== undefined) {
+      valueType = 'amount';
+    }
+  }
+
+  if (valueType !== 'amount' && valueType !== 'percent') {
+    valueType = 'percent';
+  }
+
   const normalized = {
-    label: (component.label ?? component.name ?? '').toString().trim(),
-    percent: (component.percent ?? component.rate ?? '').toString().trim(),
+    label,
+    value: (valueCandidate ?? '').toString().replace('%', '').trim(),
+    valueType,
     min: (component.min ?? component.minCap ?? component.minimum ?? '').toString().trim(),
-    max: (component.max ?? component.maxCap ?? component.maximum ?? '').toString().trim(),
-    flat: (component.flat ?? component.fixed ?? component.fixedFee ?? '').toString().trim()
+    max: (component.max ?? component.maxCap ?? component.maximum ?? '').toString().trim()
   };
 
-  const hasValue = [normalized.label, normalized.percent, normalized.min, normalized.max, normalized.flat].some(
-    value => Boolean(value)
-  );
+  const hasValue = [normalized.label, normalized.value, normalized.min, normalized.max].some(value => Boolean(value));
 
   return hasValue ? normalized : null;
 }
@@ -5914,27 +5955,23 @@ function formatFeeComponent(component) {
   const normalized = normalizeFeeComponent(component);
   if (!normalized) return '';
 
-  const { label, percent, min, max, flat } = normalized;
+  const { label, value, valueType, min, max } = normalized;
   const details = [];
 
-  if (percent) {
-    details.push(percent);
+  if (value) {
+    const numericDisplay = formatLocalizedNumberInput(value, { allowDecimal: true });
+    details.push(valueType === 'percent' ? `${numericDisplay}%` : `Rp ${numericDisplay}`);
   }
 
   const caps = [];
   if (min) {
-    caps.push(`min ${formatFeeNumber(min)}`);
+    caps.push(`min Rp ${formatLocalizedNumberInput(min)}`);
   }
   if (max) {
-    caps.push(`max ${formatFeeNumber(max)}`);
+    caps.push(`max Rp ${formatLocalizedNumberInput(max)}`);
   }
   if (caps.length) {
     details.push(caps.join(', '));
-  }
-
-  if (flat) {
-    const formattedFlat = formatFeeNumber(flat);
-    details.push(`fee tetap ${formattedFlat}`);
   }
 
   const descriptor = label || 'Fee tambahan';
@@ -5973,7 +6010,13 @@ function getFeePercentTotal(value) {
   const normalized = normalizeFeeField(value);
 
   if (normalized.components.length) {
-    return normalized.components.reduce((total, component) => total + toPercentDecimal(component?.percent ?? 0), 0);
+    return normalized.components.reduce((total, component) => {
+      const normalizedComponent = normalizeFeeComponent(component);
+      if (!normalizedComponent || normalizedComponent.valueType !== 'percent') {
+        return total;
+      }
+      return total + toPercentDecimal(normalizedComponent.value ?? 0);
+    }, 0);
   }
 
   return toPercentDecimal(normalized.summary ?? 0);
@@ -9377,9 +9420,6 @@ function handleCategoryActions() {
   const bulkCloseButtons = bulkModal?.querySelectorAll('[data-close-bulk-modal]') ?? [];
   const nameInput = form.querySelector('#category-name');
   const noteInput = form.querySelector('#category-note');
-  const marketplaceInput = form.querySelector('#category-fee-marketplace');
-  const shopeeInput = form.querySelector('#category-fee-shopee');
-  const entraverseInput = form.querySelector('#category-fee-entraverse');
   const marginValueInput = form.querySelector('#category-margin-value');
   const submitBtn = form.querySelector('button[type="submit"]');
   const bulkSubmitBtn = bulkForm?.querySelector('button[type="submit"]');
@@ -9393,12 +9433,43 @@ function handleCategoryActions() {
     flat: document.getElementById('bulk-fee-flat')
   };
 
-  const createFeeComponentManager = (type, summaryInput) => {
+  const createFeeComponentManager = type => {
     const builder = form.querySelector(`[data-fee-builder="${type}"]`);
     if (!builder) return null;
 
     const list = builder.querySelector('[data-fee-list]');
     const emptyState = builder.querySelector('[data-fee-empty]');
+
+    const formatInput = (input, { allowDecimal = true } = {}) => {
+      if (!input) return '';
+      const formatted = formatLocalizedNumberInput(input.value, { allowDecimal });
+      input.value = formatted;
+      return formatted;
+    };
+
+    const setValueType = (row, typeValue) => {
+      if (!row) return;
+      const normalizedType = typeValue === 'amount' ? 'amount' : 'percent';
+      row.dataset.valueType = normalizedType;
+      const buttons = row.querySelectorAll('[data-value-type]');
+      buttons.forEach(button => {
+        if (!button.dataset.valueType) return;
+        if (button.dataset.valueType === normalizedType) {
+          button.classList.add('is-active');
+          button.setAttribute('aria-pressed', 'true');
+        } else {
+          button.classList.remove('is-active');
+          button.setAttribute('aria-pressed', 'false');
+        }
+      });
+
+      const valueInput = row.querySelector('[data-fee-field="value"]');
+      if (valueInput) {
+        valueInput.dataset.format = normalizedType === 'amount' ? 'currency' : 'percent';
+        valueInput.placeholder = normalizedType === 'amount' ? 'Masukkan nominal' : 'Masukkan persen';
+        formatInput(valueInput, { allowDecimal: true });
+      }
+    };
 
     const refreshEmptyState = () => {
       if (!emptyState) return;
@@ -9410,11 +9481,14 @@ function handleCategoryActions() {
       if (!list) return;
       const normalized = normalizeFeeComponent(component) || {
         label: '',
-        percent: '',
+        value: '',
+        valueType: 'percent',
         min: '',
-        max: '',
-        flat: ''
+        max: ''
       };
+      const formattedValue = formatLocalizedNumberInput(normalized.value, { allowDecimal: true });
+      const formattedMin = formatLocalizedNumberInput(normalized.min);
+      const formattedMax = formatLocalizedNumberInput(normalized.max);
 
       const row = document.createElement('div');
       row.className = 'fee-component';
@@ -9426,40 +9500,41 @@ function handleCategoryActions() {
             normalized.label
           )}">
         </div>
+        <div class="form-group fee-component__value">
+          <label class="fee-component__label">Nilai Komponen</label>
+          <div class="fee-component__input">
+            <div class="segmented-control" role="group" aria-label="Tipe nilai komponen">
+              <button class="segmented-control__option" type="button" data-value-type="percent">%</button>
+              <button class="segmented-control__option" type="button" data-value-type="amount">Rp</button>
+            </div>
+            <input type="text" data-fee-field="value" data-format="percent" placeholder="Masukkan nilai" value="${escapeHtml(
+              formattedValue
+            )}">
+          </div>
+        </div>
         <div class="form-group">
-          <label class="fee-component__label">Persentase</label>
-          <input type="text" data-fee-field="percent" placeholder="Misal 1.8%" value="${escapeHtml(
-            normalized.percent
+          <label class="fee-component__label">Minimum (Rp)</label>
+          <input type="text" data-fee-field="min" data-format="currency" placeholder="Opsional" value="${escapeHtml(
+            formattedMin
           )}">
         </div>
         <div class="form-group">
-          <label class="fee-component__label">Potongan Minimum</label>
-          <input type="text" data-fee-field="min" placeholder="Opsional" value="${escapeHtml(
-            normalized.min
-          )}">
-        </div>
-        <div class="form-group">
-          <label class="fee-component__label">Potongan Maksimum</label>
-          <input type="text" data-fee-field="max" placeholder="Opsional" value="${escapeHtml(
-            normalized.max
-          )}">
-        </div>
-        <div class="form-group">
-          <label class="fee-component__label">Fee Tetap</label>
-          <input type="text" data-fee-field="flat" placeholder="Misal 1.250" value="${escapeHtml(
-            normalized.flat
+          <label class="fee-component__label">Maksimum (Rp)</label>
+          <input type="text" data-fee-field="max" data-format="currency" placeholder="Opsional" value="${escapeHtml(
+            formattedMax
           )}">
         </div>
         <div class="fee-component__actions">
           <button class="fee-component__remove" type="button" data-remove-fee>Hapus</button>
         </div>
       `;
+      setValueType(row, normalized.valueType || 'percent');
       list.appendChild(row);
       refreshEmptyState();
     };
 
     builder.addEventListener('click', event => {
-      const target = event.target.closest('[data-add-fee],[data-remove-fee]');
+      const target = event.target.closest('[data-add-fee],[data-remove-fee],[data-value-type]');
       if (!target) return;
 
       if (target.dataset.addFee !== undefined) {
@@ -9475,7 +9550,22 @@ function handleCategoryActions() {
           row.remove();
           refreshEmptyState();
         }
+        return;
       }
+
+      if (target.dataset.valueType) {
+        event.preventDefault();
+        const row = target.closest('[data-fee-item]');
+        setValueType(row, target.dataset.valueType);
+        return;
+      }
+    });
+
+    builder.addEventListener('input', event => {
+      const input = event.target.closest('input[data-format]');
+      if (!input) return;
+      const allowDecimal = input.dataset.format !== 'integer';
+      formatInput(input, { allowDecimal });
     });
 
     const setComponents = components => {
@@ -9488,13 +9578,17 @@ function handleCategoryActions() {
       if (!list) return [];
       return Array.from(list.querySelectorAll('[data-fee-item]'))
         .map(row => {
-          const getValue = field => row.querySelector(`[data-fee-field="${field}"]`)?.value ?? '';
+          const getValue = (field, allowDecimal = true) => {
+            const input = row.querySelector(`[data-fee-field="${field}"]`);
+            return formatLocalizedNumberInput(input?.value ?? '', { allowDecimal });
+          };
+          const valueType = row.dataset.valueType === 'amount' ? 'amount' : 'percent';
           return normalizeFeeComponent({
             label: getValue('label'),
-            percent: getValue('percent'),
+            value: getValue('value'),
+            valueType,
             min: getValue('min'),
-            max: getValue('max'),
-            flat: getValue('flat')
+            max: getValue('max')
           });
         })
         .filter(Boolean);
@@ -9503,23 +9597,19 @@ function handleCategoryActions() {
     refreshEmptyState();
 
     return {
-      summaryInput,
       addComponent,
       setComponents,
       getComponents,
       reset() {
-        if (summaryInput) {
-          summaryInput.value = '';
-        }
         setComponents([]);
       }
     };
   };
 
   const feeManagers = {
-    marketplace: createFeeComponentManager('marketplace', marketplaceInput),
-    shopee: createFeeComponentManager('shopee', shopeeInput),
-    entraverse: createFeeComponentManager('entraverse', entraverseInput)
+    marketplace: createFeeComponentManager('marketplace'),
+    shopee: createFeeComponentManager('shopee'),
+    entraverse: createFeeComponentManager('entraverse')
   };
 
   const getCurrentFilter = () => (searchInput?.value ?? '').toString();
@@ -9582,17 +9672,14 @@ function handleCategoryActions() {
     if (noteInput) noteInput.value = category.note ?? '';
     if (feeManagers.marketplace) {
       const normalized = normalizeFeeField(category.fees?.marketplace);
-      if (marketplaceInput) marketplaceInput.value = normalized.summary;
       feeManagers.marketplace.setComponents(normalized.components);
     }
     if (feeManagers.shopee) {
       const normalized = normalizeFeeField(category.fees?.shopee);
-      if (shopeeInput) shopeeInput.value = normalized.summary;
       feeManagers.shopee.setComponents(normalized.components);
     }
     if (feeManagers.entraverse) {
       const normalized = normalizeFeeField(category.fees?.entraverse);
-      if (entraverseInput) entraverseInput.value = normalized.summary;
       feeManagers.entraverse.setComponents(normalized.components);
     }
     if (marginValueInput) marginValueInput.value = category.margin?.value ?? '';
@@ -9813,9 +9900,8 @@ function handleCategoryActions() {
 
     const buildFeePayload = type => {
       const manager = feeManagers[type];
-      const summary = (manager?.summaryInput?.value ?? '').toString().trim();
       const components = manager?.getComponents?.() ?? [];
-      return { summary, value: summary, components };
+      return { summary: '', value: '', components };
     };
 
     if (!name) {
