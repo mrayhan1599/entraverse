@@ -7756,6 +7756,7 @@ function syncProductBulkControls() {
   const countEl = document.getElementById('product-bulk-count');
   const deleteBtn = document.getElementById('product-bulk-delete');
   const leadTimeBtn = document.getElementById('product-bulk-leadtime');
+  const startDateBtn = document.getElementById('product-bulk-start-date');
   const selectAll = document.getElementById('product-bulk-select-all');
   const bulkHeaders = document.querySelectorAll('[data-product-bulk-column]');
   const bulkCheckboxes = document.querySelectorAll('[data-product-bulk-checkbox]');
@@ -7804,6 +7805,11 @@ function syncProductBulkControls() {
   if (leadTimeBtn) {
     leadTimeBtn.hidden = !bulkActive;
     leadTimeBtn.disabled = noSelection;
+  }
+
+  if (startDateBtn) {
+    startDateBtn.hidden = !bulkActive;
+    startDateBtn.disabled = noSelection;
   }
 
   if (deleteBtn) {
@@ -8692,6 +8698,14 @@ function handleProductActions() {
   const leadTimeInput = document.getElementById('bulk-leadtime-input');
   const leadTimeCount = document.getElementById('bulk-leadtime-count');
   const leadTimeCloseButtons = leadTimeModal ? Array.from(leadTimeModal.querySelectorAll('[data-close-modal]')) : [];
+  const bulkStartDateBtn = document.getElementById('product-bulk-start-date');
+  const startDateModal = document.getElementById('bulk-start-date-modal');
+  const startDateForm = document.getElementById('bulk-start-date-form');
+  const startDateInput = document.getElementById('bulk-start-date-input');
+  const startDateCount = document.getElementById('bulk-start-date-count');
+  const startDateCloseButtons = startDateModal
+    ? Array.from(startDateModal.querySelectorAll('[data-close-modal]'))
+    : [];
 
   const deleteProductsByIds = async ids => {
     const idSet = new Set((ids ?? []).map(normalizeProductId).filter(Boolean));
@@ -8757,6 +8771,96 @@ function handleProductActions() {
     });
   };
 
+  const closeStartDateModal = () => {
+    if (startDateModal) {
+      startDateModal.hidden = true;
+    }
+    document.body.classList.remove('modal-open');
+    if (startDateForm) {
+      startDateForm.reset();
+    }
+  };
+
+  const openStartDateModal = () => {
+    if (!startDateModal || !startDateForm || !startDateInput) {
+      return;
+    }
+
+    if (!productBulkSelection.size) {
+      toast.show('Pilih produk untuk memperbarui start date.');
+      return;
+    }
+
+    startDateForm.reset();
+    if (startDateCount) {
+      startDateCount.textContent = `${productBulkSelection.size} produk dipilih`;
+    }
+
+    startDateModal.hidden = false;
+    document.body.classList.add('modal-open');
+
+    requestAnimationFrame(() => {
+      if (startDateInput) {
+        startDateInput.focus({ preventScroll: true });
+        startDateInput.select?.();
+      }
+    });
+  };
+
+  const applyStartDateToSelection = async startDateValue => {
+    const selectedIds = Array.from(productBulkSelection);
+    if (!selectedIds.length) {
+      return { supabaseFailed: false, updatedProducts: [] };
+    }
+
+    const cachedProducts = getProductsFromCache();
+    const productMap = new Map(
+      Array.isArray(cachedProducts)
+        ? cachedProducts.map(product => [product?.id, product]).filter(([id]) => Boolean(id))
+        : []
+    );
+
+    const updatedProducts = [];
+
+    selectedIds.forEach(id => {
+      const product = productMap.get(id);
+      if (!product) return;
+
+      const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+      const updatedPricing = pricingRows.map(row => {
+        const normalized = { ...(row ?? {}) };
+        normalized.startDate = startDateValue;
+        if ('start_date' in normalized) {
+          delete normalized.start_date;
+        }
+        return normalized;
+      });
+
+      const updatedProduct = { ...product, variantPricing: updatedPricing, updatedAt: Date.now() };
+      productMap.set(id, updatedProduct);
+      updatedProducts.push(updatedProduct);
+    });
+
+    const nextCache = Array.isArray(cachedProducts)
+      ? cachedProducts.map(product => productMap.get(product?.id) ?? product)
+      : [];
+
+    setProductCache(nextCache);
+
+    let supabaseFailed = false;
+
+    if (isSupabaseConfigured()) {
+      try {
+        await bulkUpsertProductsToSupabase(updatedProducts);
+      } catch (error) {
+        supabaseFailed = true;
+        console.error('Gagal memperbarui start date di Supabase.', error);
+      }
+    }
+
+    return { supabaseFailed, updatedProducts };
+  };
+
   const applyLeadTimeToSelection = async leadTimeValue => {
     const selectedIds = Array.from(productBulkSelection);
     if (!selectedIds.length) {
@@ -8815,6 +8919,7 @@ function handleProductActions() {
     productBulkEditEnabled = false;
     productBulkSelection.clear();
     closeLeadTimeModal();
+    closeStartDateModal();
     syncProductBulkControls();
   };
 
@@ -8908,6 +9013,15 @@ function handleProductActions() {
     });
   }
 
+  if (bulkStartDateBtn) {
+    bulkStartDateBtn.addEventListener('click', () => {
+      if (!requireCatalogManager('Silakan login untuk mengedit start date.')) {
+        return;
+      }
+      openStartDateModal();
+    });
+  }
+
   if (leadTimeForm) {
     leadTimeForm.addEventListener('submit', async event => {
       event.preventDefault();
@@ -8942,6 +9056,40 @@ function handleProductActions() {
   }
 
   leadTimeCloseButtons.forEach(button => button.addEventListener('click', closeLeadTimeModal));
+  startDateCloseButtons.forEach(button => button.addEventListener('click', closeStartDateModal));
+
+  if (startDateForm) {
+    startDateForm.addEventListener('submit', async event => {
+      event.preventDefault();
+
+      if (!requireCatalogManager('Silakan login untuk memperbarui start date.')) {
+        return;
+      }
+
+      const normalizedStartDate = toDateOnlyString(startDateInput?.value ?? null);
+      if (!normalizedStartDate) {
+        toast.show('Masukkan start date yang valid.');
+        if (startDateInput) {
+          startDateInput.focus({ preventScroll: true });
+          startDateInput.select?.();
+        }
+        return;
+      }
+
+      const { supabaseFailed, updatedProducts } = await applyStartDateToSelection(normalizedStartDate);
+
+      closeStartDateModal();
+      renderProducts(getCurrentFilter(), { resetPage: false });
+      syncProductBulkControls();
+
+      if (supabaseFailed) {
+        toast.show('Start date disimpan, namun gagal tersinkron ke Supabase.');
+      } else {
+        const appliedCount = updatedProducts.length || productBulkSelection.size;
+        toast.show(`Start date diperbarui untuk ${appliedCount} produk.`);
+      }
+    });
+  }
 
   if (leadTimeModal) {
     leadTimeModal.addEventListener('click', event => {
@@ -8951,12 +9099,28 @@ function handleProductActions() {
     });
   }
 
-  const handleLeadTimeEscape = event => {
-    if (event.key === 'Escape' && leadTimeModal && !leadTimeModal.hidden) {
+  if (startDateModal) {
+    startDateModal.addEventListener('click', event => {
+      if (event.target === startDateModal) {
+        closeStartDateModal();
+      }
+    });
+  }
+
+  const handleBulkModalEscape = event => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (leadTimeModal && !leadTimeModal.hidden) {
       closeLeadTimeModal();
     }
+
+    if (startDateModal && !startDateModal.hidden) {
+      closeStartDateModal();
+    }
   };
-  document.addEventListener('keydown', handleLeadTimeEscape);
+  document.addEventListener('keydown', handleBulkModalEscape);
 
   tbody.addEventListener('change', event => {
     const checkbox = event.target.closest('[data-product-bulk-checkbox]');
