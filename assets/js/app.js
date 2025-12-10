@@ -2706,35 +2706,47 @@ function mapSupabaseCategory(record) {
   };
 }
 
-function mapCategoryToRecord(category) {
-  const fees = category.fees ?? {};
-  const margin = category.margin ?? {};
+  function mapCategoryToRecord(category) {
+    const fees = category.fees ?? {};
+    const margin = category.margin ?? {};
 
-  const mapFeeField = value => {
-    const normalized = normalizeFeeField(value);
-    return {
-      summary: normalized.summary,
-      value: normalized.summary,
-      components: normalized.components
+    const mapFeeField = value => {
+      const normalized = normalizeFeeField(value);
+      const mapComponentValues = component => {
+        const normalizedComponent = normalizeFeeComponent(component);
+        if (!normalizedComponent) return null;
+        return {
+          ...normalizedComponent,
+          value: normalizeNumericForStorage(normalizedComponent.value),
+          min: normalizeNumericForStorage(normalizedComponent.min),
+          max: normalizeNumericForStorage(normalizedComponent.max)
+        };
+      };
+
+      const sanitizedSummary = normalizeNumericForStorage(normalized.summary);
+      return {
+        summary: sanitizedSummary,
+        value: sanitizedSummary,
+        components: normalized.components.map(mapComponentValues).filter(Boolean)
+      };
     };
-  };
 
-  return {
-    id: category.id,
-    name: category.name,
-    note: category.note || null,
-    fees: {
-      marketplace: mapFeeField(fees.marketplace),
-      shopee: mapFeeField(fees.shopee),
-      entraverse: mapFeeField(fees.entraverse)
-    },
-    margin: {
-      value: margin.value ?? '',
-      note: margin.note ?? ''
-    },
-    created_at: toIsoTimestamp(category.createdAt) ?? new Date().toISOString(),
-    updated_at: toIsoTimestamp(category.updatedAt)
-  };
+    return {
+      id: category.id,
+      name: category.name,
+      note: category.note || null,
+      fees: {
+        marketplace: mapFeeField(fees.marketplace),
+        shopee: mapFeeField(fees.shopee),
+        entraverse: mapFeeField(fees.entraverse)
+      },
+      margin: {
+        value: normalizeNumericForStorage(margin.value),
+        note: margin.note ?? ''
+      },
+      created_at: toIsoTimestamp(category.createdAt) ?? new Date().toISOString(),
+      updated_at: toIsoTimestamp(category.updatedAt)
+    };
 }
 
 function mapSupabaseExchangeRate(record) {
@@ -5868,9 +5880,18 @@ function formatLocalizedNumberInput(value, { allowDecimal = true } = {}) {
 
   if (allowDecimal) {
     const hasTrailingComma = sanitized.endsWith(',');
-    if (!sanitized.includes(',') && sanitized.includes('.')) {
-      const firstDot = sanitized.indexOf('.');
-      sanitized = `${sanitized.slice(0, firstDot)},${sanitized.slice(firstDot + 1).replace(/\./g, '')}`;
+    const hasComma = sanitized.includes(',');
+    if (!hasComma && sanitized.includes('.')) {
+      const segments = sanitized.split('.');
+      const hasSingleDot = segments.length === 2;
+      const lastSegment = segments[segments.length - 1];
+      const treatDotAsDecimal = hasSingleDot && lastSegment.length > 0 && lastSegment.length <= 2;
+
+      if (treatDotAsDecimal) {
+        sanitized = `${segments[0]},${segments[1]}`;
+      } else {
+        sanitized = sanitized.replace(/\./g, '');
+      }
     } else {
       sanitized = sanitized.replace(/\.(?=\d{3}(?:\.|,|$))/g, '');
     }
@@ -5891,6 +5912,19 @@ function formatLocalizedNumberInput(value, { allowDecimal = true } = {}) {
 
   sanitized = sanitized.replace(/[^0-9]/g, '');
   return sanitized.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function normalizeNumericForStorage(value, { allowDecimal = true } = {}) {
+  const numeric = parseNumericValue(value);
+  if (numeric === null || Number.isNaN(numeric)) {
+    return (value ?? '').toString().trim();
+  }
+
+  if (!allowDecimal) {
+    return Math.round(numeric).toString();
+  }
+
+  return numeric.toString();
 }
 
 function normalizeFeeComponent(component) {
