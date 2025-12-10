@@ -5852,7 +5852,7 @@ function parseNumericValue(value) {
     const fractionalCandidate = decimalChar ? sanitized.slice(decimalIndex + 1) : '';
     const shouldTreatAsDecimal = Boolean(decimalChar)
       && fractionalCandidate.length > 0
-      && (fractionalCandidate.length !== 3 || occurrences === 1 || hasOtherSeparator);
+      && (decimalChar === ',' || fractionalCandidate.length <= 2 || hasOtherSeparator);
 
     if (shouldTreatAsDecimal) {
       const integerPart = sanitized
@@ -6661,7 +6661,7 @@ function parseNumericValue(value) {
     const fractionalCandidate = decimalChar ? sanitized.slice(decimalIndex + 1) : '';
     const shouldTreatAsDecimal = Boolean(decimalChar)
       && fractionalCandidate.length > 0
-      && (fractionalCandidate.length !== 3 || occurrences === 1 || hasOtherSeparator);
+      && (decimalChar === ',' || fractionalCandidate.length <= 2 || hasOtherSeparator);
 
     if (shouldTreatAsDecimal) {
       const integerPart = sanitized
