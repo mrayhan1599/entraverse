@@ -6620,24 +6620,64 @@ function formatCurrencyCompact(value) {
 }
 
 function parseNumericValue(value) {
-  if (value === null || value === undefined) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  if (typeof value !== 'string') {
     return null;
   }
 
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
   }
 
-  if (typeof value === 'string') {
-    const normalized = value.replace(/[^\d.-]/g, '');
-    if (!normalized) {
-      return null;
+  const sanitized = trimmed.replace(/\s+/g, '');
+  const lastComma = sanitized.lastIndexOf(',');
+  const lastDot = sanitized.lastIndexOf('.');
+  const hasComma = lastComma !== -1;
+  const hasDot = lastDot !== -1;
+  let normalized = sanitized;
+
+  if (hasComma || hasDot) {
+    const decimalIndex = Math.max(lastComma, lastDot);
+    const decimalChar = decimalIndex === -1 ? null : sanitized[decimalIndex];
+    const occurrences = decimalChar
+      ? (sanitized.match(new RegExp(`\\${decimalChar}`, 'g')) || []).length
+      : 0;
+    const otherSeparator = decimalChar === ',' ? '.' : ',';
+    const hasOtherSeparator = otherSeparator && sanitized.includes(otherSeparator);
+    const fractionalCandidate = decimalChar ? sanitized.slice(decimalIndex + 1) : '';
+    const shouldTreatAsDecimal = Boolean(decimalChar)
+      && fractionalCandidate.length > 0
+      && (fractionalCandidate.length !== 3 || occurrences === 1 || hasOtherSeparator);
+
+    if (shouldTreatAsDecimal) {
+      const integerPart = sanitized
+        .slice(0, decimalIndex)
+        .replace(/[^0-9-]/g, '');
+      const fractionalPart = sanitized
+        .slice(decimalIndex + 1)
+        .replace(/[^0-9]/g, '');
+      normalized = fractionalPart ? `${integerPart}.${fractionalPart}` : integerPart;
+    } else {
+      normalized = sanitized.replace(/[^0-9-]/g, '');
     }
-    const numeric = Number(normalized);
-    return Number.isFinite(numeric) ? numeric : null;
+  } else {
+    normalized = sanitized.replace(/[^0-9-]/g, '');
   }
 
-  return null;
+  if (!normalized || normalized === '-' || normalized === '.-' || normalized === '-.') {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatNumber(value) {
