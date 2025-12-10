@@ -2741,7 +2741,13 @@ function mapSupabaseCategory(record) {
         entraverse: mapFeeField(fees.entraverse)
       },
       margin: {
-        value: normalizeNumericForStorage(margin.value),
+        value: (() => {
+          const rawValue = (margin.value ?? '').toString().trim();
+          if (rawValue.includes('%')) {
+            return rawValue;
+          }
+          return normalizeNumericForStorage(rawValue);
+        })(),
         note: margin.note ?? ''
       },
       created_at: toIsoTimestamp(category.createdAt) ?? new Date().toISOString(),
@@ -9548,9 +9554,10 @@ function handleCategoryActions() {
 
       const valueInput = row.querySelector('[data-fee-field="value"]');
       if (valueInput) {
+        const allowDecimal = normalizedType !== 'amount';
         valueInput.dataset.format = normalizedType === 'amount' ? 'currency' : 'percent';
         valueInput.placeholder = normalizedType === 'amount' ? 'Masukkan nominal' : 'Masukkan persen';
-        formatInput(valueInput, { allowDecimal: true });
+        formatInput(valueInput, { allowDecimal });
       }
     };
 
@@ -9570,8 +9577,8 @@ function handleCategoryActions() {
         max: ''
       };
       const formattedValue = formatLocalizedNumberInput(normalized.value, { allowDecimal: true });
-      const formattedMin = formatLocalizedNumberInput(normalized.min);
-      const formattedMax = formatLocalizedNumberInput(normalized.max);
+      const formattedMin = formatLocalizedNumberInput(normalized.min, { allowDecimal: false });
+      const formattedMax = formatLocalizedNumberInput(normalized.max, { allowDecimal: false });
 
       const row = document.createElement('div');
       row.className = 'fee-component';
@@ -9647,7 +9654,7 @@ function handleCategoryActions() {
     builder.addEventListener('input', event => {
       const input = event.target.closest('input[data-format]');
       if (!input) return;
-      const allowDecimal = input.dataset.format !== 'integer';
+      const allowDecimal = input.dataset.format === 'percent';
       formatInput(input, { allowDecimal });
     });
 
@@ -9663,15 +9670,19 @@ function handleCategoryActions() {
         .map(row => {
           const getValue = (field, allowDecimal = true) => {
             const input = row.querySelector(`[data-fee-field="${field}"]`);
-            return formatLocalizedNumberInput(input?.value ?? '', { allowDecimal });
+            if (!input) return '';
+            if (field === 'label') {
+              return input.value.toString().trim();
+            }
+            return formatLocalizedNumberInput(input.value ?? '', { allowDecimal });
           };
           const valueType = row.dataset.valueType === 'amount' ? 'amount' : 'percent';
           return normalizeFeeComponent({
-            label: getValue('label'),
-            value: getValue('value'),
+            label: getValue('label', false),
+            value: getValue('value', valueType === 'percent'),
             valueType,
-            min: getValue('min'),
-            max: getValue('max')
+            min: getValue('min', false),
+            max: getValue('max', false)
           });
         })
         .filter(Boolean);
