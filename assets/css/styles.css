@@ -26,6 +26,7 @@
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
   --color-accent-soft: rgba(37, 99, 235, 0.16);
+  --topbar-height: 88px;
   --sidebar-width: 280px;
   --radius-lg: 16px;
   --radius-md: 12px;
@@ -375,12 +376,17 @@ textarea {
   min-height: 0;
   min-width: 0;
   position: relative;
-  align-items: flex-start;
+  align-items: stretch;
+  gap: 24px;
+  padding: 0 24px 24px;
+  height: calc(100vh - var(--topbar-height));
+  overflow: hidden;
 }
 
 .main-content {
   min-width: 0;
   min-height: 0;
+  height: calc(100vh - var(--topbar-height) - 24px);
   overflow-y: auto;
 }
 
@@ -422,7 +428,7 @@ body.sidebar-open .sidebar-backdrop {
   gap: 24px;
   overflow-x: hidden;
   overflow-y: auto;
-  max-height: calc(100vh - 48px);
+  height: calc(100vh - var(--topbar-height) - 24px);
   overscroll-behavior: contain;
   transition: width 0.3s ease, flex-basis 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
   border-right: 1px solid var(--color-border);
@@ -564,6 +570,7 @@ body.sidebar-collapsed .sidebar-collapse-toggle svg {
   align-items: flex-start;
   gap: 10px;
   padding: 15px 0;
+  min-height: var(--topbar-height);
   background: var(--color-navbar);
   color: var(--color-navbar-text);
   box-shadow: 0 14px 24px rgba(15, 23, 42, 0.08);
