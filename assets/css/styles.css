@@ -1080,6 +1080,25 @@ body[data-theme="dark"] .sync-meta--error {
   flex-shrink: 0;
 }
 
+.title-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title-action-btn .btn-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.title-action-btn .btn-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 .theme-switcher {
   position: relative;
   display: inline-flex;
@@ -4956,6 +4975,26 @@ body.modal-open {
     align-items: center;
     gap: 8px;
     flex-wrap: nowrap;
+  }
+
+  .title-actions {
+    gap: 10px;
+  }
+
+  .title-action-btn {
+    gap: 0;
+    padding: 10px 12px;
+    min-width: 44px;
+    justify-content: center;
+  }
+
+  .title-action-btn .btn-label {
+    display: none;
+  }
+
+  .title-action-btn .btn-icon {
+    width: 18px;
+    height: 18px;
   }
 
   .card-title-row {
