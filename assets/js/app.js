@@ -9364,13 +9364,17 @@ function handleProductActions() {
 
 function handleCategoryActions() {
   const addButton = document.getElementById('add-category-btn');
+  const bulkFeeButton = document.getElementById('bulk-fee-btn');
   const modal = document.getElementById('category-modal');
+  const bulkModal = document.getElementById('bulk-fee-modal');
   const form = document.getElementById('category-form');
+  const bulkForm = document.getElementById('bulk-fee-form');
   const modalTitle = document.getElementById('category-modal-title');
   const tableBody = document.getElementById('category-table-body');
   if (!addButton || !modal || !form || !modalTitle || !tableBody) return;
 
   const closeButtons = modal.querySelectorAll('[data-close-modal]');
+  const bulkCloseButtons = bulkModal?.querySelectorAll('[data-close-bulk-modal]') ?? [];
   const nameInput = form.querySelector('#category-name');
   const noteInput = form.querySelector('#category-note');
   const marketplaceInput = form.querySelector('#category-fee-marketplace');
@@ -9378,7 +9382,16 @@ function handleCategoryActions() {
   const entraverseInput = form.querySelector('#category-fee-entraverse');
   const marginValueInput = form.querySelector('#category-margin-value');
   const submitBtn = form.querySelector('button[type="submit"]');
+  const bulkSubmitBtn = bulkForm?.querySelector('button[type="submit"]');
   const searchInput = document.getElementById('search-input');
+  const bulkMarketplaceSelect = document.getElementById('bulk-fee-marketplace');
+  const bulkFields = {
+    label: document.getElementById('bulk-fee-label'),
+    percent: document.getElementById('bulk-fee-percent'),
+    min: document.getElementById('bulk-fee-min'),
+    max: document.getElementById('bulk-fee-max'),
+    flat: document.getElementById('bulk-fee-flat')
+  };
 
   const createFeeComponentManager = (type, summaryInput) => {
     const builder = form.querySelector(`[data-fee-builder="${type}"]`);
@@ -9515,25 +9528,47 @@ function handleCategoryActions() {
     Object.values(feeManagers).forEach(manager => manager?.reset());
   };
 
-  const updateAddButtonState = () => {
+  const syncModalOpenState = () => {
+    const anyOpen = (!modal.hidden) || (bulkModal ? !bulkModal.hidden : false);
+    if (anyOpen) {
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+  };
+
+  const setManageButtonState = button => {
+    if (!button) return;
     const canManage = canManageCatalog();
     if (canManage) {
-      addButton.classList.remove('is-disabled');
-      addButton.removeAttribute('aria-disabled');
-      addButton.removeAttribute('tabindex');
+      button.classList.remove('is-disabled');
+      button.removeAttribute('aria-disabled');
+      button.removeAttribute('tabindex');
     } else {
-      addButton.classList.add('is-disabled');
-      addButton.setAttribute('aria-disabled', 'true');
-      addButton.setAttribute('tabindex', '-1');
+      button.classList.add('is-disabled');
+      button.setAttribute('aria-disabled', 'true');
+      button.setAttribute('tabindex', '-1');
     }
+  };
+
+  const updateAddButtonState = () => {
+    setManageButtonState(addButton);
+    setManageButtonState(bulkFeeButton);
   };
 
   const closeModal = () => {
     modal.hidden = true;
-    document.body.classList.remove('modal-open');
+    syncModalOpenState();
     form.reset();
     delete form.dataset.editingId;
     resetFeeManagers();
+  };
+
+  const closeBulkModal = () => {
+    if (!bulkModal) return;
+    bulkModal.hidden = true;
+    bulkForm?.reset();
+    syncModalOpenState();
   };
 
   const fillForm = category => {
@@ -9586,13 +9621,26 @@ function handleCategoryActions() {
       if (submitBtn) submitBtn.textContent = 'Simpan';
     }
     modal.hidden = false;
-    document.body.classList.add('modal-open');
+    syncModalOpenState();
     focusNameField();
   };
 
+  const openBulkModal = () => {
+    if (!bulkModal) return;
+    bulkForm?.reset();
+    bulkModal.hidden = false;
+    syncModalOpenState();
+    if (bulkFields.label) {
+      requestAnimationFrame(() => bulkFields.label?.focus());
+    }
+  };
+
   const handleEscape = event => {
-    if (event.key === 'Escape' && !modal.hidden) {
+    if (event.key !== 'Escape') return;
+    if (!modal.hidden) {
       closeModal();
+    } else if (bulkModal && !bulkModal.hidden) {
+      closeBulkModal();
     }
   };
 
@@ -9602,13 +9650,115 @@ function handleCategoryActions() {
     }
     openModal();
   });
+  if (bulkFeeButton) {
+    bulkFeeButton.addEventListener('click', () => {
+      if (!requireCatalogManager('Silakan login untuk mengelola kategori.')) {
+        return;
+      }
+      openBulkModal();
+    });
+  }
   closeButtons.forEach(button => button.addEventListener('click', closeModal));
+  bulkCloseButtons.forEach(button => button.addEventListener('click', closeBulkModal));
   document.addEventListener('keydown', handleEscape);
   modal.addEventListener('click', event => {
     if (event.target === modal) {
       closeModal();
     }
   });
+  if (bulkModal) {
+    bulkModal.addEventListener('click', event => {
+      if (event.target === bulkModal) {
+        closeBulkModal();
+      }
+    });
+  }
+
+  if (bulkForm) {
+    bulkForm.addEventListener('submit', async event => {
+      event.preventDefault();
+
+      if (!requireCatalogManager('Silakan login untuk mengelola kategori.')) {
+        return;
+      }
+
+      const component = normalizeFeeComponent({
+        label: bulkFields.label?.value,
+        percent: bulkFields.percent?.value,
+        min: bulkFields.min?.value,
+        max: bulkFields.max?.value,
+        flat: bulkFields.flat?.value
+      });
+
+      if (!component) {
+        toast.show('Isi minimal satu nilai komponen fee.');
+        bulkFields.label?.focus();
+        return;
+      }
+
+      const targetMarketplace = (bulkMarketplaceSelect?.value ?? 'marketplace').toString();
+      const categories = getCategories();
+
+      if (!categories.length) {
+        toast.show('Belum ada kategori untuk diperbarui.');
+        return;
+      }
+
+      const timestamp = Date.now();
+      const updatedCategories = categories.map(category => {
+        const normalizedFees = normalizeFeeField(category.fees?.[targetMarketplace]);
+        const updatedComponents = [...(normalizedFees.components ?? []), component];
+
+        return {
+          ...category,
+          fees: {
+            ...(category.fees ?? {}),
+            [targetMarketplace]: {
+              summary: normalizedFees.summary,
+              components: updatedComponents
+            }
+          },
+          updatedAt: timestamp,
+          createdAt: category.createdAt ?? timestamp
+        };
+      });
+
+      let supabaseFailed = false;
+      if (bulkSubmitBtn) {
+        bulkSubmitBtn.disabled = true;
+        bulkSubmitBtn.classList.add('is-loading');
+      }
+
+      for (const updatedCategory of updatedCategories) {
+        try {
+          await upsertCategoryToSupabase(updatedCategory);
+        } catch (error) {
+          console.error('Gagal memperbarui kategori secara massal.', error);
+          supabaseFailed = true;
+        }
+      }
+
+      try {
+        if (!supabaseFailed) {
+          await refreshCategoriesFromSupabase();
+        } else {
+          saveCategories(updatedCategories);
+        }
+        renderCategories(getCurrentFilter());
+        closeBulkModal();
+        toast.show(
+          supabaseFailed
+            ? 'Komponen fee ditambahkan. Beberapa kategori belum tersinkron ke Supabase.'
+            : 'Komponen fee berhasil ditambahkan ke semua kategori.'
+        );
+      } finally {
+        if (bulkSubmitBtn) {
+          bulkSubmitBtn.disabled = false;
+          bulkSubmitBtn.classList.remove('is-loading');
+        }
+      }
+    });
+  }
 
   tableBody.addEventListener('click', async event => {
     const button = event.target.closest('[data-category-action]');
