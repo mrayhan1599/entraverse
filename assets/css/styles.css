@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --topbar-height: 80px;
   --color-bg: #f5f8ff;
   --color-surface: #ffffff;
   --color-surface-alt: #eef2ff;
@@ -372,7 +373,7 @@ textarea {
 .app-body {
   display: flex;
   flex: 1;
-  min-height: 0;
+  min-height: calc(100vh - var(--topbar-height));
   min-width: 0;
   position: relative;
 }
@@ -422,6 +423,16 @@ body.sidebar-open .sidebar-backdrop {
   overscroll-behavior: contain;
   transition: width 0.3s ease, flex-basis 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
   border-right: 1px solid var(--color-border);
+}
+
+@media (min-width: 961px) {
+  .sidebar {
+    position: sticky;
+    top: var(--topbar-height);
+    align-self: flex-start;
+    height: calc(100vh - var(--topbar-height));
+    overflow-y: auto;
+  }
 }
 
 .sidebar > * {
