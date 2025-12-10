@@ -350,6 +350,24 @@ async function upsertPurchaseOrders(client: SupabaseClient, orders: PurchaseOrde
     if (clearError) {
       throw new Error(`Gagal menandai purchase order usang: ${clearError.message}`)
     }
+
+    const { error: deleteItemsError } = await client
+      .from("purchase_order_items")
+      .delete()
+      .in("purchase_order_id", staleIds)
+
+    if (deleteItemsError) {
+      throw new Error(`Gagal menghapus item purchase order usang: ${deleteItemsError.message}`)
+    }
+
+    const { error: deleteOrdersError } = await client
+      .from("purchase_orders")
+      .delete()
+      .in("id", staleIds)
+
+    if (deleteOrdersError) {
+      throw new Error(`Gagal menghapus purchase order usang: ${deleteOrdersError.message}`)
+    }
   }
 
   return { inserted: mappedOrders.length, cleared: staleIds.length }
