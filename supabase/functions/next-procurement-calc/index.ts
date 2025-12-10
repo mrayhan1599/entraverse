@@ -85,12 +85,13 @@ async function fetchProducts(client: SupabaseClient) {
 }
 
 function computeNextProcurement(row: VariantPricingRow, today: Date) {
-  const startDate = toDateOnly(row.startDate ?? row.start_date)
-  const initialStock = parseNumber(row.initialStockPrediction ?? row.initial_stock_prediction)
-  if (initialStock === null) return null
+  const startDate = toDateOnly(row.startDate ?? row.start_date) ?? today
+  const parsedInitialStock = parseNumber(row.initialStockPrediction ?? row.initial_stock_prediction)
+  const initialStock = parsedInitialStock !== null && parsedInitialStock >= 0 ? parsedInitialStock : 0
 
-  const daysSinceStart = startDate ? calculateDaysSince(startDate, today) : null
-  if (daysSinceStart === null || daysSinceStart < 30) {
+  const daysSinceStart = calculateDaysSince(startDate, today)
+  if (daysSinceStart === null) return null
+  if (daysSinceStart < 30) {
     return formatResult(initialStock)
   }
 

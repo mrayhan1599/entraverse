@@ -11020,18 +11020,21 @@ async function handleAddProductForm() {
       return;
     }
 
-    const initialStock = parseNumericValue(
+    const parsedInitialStock = parseNumericValue(
       initialStockInput.dataset.numericValue ?? initialStockInput.value ?? ''
     );
+    const initialStock = Number.isFinite(parsedInitialStock) && parsedInitialStock >= 0
+      ? parsedInitialStock
+      : 0;
 
-    if (!Number.isFinite(initialStock) || initialStock < 0) {
+    const daysSinceStart = calculateDaysSince(startDateInput?.value ?? '');
+    if (daysSinceStart === null) {
       nextProcurementInput.value = '';
       delete nextProcurementInput.dataset.numericValue;
       return;
     }
 
-    const daysSinceStart = calculateDaysSince(startDateInput?.value ?? '');
-    if (daysSinceStart === null || daysSinceStart < 30) {
+    if (daysSinceStart < 30) {
       const formattedInitial = formatDecimalValue(initialStock);
       nextProcurementInput.value = formattedInitial;
       nextProcurementInput.dataset.numericValue = initialStock;
@@ -12338,6 +12341,7 @@ async function handleAddProductForm() {
         dailyAverageSalesPeriodB: (row.dailyAverageSalesPeriodB ?? '').toString().trim(),
         finalDailyAveragePerDay:
           formatDailyAverageSalesValue(parseNumericValue(row.finalDailyAveragePerDay ?? '')) ?? '',
+        startDate: formatDateForPicker(row.startDate ?? '') || '',
         initialStockPrediction: (row.initialStockPrediction ?? '').toString().trim(),
         leadTime: (row.leadTime ?? '').toString().trim(),
         reorderPoint: (row.reorderPoint ?? '').toString().trim(),
