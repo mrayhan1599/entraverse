@@ -5910,6 +5910,96 @@ function formatFeeNumber(value) {
   return numeric.toString();
 }
 
+function formatThousandSeparatedValue(rawValue) {
+  if (rawValue == null) {
+    return '';
+  }
+
+  const stringValue = rawValue.toString();
+  const sanitized = stringValue.replace(/[^0-9,]/g, '');
+  if (!sanitized) {
+    return '';
+  }
+
+  const [integerPartRaw, ...fractionalParts] = sanitized.split(',');
+  const hasComma = stringValue.includes(',');
+  const integerPart = (integerPartRaw ?? '').replace(/^0+(?=\d)/, '') || '0';
+  const fractionalPart = fractionalParts.join('');
+  const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+  if (hasComma) {
+    return fractionalPart ? `${groupedInteger},${fractionalPart}` : `${groupedInteger},`;
+  }
+
+  return groupedInteger;
+}
+
+function normalizePercentInputValue(rawValue) {
+  if (rawValue == null) {
+    return '';
+  }
+
+  const stringValue = rawValue.toString().replace(/[.]/g, ',');
+  const hasPercent = stringValue.trim().endsWith('%');
+  const sanitized = stringValue.replace(/[^0-9,]/g, '');
+  if (!sanitized && !hasPercent && !stringValue.includes(',')) {
+    return '';
+  }
+
+  const [integerPartRaw, ...fractionalParts] = sanitized.split(',');
+  const integerPart = (integerPartRaw ?? '').replace(/^0+(?=\d)/, '') || '0';
+  const fractionalPart = fractionalParts.join('');
+
+  let normalized = integerPart;
+  if (stringValue.includes(',')) {
+    normalized += fractionalPart ? `,${fractionalPart}` : ',';
+  }
+
+  if (hasPercent) {
+    normalized += '%';
+  }
+
+  return normalized;
+}
+
+function applyFeeFieldFormatters(container) {
+  if (!container) return;
+
+  container.querySelectorAll('[data-fee-field="percent"]').forEach(input => {
+    if (input.dataset.feeFormatterBound === 'true') return;
+    input.dataset.feeFormatterBound = 'true';
+    input.addEventListener('input', () => {
+      const cursorAtEnd = input.selectionStart === input.value.length;
+      input.value = normalizePercentInputValue(input.value);
+      if (cursorAtEnd) {
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    });
+    const normalized = normalizePercentInputValue(input.value);
+    if (normalized !== input.value) {
+      input.value = normalized;
+    }
+  });
+
+  ['min', 'max', 'flat'].forEach(field => {
+    container.querySelectorAll(`[data-fee-field="${field}"]`).forEach(input => {
+      if (input.dataset.feeFormatterBound === 'true') return;
+      input.dataset.feeFormatterBound = 'true';
+      input.addEventListener('input', () => {
+        const cursorAtEnd = input.selectionStart === input.value.length;
+        input.value = formatThousandSeparatedValue(input.value);
+        if (cursorAtEnd) {
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      });
+      const formatted = formatThousandSeparatedValue(input.value);
+      if (formatted !== input.value) {
+        input.value = formatted;
+      }
+    });
+  });
+}
+
 function formatFeeComponent(component) {
   const normalized = normalizeFeeComponent(component);
   if (!normalized) return '';
@@ -9385,13 +9475,7 @@ function handleCategoryActions() {
   const bulkSubmitBtn = bulkForm?.querySelector('button[type="submit"]');
   const searchInput = document.getElementById('search-input');
   const bulkMarketplaceSelect = document.getElementById('bulk-fee-marketplace');
-  const bulkFields = {
-    label: document.getElementById('bulk-fee-label'),
-    percent: document.getElementById('bulk-fee-percent'),
-    min: document.getElementById('bulk-fee-min'),
-    max: document.getElementById('bulk-fee-max'),
-    flat: document.getElementById('bulk-fee-flat')
-  };
+  const bulkSummaryInput = document.getElementById('bulk-fee-summary');
 
   const createFeeComponentManager = (type, summaryInput) => {
     const builder = form.querySelector(`[data-fee-builder="${type}"]`);
@@ -9454,6 +9538,7 @@ function handleCategoryActions() {
           <button class="fee-component__remove" type="button" data-remove-fee>Hapus</button>
         </div>
       `;
+      applyFeeFieldFormatters(row);
       list.appendChild(row);
       refreshEmptyState();
     };
@@ -9522,10 +9607,58 @@ function handleCategoryActions() {
     entraverse: createFeeComponentManager('entraverse', entraverseInput)
   };
 
+  const bulkFeeManager = createFeeComponentManager('bulk', bulkSummaryInput);
+  const bulkMarketplaceDrafts = new Map();
+
   const getCurrentFilter = () => (searchInput?.value ?? '').toString();
 
   const resetFeeManagers = () => {
     Object.values(feeManagers).forEach(manager => manager?.reset());
+  };
+
+  const resetBulkManager = () => {
+    bulkMarketplaceDrafts.clear();
+    bulkFeeManager?.reset?.();
+  };
+
+  const resolveBulkTemplate = marketplace => {
+    const categories = getCategories();
+    let template = { summary: '', components: [] };
+
+    for (const category of categories) {
+      const normalized = normalizeFeeField(category.fees?.[marketplace]);
+      if (normalized.summary && !template.summary) {
+        template.summary = normalized.summary;
+      }
+
+      if ((normalized.components?.length ?? 0) >= (template.components?.length ?? 0)) {
+        template = {
+          summary: normalized.summary ?? template.summary,
+          components: (normalized.components ?? []).map(item => ({ ...item }))
+        };
+      }
+    }
+
+    return template;
+  };
+
+  const captureBulkDraft = () => {
+    if (!bulkMarketplaceSelect || !bulkFeeManager) return;
+    const marketplace = bulkMarketplaceSelect.value || 'marketplace';
+    bulkMarketplaceDrafts.set(marketplace, {
+      summary: bulkFeeManager.summaryInput?.value ?? '',
+      components: bulkFeeManager.getComponents()
+    });
+  };
+
+  const hydrateBulkFormForMarketplace = marketplace => {
+    const template = bulkMarketplaceDrafts.get(marketplace) ?? resolveBulkTemplate(marketplace);
+
+    if (bulkFeeManager?.summaryInput) {
+      bulkFeeManager.summaryInput.value = template.summary ?? '';
+    }
+
+    bulkFeeManager?.setComponents?.(template.components ?? []);
   };
 
   const syncModalOpenState = () => {
@@ -9568,6 +9701,7 @@ function handleCategoryActions() {
     if (!bulkModal) return;
     bulkModal.hidden = true;
     bulkForm?.reset();
+    resetBulkManager();
     syncModalOpenState();
   };
 
@@ -9628,10 +9762,13 @@ function handleCategoryActions() {
   const openBulkModal = () => {
     if (!bulkModal) return;
     bulkForm?.reset();
+    resetBulkManager();
     bulkModal.hidden = false;
+    const marketplace = bulkMarketplaceSelect?.value || 'marketplace';
+    hydrateBulkFormForMarketplace(marketplace);
     syncModalOpenState();
-    if (bulkFields.label) {
-      requestAnimationFrame(() => bulkFields.label?.focus());
+    if (bulkSummaryInput) {
+      requestAnimationFrame(() => bulkSummaryInput?.focus());
     }
   };
 
@@ -9658,6 +9795,12 @@ function handleCategoryActions() {
       openBulkModal();
     });
   }
+  if (bulkMarketplaceSelect) {
+    bulkMarketplaceSelect.addEventListener('change', event => {
+      captureBulkDraft();
+      hydrateBulkFormForMarketplace(event.target.value || 'marketplace');
+    });
+  }
   closeButtons.forEach(button => button.addEventListener('click', closeModal));
   bulkCloseButtons.forEach(button => button.addEventListener('click', closeBulkModal));
   document.addEventListener('keydown', handleEscape);
@@ -9682,17 +9825,12 @@ function handleCategoryActions() {
         return;
       }
 
-      const component = normalizeFeeComponent({
-        label: bulkFields.label?.value,
-        percent: bulkFields.percent?.value,
-        min: bulkFields.min?.value,
-        max: bulkFields.max?.value,
-        flat: bulkFields.flat?.value
-      });
+      const summary = (bulkSummaryInput?.value ?? '').toString().trim();
+      const components = bulkFeeManager?.getComponents?.() ?? [];
 
-      if (!component) {
-        toast.show('Isi minimal satu nilai komponen fee.');
-        bulkFields.label?.focus();
+      if (!components.length && !summary) {
+        toast.show('Isi minimal satu nilai komponen atau ringkasan fee.');
+        bulkSummaryInput?.focus();
         return;
       }
 
@@ -9707,14 +9845,14 @@ function handleCategoryActions() {
       const timestamp = Date.now();
       const updatedCategories = categories.map(category => {
         const normalizedFees = normalizeFeeField(category.fees?.[targetMarketplace]);
-        const updatedComponents = [...(normalizedFees.components ?? []), component];
+        const updatedComponents = (components ?? []).map(item => ({ ...item }));
 
         return {
           ...category,
           fees: {
             ...(category.fees ?? {}),
             [targetMarketplace]: {
-              summary: normalizedFees.summary,
+              summary: summary || normalizedFees.summary,
               components: updatedComponents
             }
           },
@@ -9748,8 +9886,8 @@ function handleCategoryActions() {
         closeBulkModal();
         toast.show(
           supabaseFailed
-            ? 'Komponen fee ditambahkan. Beberapa kategori belum tersinkron ke Supabase.'
-            : 'Komponen fee berhasil ditambahkan ke semua kategori.'
+            ? 'Komponen fee diperbarui. Beberapa kategori belum tersinkron ke Supabase.'
+            : 'Komponen fee berhasil diperbarui untuk semua kategori.'
         );
       } finally {
         if (bulkSubmitBtn) {

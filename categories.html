@@ -111,7 +111,7 @@
             <h1>Kategori</h1>
             <div class="title-actions" role="toolbar" aria-label="Aksi kategori">
               <button id="bulk-fee-btn" class="btn ghost-btn small" type="button">
-                ✨ Tambah Komponen Fee Masal
+                ✨ Edit Komponen Fee Massal
               </button>
               <button id="add-category-btn" class="btn primary-btn small" type="button">+ Tambah Kategori</button>
             </div>
@@ -155,11 +155,11 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bulk-fee-modal-title">
         <form id="bulk-fee-form" class="modal-form">
           <div class="modal-header">
-            <h2 id="bulk-fee-modal-title">Tambah Komponen Fee Masal</h2>
+            <h2 id="bulk-fee-modal-title">Edit Komponen Fee Massal</h2>
             <button class="icon-btn small" type="button" data-close-bulk-modal aria-label="Tutup formulir">✕</button>
           </div>
           <div class="modal-body">
-            <p class="helper-text">Tambahkan satu komponen fee ke seluruh kategori sekaligus dan simpan ke Supabase.</p>
+            <p class="helper-text">Kelola dan perbarui komponen fee untuk semua kategori sekaligus.</p>
             <div class="form-group">
               <label for="bulk-fee-marketplace">Pilih Marketplace</label>
               <select id="bulk-fee-marketplace" name="marketplace" required>
@@ -168,27 +168,20 @@
                 <option value="entraverse">Entraverse ID</option>
               </select>
             </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="bulk-fee-label">Nama Komponen</label>
-                <input type="text" id="bulk-fee-label" name="label" placeholder="Biaya layanan" required>
+            <div class="form-group">
+              <label for="bulk-fee-summary">Ringkasan Fee</label>
+              <input type="text" id="bulk-fee-summary" name="summary" placeholder="Misal 10,3%">
+            </div>
+            <div class="fee-builder" data-fee-builder="bulk">
+              <div class="fee-builder__header">
+                <p class="helper-text">Ubah atau tambah komponen fee (persentase, batas minimum/maksimum, fee tetap).</p>
+                <button class="btn ghost-btn small fee-builder__add" type="button" data-add-fee>
+                  <span aria-hidden="true">＋</span>
+                  <span>Tambah komponen fee</span>
+                </button>
               </div>
-              <div class="form-group">
-                <label for="bulk-fee-percent">Persentase</label>
-                <input type="text" id="bulk-fee-percent" name="percent" placeholder="Misal 1.8%">
-              </div>
-              <div class="form-group">
-                <label for="bulk-fee-min">Potongan Minimum</label>
-                <input type="text" id="bulk-fee-min" name="min" placeholder="Opsional">
-              </div>
-              <div class="form-group">
-                <label for="bulk-fee-max">Potongan Maksimum</label>
-                <input type="text" id="bulk-fee-max" name="max" placeholder="Opsional">
-              </div>
-              <div class="form-group">
-                <label for="bulk-fee-flat">Fee Tetap</label>
-                <input type="text" id="bulk-fee-flat" name="flat" placeholder="Misal 1.250">
-              </div>
+              <div class="fee-builder__list" data-fee-list></div>
+              <p class="fee-builder__empty" data-fee-empty>Belum ada komponen tambahan.</p>
             </div>
           </div>
           <div class="modal-actions">
