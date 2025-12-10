@@ -375,7 +375,6 @@ textarea {
   min-height: 0;
   min-width: 0;
   position: relative;
-  align-items: flex-start;
 }
 
 .main-content {
@@ -410,8 +409,7 @@ body.sidebar-open .sidebar-backdrop {
 }
 
 .sidebar {
-  position: sticky;
-  top: 24px;
+  position: relative;
   width: var(--sidebar-width);
   flex: 0 0 var(--sidebar-width);
   background: var(--color-sidebar);
@@ -421,8 +419,6 @@ body.sidebar-open .sidebar-backdrop {
   padding: 32px 24px 24px;
   gap: 24px;
   overflow-x: hidden;
-  overflow-y: auto;
-  max-height: calc(100vh - 48px);
   overscroll-behavior: contain;
   transition: width 0.3s ease, flex-basis 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
   border-right: 1px solid var(--color-border);
@@ -434,7 +430,7 @@ body.sidebar-open .sidebar-backdrop {
 }
 
 .sidebar-collapse-toggle {
-  position: sticky;
+  position: absolute;
   top: 28px;
   left: calc(var(--sidebar-width) - 16px);
   width: 36px;
