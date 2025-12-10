@@ -171,6 +171,74 @@ a:hover {
   gap: 16px;
 }
 
+.fee-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--color-border-stronger);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+
+.fee-builder__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fee-builder__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fee-builder__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.fee-component {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.fee-component__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.fee-component__remove {
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.fee-component__remove:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.fee-component__label {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;

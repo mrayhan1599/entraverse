@@ -332,63 +332,99 @@ const DEFAULT_CATEGORIES = [
     id: 'cat-virtual-reality',
     name: 'Virtual Reality',
     note: 'Headset, controller, dan aksesoris AR/VR',
-    fees: { marketplace: '10.3%', shopee: '8.0%', entraverse: '8.00%' },
+    fees: {
+      marketplace: { summary: '10.3%', components: [] },
+      shopee: { summary: '8.0%', components: [] },
+      entraverse: { summary: '8.00%', components: [] }
+    },
     margin: { value: '10.00%', note: '+1.2% vs bulan lalu' }
   },
   {
     id: 'cat-konsol-game',
     name: 'Konsol Game',
     note: 'PlayStation, Xbox, dan Nintendo resmi',
-    fees: { marketplace: '10.3%', shopee: '8.0%', entraverse: '8.00%' },
+    fees: {
+      marketplace: { summary: '10.3%', components: [] },
+      shopee: { summary: '8.0%', components: [] },
+      entraverse: { summary: '8.00%', components: [] }
+    },
     margin: { value: '9.40%', note: '+0.5% dibanding Q1' }
   },
   {
     id: 'cat-handphone',
     name: 'Handphone',
     note: 'Smartphone flagship & mid-range',
-    fees: { marketplace: '9.5%', shopee: '7.5%', entraverse: '7.40%' },
+    fees: {
+      marketplace: { summary: '9.5%', components: [] },
+      shopee: { summary: '7.5%', components: [] },
+      entraverse: { summary: '7.40%', components: [] }
+    },
     margin: { value: '8.20%', note: '-0.3% vs bulan lalu' }
   },
   {
     id: 'cat-laptop',
     name: 'Laptop',
     note: 'Laptop consumer dan bisnis',
-    fees: { marketplace: '10.0%', shopee: '8.0%', entraverse: '8.25%' },
+    fees: {
+      marketplace: { summary: '10.0%', components: [] },
+      shopee: { summary: '8.0%', components: [] },
+      entraverse: { summary: '8.25%', components: [] }
+    },
     margin: { value: '11.40%', note: '+0.8% vs bulan lalu' }
   },
   {
     id: 'cat-tablet',
     name: 'Tablet',
     note: 'Tablet Android & iPad',
-    fees: { marketplace: '9.8%', shopee: '7.8%', entraverse: '7.90%' },
+    fees: {
+      marketplace: { summary: '9.8%', components: [] },
+      shopee: { summary: '7.8%', components: [] },
+      entraverse: { summary: '7.90%', components: [] }
+    },
     margin: { value: '9.75%', note: '+0.2% vs bulan lalu' }
   },
   {
     id: 'cat-audio',
     name: 'Audio',
     note: 'Headphone, speaker, dan audio pro',
-    fees: { marketplace: '8.5%', shopee: '7.0%', entraverse: '7.10%' },
+    fees: {
+      marketplace: { summary: '8.5%', components: [] },
+      shopee: { summary: '7.0%', components: [] },
+      entraverse: { summary: '7.10%', components: [] }
+    },
     margin: { value: '12.60%', note: '+1.0% dibanding Q1' }
   },
   {
     id: 'cat-smart-home',
     name: 'Smart Home',
     note: 'Perangkat IoT & otomasi rumah',
-    fees: { marketplace: '8.0%', shopee: '6.5%', entraverse: '6.75%' },
+    fees: {
+      marketplace: { summary: '8.0%', components: [] },
+      shopee: { summary: '6.5%', components: [] },
+      entraverse: { summary: '6.75%', components: [] }
+    },
     margin: { value: '13.20%', note: '+1.8% vs bulan lalu' }
   },
   {
     id: 'cat-outdoor-outtam',
     name: 'Outdoor - Outtam',
     note: 'Peralatan outdoor & travelling',
-    fees: { marketplace: '7.5%', shopee: '6.2%', entraverse: '6.40%' },
+    fees: {
+      marketplace: { summary: '7.5%', components: [] },
+      shopee: { summary: '6.2%', components: [] },
+      entraverse: { summary: '6.40%', components: [] }
+    },
     margin: { value: '10.80%', note: '+0.6% dibanding Q1' }
   },
   {
     id: 'cat-aksesoris',
     name: 'Aksesoris',
     note: 'Aksesoris gadget & lifestyle',
-    fees: { marketplace: '8.8%', shopee: '6.9%', entraverse: '7.10%' },
+    fees: {
+      marketplace: { summary: '8.8%', components: [] },
+      shopee: { summary: '6.9%', components: [] },
+      entraverse: { summary: '7.10%', components: [] }
+    },
     margin: { value: '9.10%', note: '-0.2% vs bulan lalu' }
   }
 ];
@@ -2648,15 +2684,18 @@ function mapSupabaseCategory(record) {
   const margin = typeof record.margin === 'object' && record.margin ? record.margin : {};
   const marginNote =
     margin.note ?? margin.margin_note ?? (typeof record.margin_note === 'string' ? record.margin_note : '');
+  const marketplaceFee = normalizeFeeField(fees.marketplace);
+  const shopeeFee = normalizeFeeField(fees.shopee);
+  const entraverseFee = normalizeFeeField(fees.entraverse);
 
   return {
     id: record.id,
     name: record.name ?? '',
     note: record.note ?? '',
     fees: {
-      marketplace: fees.marketplace ?? '',
-      shopee: fees.shopee ?? '',
-      entraverse: fees.entraverse ?? ''
+      marketplace: marketplaceFee,
+      shopee: shopeeFee,
+      entraverse: entraverseFee
     },
     margin: {
       value: margin.value ?? '',
@@ -2671,14 +2710,23 @@ function mapCategoryToRecord(category) {
   const fees = category.fees ?? {};
   const margin = category.margin ?? {};
 
+  const mapFeeField = value => {
+    const normalized = normalizeFeeField(value);
+    return {
+      summary: normalized.summary,
+      value: normalized.summary,
+      components: normalized.components
+    };
+  };
+
   return {
     id: category.id,
     name: category.name,
     note: category.note || null,
     fees: {
-      marketplace: fees.marketplace ?? '',
-      shopee: fees.shopee ?? '',
-      entraverse: fees.entraverse ?? ''
+      marketplace: mapFeeField(fees.marketplace),
+      shopee: mapFeeField(fees.shopee),
+      entraverse: mapFeeField(fees.entraverse)
     },
     margin: {
       value: margin.value ?? '',
@@ -5811,6 +5859,126 @@ function parseNumericValue(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeFeeComponent(component) {
+  if (!component || typeof component !== 'object') {
+    return null;
+  }
+
+  const normalized = {
+    label: (component.label ?? component.name ?? '').toString().trim(),
+    percent: (component.percent ?? component.rate ?? '').toString().trim(),
+    min: (component.min ?? component.minCap ?? component.minimum ?? '').toString().trim(),
+    max: (component.max ?? component.maxCap ?? component.maximum ?? '').toString().trim(),
+    flat: (component.flat ?? component.fixed ?? component.fixedFee ?? '').toString().trim()
+  };
+
+  const hasValue = [normalized.label, normalized.percent, normalized.min, normalized.max, normalized.flat].some(
+    value => Boolean(value)
+  );
+
+  return hasValue ? normalized : null;
+}
+
+function normalizeFeeField(value) {
+  if (value && typeof value === 'object') {
+    const components = Array.isArray(value.components)
+      ? value.components.map(normalizeFeeComponent).filter(Boolean)
+      : [];
+
+    return {
+      summary: (value.summary ?? value.value ?? value.total ?? '').toString().trim(),
+      components
+    };
+  }
+
+  return {
+    summary: (value ?? '').toString().trim(),
+    components: []
+  };
+}
+
+function formatFeeNumber(value) {
+  const numeric = parseNumericValue(value);
+  if (!Number.isFinite(numeric)) {
+    return (value ?? '').toString().trim();
+  }
+
+  if (Math.abs(numeric) >= 1000) {
+    return formatCurrency(Math.round(numeric));
+  }
+
+  return numeric.toString();
+}
+
+function formatFeeComponent(component) {
+  const normalized = normalizeFeeComponent(component);
+  if (!normalized) return '';
+
+  const { label, percent, min, max, flat } = normalized;
+  const details = [];
+
+  if (percent) {
+    details.push(percent);
+  }
+
+  const caps = [];
+  if (min) {
+    caps.push(`min ${formatFeeNumber(min)}`);
+  }
+  if (max) {
+    caps.push(`max ${formatFeeNumber(max)}`);
+  }
+  if (caps.length) {
+    details.push(caps.join(', '));
+  }
+
+  if (flat) {
+    const formattedFlat = formatFeeNumber(flat);
+    details.push(`fee tetap ${formattedFlat}`);
+  }
+
+  const descriptor = label || 'Fee tambahan';
+  if (!details.length) {
+    return descriptor;
+  }
+
+  return `${descriptor}: ${details.join(' • ')}`;
+}
+
+function formatFeeDisplay(value) {
+  const normalized = normalizeFeeField(value);
+  const parts = normalized.components.map(formatFeeComponent).filter(Boolean);
+
+  if (normalized.summary) {
+    parts.push(normalized.summary);
+  }
+
+  return parts.length ? parts.join(' + ') : '-';
+}
+
+function toPercentDecimal(value) {
+  const numeric = parseNumericValue(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  if (numeric >= 0 && numeric <= 1) {
+    return numeric;
+  }
+
+  return Math.max(0, numeric / 100);
+}
+
+function getFeePercentTotal(value) {
+  const normalized = normalizeFeeField(value);
+
+  if (normalized.components.length) {
+    return normalized.components.reduce((total, component) => total + toPercentDecimal(component?.percent ?? 0), 0);
+  }
+
+  return toPercentDecimal(normalized.summary ?? 0);
+}
+
 function normalizeSku(value) {
   if (value === null || value === undefined) {
     return '';
@@ -7555,9 +7723,9 @@ function renderCategories(filterText = '') {
 
       row.innerHTML = `
         <td><strong>${escapeHtml(category.name ?? '')}</strong></td>
-        <td><span class="fee-chip">${escapeHtml(category.fees?.marketplace ?? '-')}</span></td>
-        <td><span class="fee-chip">${escapeHtml(category.fees?.shopee ?? '-')}</span></td>
-        <td><span class="fee-chip">${escapeHtml(category.fees?.entraverse ?? '-')}</span></td>
+        <td><span class="fee-chip">${escapeHtml(formatFeeDisplay(category.fees?.marketplace))}</span></td>
+        <td><span class="fee-chip">${escapeHtml(formatFeeDisplay(category.fees?.shopee))}</span></td>
+        <td><span class="fee-chip">${escapeHtml(formatFeeDisplay(category.fees?.entraverse))}</span></td>
         <td class="category-margin"><span class="fee-chip fee-chip--highlight">${escapeHtml(category.margin?.value ?? '-')}</span></td>
         <td>${actionContent}</td>
       `;
@@ -9212,7 +9380,140 @@ function handleCategoryActions() {
   const submitBtn = form.querySelector('button[type="submit"]');
   const searchInput = document.getElementById('search-input');
 
+  const createFeeComponentManager = (type, summaryInput) => {
+    const builder = form.querySelector(`[data-fee-builder="${type}"]`);
+    if (!builder) return null;
+
+    const list = builder.querySelector('[data-fee-list]');
+    const emptyState = builder.querySelector('[data-fee-empty]');
+
+    const refreshEmptyState = () => {
+      if (!emptyState) return;
+      const hasItems = Boolean(list?.querySelector('[data-fee-item]'));
+      emptyState.hidden = hasItems;
+    };
+
+    const addComponent = (component = {}) => {
+      if (!list) return;
+      const normalized = normalizeFeeComponent(component) || {
+        label: '',
+        percent: '',
+        min: '',
+        max: '',
+        flat: ''
+      };
+
+      const row = document.createElement('div');
+      row.className = 'fee-component';
+      row.dataset.feeItem = 'true';
+      row.innerHTML = `
+        <div class="form-group">
+          <label class="fee-component__label">Nama Komponen</label>
+          <input type="text" data-fee-field="label" placeholder="Biaya layanan" value="${escapeHtml(
+            normalized.label
+          )}">
+        </div>
+        <div class="form-group">
+          <label class="fee-component__label">Persentase</label>
+          <input type="text" data-fee-field="percent" placeholder="Misal 1.8%" value="${escapeHtml(
+            normalized.percent
+          )}">
+        </div>
+        <div class="form-group">
+          <label class="fee-component__label">Potongan Minimum</label>
+          <input type="text" data-fee-field="min" placeholder="Opsional" value="${escapeHtml(
+            normalized.min
+          )}">
+        </div>
+        <div class="form-group">
+          <label class="fee-component__label">Potongan Maksimum</label>
+          <input type="text" data-fee-field="max" placeholder="Opsional" value="${escapeHtml(
+            normalized.max
+          )}">
+        </div>
+        <div class="form-group">
+          <label class="fee-component__label">Fee Tetap</label>
+          <input type="text" data-fee-field="flat" placeholder="Misal 1.250" value="${escapeHtml(
+            normalized.flat
+          )}">
+        </div>
+        <div class="fee-component__actions">
+          <button class="fee-component__remove" type="button" data-remove-fee>Hapus</button>
+        </div>
+      `;
+      list.appendChild(row);
+      refreshEmptyState();
+    };
+
+    builder.addEventListener('click', event => {
+      const target = event.target.closest('[data-add-fee],[data-remove-fee]');
+      if (!target) return;
+
+      if (target.dataset.addFee !== undefined) {
+        event.preventDefault();
+        addComponent();
+        return;
+      }
+
+      if (target.dataset.removeFee !== undefined) {
+        event.preventDefault();
+        const row = target.closest('[data-fee-item]');
+        if (row && list) {
+          row.remove();
+          refreshEmptyState();
+        }
+      }
+    });
+
+    const setComponents = components => {
+      if (list) list.innerHTML = '';
+      (components ?? []).forEach(addComponent);
+      refreshEmptyState();
+    };
+
+    const getComponents = () => {
+      if (!list) return [];
+      return Array.from(list.querySelectorAll('[data-fee-item]'))
+        .map(row => {
+          const getValue = field => row.querySelector(`[data-fee-field="${field}"]`)?.value ?? '';
+          return normalizeFeeComponent({
+            label: getValue('label'),
+            percent: getValue('percent'),
+            min: getValue('min'),
+            max: getValue('max'),
+            flat: getValue('flat')
+          });
+        })
+        .filter(Boolean);
+    };
+
+    refreshEmptyState();
+
+    return {
+      summaryInput,
+      addComponent,
+      setComponents,
+      getComponents,
+      reset() {
+        if (summaryInput) {
+          summaryInput.value = '';
+        }
+        setComponents([]);
+      }
+    };
+  };
+
+  const feeManagers = {
+    marketplace: createFeeComponentManager('marketplace', marketplaceInput),
+    shopee: createFeeComponentManager('shopee', shopeeInput),
+    entraverse: createFeeComponentManager('entraverse', entraverseInput)
+  };
+
   const getCurrentFilter = () => (searchInput?.value ?? '').toString();
+
+  const resetFeeManagers = () => {
+    Object.values(feeManagers).forEach(manager => manager?.reset());
+  };
 
   const updateAddButtonState = () => {
     const canManage = canManageCatalog();
@@ -9232,19 +9533,33 @@ function handleCategoryActions() {
     document.body.classList.remove('modal-open');
     form.reset();
     delete form.dataset.editingId;
+    resetFeeManagers();
   };
 
   const fillForm = category => {
     if (!category) {
       form.reset();
+      resetFeeManagers();
       return;
     }
 
     if (nameInput) nameInput.value = category.name ?? '';
     if (noteInput) noteInput.value = category.note ?? '';
-    if (marketplaceInput) marketplaceInput.value = category.fees?.marketplace ?? '';
-    if (shopeeInput) shopeeInput.value = category.fees?.shopee ?? '';
-    if (entraverseInput) entraverseInput.value = category.fees?.entraverse ?? '';
+    if (feeManagers.marketplace) {
+      const normalized = normalizeFeeField(category.fees?.marketplace);
+      if (marketplaceInput) marketplaceInput.value = normalized.summary;
+      feeManagers.marketplace.setComponents(normalized.components);
+    }
+    if (feeManagers.shopee) {
+      const normalized = normalizeFeeField(category.fees?.shopee);
+      if (shopeeInput) shopeeInput.value = normalized.summary;
+      feeManagers.shopee.setComponents(normalized.components);
+    }
+    if (feeManagers.entraverse) {
+      const normalized = normalizeFeeField(category.fees?.entraverse);
+      if (entraverseInput) entraverseInput.value = normalized.summary;
+      feeManagers.entraverse.setComponents(normalized.components);
+    }
     if (marginValueInput) marginValueInput.value = category.margin?.value ?? '';
   };
 
@@ -9259,6 +9574,7 @@ function handleCategoryActions() {
   const openModal = category => {
     const isEditing = Boolean(category);
     form.reset();
+    resetFeeManagers();
     if (isEditing) {
       form.dataset.editingId = category.id;
       modalTitle.textContent = 'Edit Kategori';
@@ -9343,10 +9659,14 @@ function handleCategoryActions() {
     const formData = new FormData(form);
     const name = (formData.get('name') ?? '').toString().trim();
     const note = (formData.get('note') ?? '').toString().trim();
-    const feeMarketplace = (formData.get('feeMarketplace') ?? '').toString().trim();
-    const feeShopee = (formData.get('feeShopee') ?? '').toString().trim();
-    const feeEntraverse = (formData.get('feeEntraverse') ?? '').toString().trim();
     const marginValue = (formData.get('marginValue') ?? '').toString().trim();
+
+    const buildFeePayload = type => {
+      const manager = feeManagers[type];
+      const summary = (manager?.summaryInput?.value ?? '').toString().trim();
+      const components = manager?.getComponents?.() ?? [];
+      return { summary, value: summary, components };
+    };
 
     if (!name) {
       toast.show('Nama kategori wajib diisi.');
@@ -9383,9 +9703,9 @@ function handleCategoryActions() {
       name,
       note,
       fees: {
-        marketplace: feeMarketplace,
-        shopee: feeShopee,
-        entraverse: feeEntraverse
+        marketplace: buildFeePayload('marketplace'),
+        shopee: buildFeePayload('shopee'),
+        entraverse: buildFeePayload('entraverse')
       },
       margin: {
         value: marginValue,
@@ -10485,7 +10805,7 @@ async function handleAddProductForm() {
 
     const category = getSelectedCategoryConfig();
     const marginRate = parsePercentToDecimal(category?.margin?.value ?? 0, 0);
-    const marketplaceFee = parsePercentToDecimal(category?.fees?.marketplace ?? 0, 0);
+    const marketplaceFee = getFeePercentTotal(category?.fees?.marketplace);
     const hasWarranty = hasWarrantyForRow(row);
 
     const offlinePrice = calculateOfflinePrice(idrValue, marginRate, hasWarranty);

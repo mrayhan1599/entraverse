@@ -168,16 +168,40 @@
               <div class="form-group">
                 <label for="category-fee-marketplace">Fee Tokopedia &amp; Tiktok</label>
                 <input type="text" id="category-fee-marketplace" name="feeMarketplace" placeholder="Misal 10%">
+                <div class="fee-builder" data-fee-builder="marketplace">
+                  <div class="fee-builder__header">
+                    <p class="helper-text">Tambah beberapa komponen (persentase, batas, fee tetap) untuk marketplace.</p>
+                    <button class="link-btn" type="button" data-add-fee>+ Tambah komponen fee</button>
+                  </div>
+                  <div class="fee-builder__list" data-fee-list></div>
+                  <p class="fee-builder__empty" data-fee-empty>Belum ada komponen tambahan.</p>
+                </div>
               </div>
               <div class="form-group">
                 <label for="category-fee-shopee">Fee Shopee</label>
                 <input type="text" id="category-fee-shopee" name="feeShopee" placeholder="Misal 8%">
+                <div class="fee-builder" data-fee-builder="shopee">
+                  <div class="fee-builder__header">
+                    <p class="helper-text">Sisipkan biaya layanan, batas maksimum, dan fee tetap Shopee.</p>
+                    <button class="link-btn" type="button" data-add-fee>+ Tambah komponen fee</button>
+                  </div>
+                  <div class="fee-builder__list" data-fee-list></div>
+                  <p class="fee-builder__empty" data-fee-empty>Belum ada komponen tambahan.</p>
+                </div>
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
                 <label for="category-fee-entraverse">Fee Entraverse ID</label>
                 <input type="text" id="category-fee-entraverse" name="feeEntraverse" placeholder="Misal 7.5%">
+                <div class="fee-builder" data-fee-builder="entraverse">
+                  <div class="fee-builder__header">
+                    <p class="helper-text">Kelola kombinasi fee Entraverse ID untuk semua kategori.</p>
+                    <button class="link-btn" type="button" data-add-fee>+ Tambah komponen fee</button>
+                  </div>
+                  <div class="fee-builder__list" data-fee-list></div>
+                  <p class="fee-builder__empty" data-fee-empty>Belum ada komponen tambahan.</p>
+                </div>
               </div>
               <div class="form-group">
                 <label for="category-margin-value">Margin Keuntungan</label>
