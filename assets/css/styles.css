@@ -441,8 +441,8 @@ body.sidebar-open .sidebar-backdrop {
 }
 
 .sidebar-collapse-toggle {
-  position: absolute;
-  top: 28px;
+  position: fixed;
+  top: calc(var(--topbar-height) + 28px);
   left: calc(var(--sidebar-width) - 16px);
   width: 36px;
   height: 36px;
