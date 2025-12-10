@@ -2928,6 +2928,22 @@ function formatDateInputValue(value) {
   return `${day}/${month}/${year}`;
 }
 
+function formatDateForPicker(value) {
+  if (!value) {
+    return '';
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function getDaysInMonth(year, monthIndex) {
   const parsedYear = Number.parseInt(year, 10);
   const parsedMonth = Number.parseInt(monthIndex, 10);
@@ -3135,6 +3151,15 @@ function mapSupabaseProduct(record) {
       normalized.fifteenDayRequirement = rawFifteenDayRequirement;
     }
 
+    const rawStartDate = normalized.startDate ?? normalized.start_date;
+    if (rawStartDate !== undefined) {
+      normalized.startDate = formatDateForPicker(rawStartDate);
+    }
+
+    if ('start_date' in normalized) {
+      delete normalized.start_date;
+    }
+
     const rawInTransitStock = normalized.inTransitStock ?? normalized.in_transit_stock;
     if (rawInTransitStock !== undefined) {
       normalized.inTransitStock = rawInTransitStock;
@@ -3278,10 +3303,14 @@ function mapProductToRecord(product) {
         [
           ['fifteenDayRequirement', 'fifteen_day_requirement'],
           ['inTransitStock', 'in_transit_stock'],
-          ['nextProcurement', 'next_procurement']
+          ['nextProcurement', 'next_procurement'],
+          ['startDate', 'start_date']
         ].forEach(([camelKey, snakeKey]) => {
           if (camelKey in normalized) {
-            const value = normalized[camelKey];
+            let value = normalized[camelKey];
+            if (camelKey === 'startDate') {
+              value = formatDateForPicker(value) || null;
+            }
             if (value === undefined || value === null || value === '') {
               delete normalized[camelKey];
               if (snakeKey in normalized) delete normalized[snakeKey];
@@ -9758,6 +9787,48 @@ async function handleAddProductForm() {
     return numeric / 1_000_000;
   };
 
+  const parseDateOnlyValue = value => {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  };
+
+  const calculateDaysSince = dateValue => {
+    const parsed = parseDateOnlyValue(dateValue);
+    if (!parsed) {
+      return null;
+    }
+
+    const today = new Date();
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diff = todayOnly.getTime() - parsed.getTime();
+
+    if (!Number.isFinite(diff) || diff < 0) {
+      return null;
+    }
+
+    return Math.floor(diff / (24 * 60 * 60 * 1000));
+  };
+
+  const formatDecimalValue = value => {
+    if (!Number.isFinite(value)) {
+      return '';
+    }
+
+    const rounded = Math.round(value * 100) / 100;
+    return rounded
+      .toFixed(2)
+      .replace(/\.0+$/, '')
+      .replace(/\.([0-9])0$/, '.$1');
+  };
+
   const updatePackageVolume = ({ preferExisting = false } = {}) => {
     if (!packageVolumeInput) {
       return;
@@ -9909,7 +9980,8 @@ async function handleAddProductForm() {
     'shopeePrice',
     'stockOutFactorPeriodA',
     'stockOutFactorPeriodB',
-    'finalDailyAveragePerDay'
+    'finalDailyAveragePerDay',
+    'nextProcurement'
   ]);
 
   const STOCK_OUT_DATE_FIELDS = new Set(['stockOutDatePeriodA', 'stockOutDatePeriodB']);
@@ -10871,6 +10943,7 @@ async function handleAddProductForm() {
       } else {
         delete reorderInput.dataset.numericValue;
       }
+      updateNextProcurementForRow(row);
       return;
     }
 
@@ -10886,6 +10959,7 @@ async function handleAddProductForm() {
     if (!Number.isFinite(leadTime) || leadTime < 0 || !Number.isFinite(finalAverage) || finalAverage < 0) {
       reorderInput.value = '';
       delete reorderInput.dataset.numericValue;
+      updateNextProcurementForRow(row);
       return;
     }
 
@@ -10898,6 +10972,7 @@ async function handleAddProductForm() {
 
     reorderInput.value = formatted;
     reorderInput.dataset.numericValue = rounded;
+    updateNextProcurementForRow(row);
   };
 
   const updateFifteenDayRequirementForRow = row => {
@@ -10927,6 +11002,76 @@ async function handleAddProductForm() {
 
     requirementInput.value = formatted;
     requirementInput.dataset.numericValue = rounded;
+    updateNextProcurementForRow(row);
+  };
+
+  const updateNextProcurementForRow = row => {
+    if (!row) return;
+
+    const nextProcurementInput = row.querySelector('[data-field="nextProcurement"]');
+    const initialStockInput = row.querySelector('[data-field="initialStockPrediction"]');
+    const reorderPointInput = row.querySelector('[data-field="reorderPoint"]');
+    const requirementInput = row.querySelector('[data-field="fifteenDayRequirement"]');
+    const stockInput = row.querySelector('[data-field="stock"]');
+    const inTransitInput = row.querySelector('[data-field="inTransitStock"]');
+    const startDateInput = row.querySelector('[data-field="startDate"]');
+
+    if (!nextProcurementInput || !initialStockInput) {
+      return;
+    }
+
+    const initialStock = parseNumericValue(
+      initialStockInput.dataset.numericValue ?? initialStockInput.value ?? ''
+    );
+
+    if (!Number.isFinite(initialStock) || initialStock < 0) {
+      nextProcurementInput.value = '';
+      delete nextProcurementInput.dataset.numericValue;
+      return;
+    }
+
+    const daysSinceStart = calculateDaysSince(startDateInput?.value ?? '');
+    if (daysSinceStart === null || daysSinceStart < 30) {
+      const formattedInitial = formatDecimalValue(initialStock);
+      nextProcurementInput.value = formattedInitial;
+      nextProcurementInput.dataset.numericValue = initialStock;
+      return;
+    }
+
+    const reorderPoint = parseNumericValue(
+      reorderPointInput?.dataset.numericValue ?? reorderPointInput?.value ?? ''
+    );
+    const requirement = parseNumericValue(
+      requirementInput?.dataset.numericValue ?? requirementInput?.value ?? ''
+    );
+
+    if (!Number.isFinite(reorderPoint) || reorderPoint < 0 || !Number.isFinite(requirement) || requirement < 0) {
+      nextProcurementInput.value = '';
+      delete nextProcurementInput.dataset.numericValue;
+      return;
+    }
+
+    const currentStock = parseNumericValue(stockInput?.dataset.numericValue ?? stockInput?.value ?? '');
+    const inTransitStock = parseNumericValue(
+      inTransitInput?.dataset.numericValue ?? inTransitInput?.value ?? ''
+    );
+
+    const safeCurrentStock = Number.isFinite(currentStock) ? currentStock : 0;
+    const safeInTransit = Number.isFinite(inTransitStock) ? inTransitStock : 0;
+    const combinedStock = safeCurrentStock + safeInTransit;
+
+    let computed = combinedStock <= reorderPoint
+      ? requirement
+      : Math.max(requirement - (combinedStock - reorderPoint), 0);
+
+    if (!Number.isFinite(computed) || computed < 0) {
+      nextProcurementInput.value = '';
+      delete nextProcurementInput.dataset.numericValue;
+      return;
+    }
+
+    nextProcurementInput.dataset.numericValue = computed;
+    nextProcurementInput.value = formatDecimalValue(computed);
   };
 
   const updateFinalDailyAverageForRow = row => {
@@ -11019,6 +11164,7 @@ async function handleAddProductForm() {
         dailyAverageSalesPeriodA: getValue('[data-field="dailyAverageSalesPeriodA"]'),
         dailyAverageSalesPeriodB: getValue('[data-field="dailyAverageSalesPeriodB"]'),
         finalDailyAveragePerDay: getValue('[data-field="finalDailyAveragePerDay"]', { useDataset: true }),
+        startDate: getValue('[data-field="startDate"]'),
         initialStockPrediction: getValue('[data-field="initialStockPrediction"]'),
         leadTime: getValue('[data-field="leadTime"]'),
         reorderPoint: getValue('[data-field="reorderPoint"]', { useDataset: true }),
@@ -11181,6 +11327,12 @@ async function handleAddProductForm() {
         return;
       }
 
+      if (field === 'startDate') {
+        const formatted = formatDateForPicker(value) || formatDateForPicker(new Date());
+        input.value = formatted;
+        return;
+      }
+
       if (field === 'finalDailyAveragePerDay') {
         const numeric = parseNumericValue(value ?? '');
         const formatted = formatDailyAverageSalesValue(numeric);
@@ -11229,6 +11381,7 @@ async function handleAddProductForm() {
       'stockOutFactorPeriodA',
       'stockOutFactorPeriodB',
       'finalDailyAveragePerDay',
+      'startDate',
       'initialStockPrediction',
       'leadTime',
       'reorderPoint',
@@ -11478,6 +11631,7 @@ async function handleAddProductForm() {
     buildInputCell('stockOutDatePeriodB', '-');
     buildInputCell('stockOutFactorPeriodB', '0');
     buildInputCell('finalDailyAveragePerDay', '0', 'number');
+    buildInputCell('startDate', '', 'date');
     buildInputCell('initialStockPrediction', '0', 'number');
     buildInputCell('leadTime', '0', 'number');
     buildInputCell('reorderPoint', '0', 'number');
@@ -11521,9 +11675,34 @@ async function handleAddProductForm() {
 
     const stockInput = row.querySelector('[data-field="stock"]');
     if (stockInput) {
-      const handleStockUpdate = () => recordStockOutDateIfNeeded(row);
+      const handleStockUpdate = () => {
+        recordStockOutDateIfNeeded(row);
+        updateNextProcurementForRow(row);
+      };
       stockInput.addEventListener('change', handleStockUpdate);
       stockInput.addEventListener('blur', handleStockUpdate);
+    }
+
+    const startDateInput = row.querySelector('[data-field="startDate"]');
+    if (startDateInput) {
+      startDateInput.addEventListener('change', () => updateNextProcurementForRow(row));
+    }
+
+    const initialStockInput = row.querySelector('[data-field="initialStockPrediction"]');
+    if (initialStockInput) {
+      const handleInitialStockUpdate = () => {
+        const parsed = parseNumericValue(initialStockInput.value ?? '');
+        if (Number.isFinite(parsed)) {
+          initialStockInput.dataset.numericValue = parsed;
+        } else {
+          delete initialStockInput.dataset.numericValue;
+        }
+        updateNextProcurementForRow(row);
+      };
+
+      initialStockInput.addEventListener('input', handleInitialStockUpdate);
+      initialStockInput.addEventListener('change', handleInitialStockUpdate);
+      initialStockInput.addEventListener('blur', handleInitialStockUpdate);
     }
 
     ['stockOutDatePeriodA', 'stockOutDatePeriodB'].forEach(fieldName => {
@@ -11703,6 +11882,7 @@ async function handleAddProductForm() {
       'Tanggal Stok Habis Periode B',
       'Faktor Stok Habis Periode B',
       'Rata-Rata Penjualan per Hari Final',
+      'Start Date',
       'Prediksi Stok Awal',
       'Lead Time (hari)',
       'Reorder Point',
