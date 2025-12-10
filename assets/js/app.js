@@ -5867,6 +5867,7 @@ function formatLocalizedNumberInput(value, { allowDecimal = true } = {}) {
   let sanitized = value.toString().replace(/[^0-9.,]/g, '');
 
   if (allowDecimal) {
+    const hasTrailingComma = sanitized.endsWith(',');
     if (!sanitized.includes(',') && sanitized.includes('.')) {
       const firstDot = sanitized.indexOf('.');
       sanitized = `${sanitized.slice(0, firstDot)},${sanitized.slice(firstDot + 1).replace(/\./g, '')}`;
@@ -5877,7 +5878,15 @@ function formatLocalizedNumberInput(value, { allowDecimal = true } = {}) {
     const [integerPart = '', ...decimalParts] = sanitized.replace(/\./g, '').split(',');
     const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
     const decimal = decimalParts.join('');
-    return decimal ? `${groupedInteger},${decimal}` : groupedInteger;
+    if (decimal) {
+      return `${groupedInteger},${decimal}`;
+    }
+
+    if (hasTrailingComma) {
+      return `${groupedInteger},`;
+    }
+
+    return groupedInteger;
   }
 
   sanitized = sanitized.replace(/[^0-9]/g, '');
