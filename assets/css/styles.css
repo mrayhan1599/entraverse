@@ -424,16 +424,6 @@ body.sidebar-open .sidebar-backdrop {
   border-right: 1px solid var(--color-border);
 }
 
-@media (min-width: 961px) {
-  .sidebar {
-    position: sticky;
-    top: 0;
-    align-self: flex-start;
-    max-height: 100vh;
-    overflow-y: auto;
-  }
-}
-
 .sidebar > * {
   opacity: 1;
   transition: opacity 0.3s ease;
