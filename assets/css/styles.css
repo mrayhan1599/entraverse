@@ -426,12 +426,20 @@ body.sidebar-open .sidebar-backdrop {
 }
 
 @media (min-width: 961px) {
+  .app-body {
+    padding-left: var(--sidebar-width);
+  }
+
   .sidebar {
-    position: sticky;
+    position: fixed;
     top: var(--topbar-height);
-    align-self: flex-start;
+    left: 0;
     height: calc(100vh - var(--topbar-height));
-    overflow-y: auto;
+    overflow-y: hidden;
+  }
+
+  body.sidebar-collapsed .app-body {
+    padding-left: 0;
   }
 }
 
