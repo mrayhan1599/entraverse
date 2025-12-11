@@ -9,6 +9,14 @@ const STORAGE_KEYS = {
   salesReports: 'entraverse_sales_reports'
 };
 
+const USER_ROLES = Object.freeze({
+  admin: 'admin',
+  user: 'user'
+});
+
+const PRIMARY_ADMIN_EMAIL = 'rayhan1599@gmail.com';
+const PRIMARY_ADMIN_DEFAULT_PASSWORD = 'Entraverse123!';
+
 const GUEST_USER = Object.freeze({
   id: 'guest-user',
   name: 'Tamu Entraverse',
@@ -4312,6 +4320,16 @@ async function persistWarehouseMovementSnapshot(snapshot, { throwOnFailure = fal
   }
 }
 
+function normalizeUserRole(role) {
+  const normalized = (role ?? '').toString().trim().toLowerCase();
+  return normalized === USER_ROLES.admin ? USER_ROLES.admin : USER_ROLES.user;
+}
+
+function isPrimaryAdmin(user) {
+  const email = (user?.email ?? '').toString().toLowerCase();
+  return email === PRIMARY_ADMIN_EMAIL;
+}
+
 function sanitizeSessionUser(user) {
   if (!user) {
     return null;
@@ -4321,7 +4339,8 @@ function sanitizeSessionUser(user) {
     id: user.id,
     name: user.name ?? '',
     company: user.company ?? '',
-    email: user.email ?? ''
+    email: user.email ?? '',
+    role: normalizeUserRole(user.role)
   };
 }
 
@@ -4335,6 +4354,7 @@ function mapSupabaseUser(record) {
     name: record.name ?? '',
     company: record.company ?? '',
     email: record.email ?? '',
+    role: normalizeUserRole(record.role ?? (record.is_admin ? USER_ROLES.admin : USER_ROLES.user)),
     passwordHash: record.password_hash ?? '',
     createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
     updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
@@ -4347,6 +4367,8 @@ function mapUserToRecord(user) {
     name: user.name,
     company: user.company,
     email: user.email,
+    role: normalizeUserRole(user.role),
+    is_admin: normalizeUserRole(user.role) === USER_ROLES.admin,
     password_hash: user.passwordHash,
     created_at: toIsoTimestamp(user.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(user.updatedAt)
@@ -4395,6 +4417,73 @@ async function fetchUserById(id) {
   }
 
   return mapSupabaseUser(data);
+}
+
+async function fetchAllUsers() {
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(SUPABASE_TABLES.users)
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    if (isTableMissingError(error) || isPermissionDeniedError(error)) {
+      console.warn('Tabel pengguna tidak tersedia atau akses ditolak.', error);
+      return [];
+    }
+    throw error;
+  }
+
+  return Array.isArray(data) ? data.map(mapSupabaseUser).filter(Boolean) : [];
+}
+
+async function updateUserRole(userId, role) {
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const normalizedRole = normalizeUserRole(role);
+
+  const payload = sanitizeSupabasePayload(SUPABASE_TABLES.users, {
+    role: normalizedRole,
+    is_admin: normalizedRole === USER_ROLES.admin,
+    updated_at: new Date().toISOString()
+  });
+
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.users,
+    method: 'update',
+    payload,
+    transform: builder => builder.eq('id', userId).select().maybeSingle()
+  });
+
+  return mapSupabaseUser(data ?? { id: userId, role: normalizedRole });
+}
+
+async function ensurePrimaryAdminUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  const normalizedEmail = (user.email ?? '').toLowerCase();
+  if (normalizedEmail !== PRIMARY_ADMIN_EMAIL) {
+    return user;
+  }
+
+  if (normalizeUserRole(user.role) === USER_ROLES.admin) {
+    return user;
+  }
+
+  try {
+    const updated = await updateUserRole(user.id, USER_ROLES.admin);
+    if (updated) {
+      return updated;
+    }
+  } catch (error) {
+    console.warn('Gagal memperbarui peran admin utama.', error);
+  }
+
+  return { ...user, role: USER_ROLES.admin };
 }
 
 async function insertUserToSupabase(user) {
@@ -4632,6 +4721,47 @@ async function ensureSeeded() {
         if (isTableMissingError(error) || isPermissionDeniedError(error)) {
           integrationsAvailable = false;
           console.warn('Tabel integrasi API tidak tersedia atau akses ditolak. Melewati seeding integrasi.', error);
+        } else {
+          clearSupabaseSeedState();
+          throw error;
+        }
+      }
+
+      try {
+        const { error } = await client
+          .from(SUPABASE_TABLES.users)
+          .select('id', { count: 'exact', head: true });
+
+        if (error) {
+          throw error;
+        }
+
+        const existingAdmin = await fetchUserByEmail(PRIMARY_ADMIN_EMAIL);
+        if (!existingAdmin) {
+          const now = new Date().toISOString();
+          const passwordHash = await hashPassword(PRIMARY_ADMIN_DEFAULT_PASSWORD);
+          await executeSupabaseMutation({
+            client,
+            table: SUPABASE_TABLES.users,
+            method: 'insert',
+            payload: {
+              id: crypto.randomUUID(),
+              name: 'Administrator',
+              company: 'Entraverse',
+              email: PRIMARY_ADMIN_EMAIL,
+              role: USER_ROLES.admin,
+              is_admin: true,
+              password_hash: passwordHash,
+              created_at: now,
+              updated_at: now
+            }
+          });
+        } else if (normalizeUserRole(existingAdmin.role) !== USER_ROLES.admin) {
+          await updateUserRole(existingAdmin.id, USER_ROLES.admin);
+        }
+      } catch (error) {
+        if (isTableMissingError(error) || isPermissionDeniedError(error)) {
+          console.warn('Tabel pengguna tidak tersedia atau akses ditolak. Melewati seeding pengguna.', error);
         } else {
           clearSupabaseSeedState();
           throw error;
@@ -5472,7 +5602,7 @@ const toast = createToast();
 
 let actionMenusInitialized = false;
 
-function requireCatalogManager(message = 'Silakan login untuk mengelola katalog.') {
+function requireCatalogManager(message = 'Hanya admin yang dapat mengelola katalog.') {
   if (canManageCatalog()) {
     return true;
   }
@@ -5728,6 +5858,10 @@ function isGuestUser(user) {
   return !user || user.id === GUEST_USER.id;
 }
 
+function isAdminUser(user) {
+  return !!user && !isGuestUser(user) && normalizeUserRole(user.role) === USER_ROLES.admin;
+}
+
 function getActiveUser() {
   if (!activeSessionUser) {
     activeSessionUser = getGuestUser();
@@ -5741,7 +5875,7 @@ function setActiveSessionUser(user) {
 
   if (typeof document !== 'undefined' && document.body) {
     const isGuest = isGuestUser(activeSessionUser);
-    document.body.dataset.sessionRole = isGuest ? 'guest' : 'user';
+    document.body.dataset.sessionRole = isGuest ? 'guest' : activeSessionUser.role || 'user';
     const event = new CustomEvent('entraverse:session-change', {
       detail: { user: activeSessionUser, isGuest }
     });
@@ -5750,7 +5884,7 @@ function setActiveSessionUser(user) {
 }
 
 function canManageCatalog() {
-  return !isGuestUser(getActiveUser());
+  return isAdminUser(getActiveUser());
 }
 
 function getNameInitials(name) {
@@ -6952,11 +7086,15 @@ function handleRegister() {
 
       const passwordHash = await hashPassword(password);
       const now = new Date().toISOString();
+      const normalizedEmail = email.toLowerCase();
+      const role = normalizedEmail === PRIMARY_ADMIN_EMAIL ? USER_ROLES.admin : USER_ROLES.user;
+
       const newUser = {
         id: crypto.randomUUID(),
         name,
         company,
-        email,
+        email: normalizedEmail,
+        role,
         passwordHash,
         createdAt: now,
         updatedAt: now
@@ -7012,7 +7150,7 @@ function handleLogin() {
     }
 
     try {
-      const user = await fetchUserByEmail(email);
+      let user = await fetchUserByEmail(email);
       if (!user) {
         toast.show('Email atau kata sandi salah.');
         return;
@@ -7024,6 +7162,7 @@ function handleLogin() {
         return;
       }
 
+      user = await ensurePrimaryAdminUser(user);
       setCurrentUser(user);
       toast.show('Selamat datang kembali!');
       setTimeout(() => {
@@ -7057,6 +7196,7 @@ function handleGuestAccess() {
 async function ensureAuthenticatedPage() {
   const page = document.body.dataset.page;
   const guest = getGuestUser();
+  const adminOnlyPages = ['sales', 'purchases', 'user-management'];
 
   if (
     ![
@@ -7069,7 +7209,8 @@ async function ensureAuthenticatedPage() {
       'sales',
       'purchases',
       'product-mapping-auto',
-      'product-mapping-manual'
+      'product-mapping-manual',
+      'user-management'
     ].includes(page)
   ) {
     return { user: guest, status: 'guest' };
@@ -7077,6 +7218,12 @@ async function ensureAuthenticatedPage() {
 
   const sessionUser = getCurrentUser();
   if (!sessionUser) {
+    if (adminOnlyPages.includes(page)) {
+      toast.show('Silakan login sebagai admin untuk membuka halaman ini.');
+      setTimeout(() => {
+        window.location.href = 'login.html';
+      }, 500);
+    }
     return { user: guest, status: 'guest' };
   }
 
@@ -7084,8 +7231,19 @@ async function ensureAuthenticatedPage() {
     await ensureSupabase();
     const remoteUser = await fetchUserById(sessionUser.id);
     if (remoteUser) {
-      setCurrentUser(remoteUser);
-      return { user: sanitizeSessionUser(remoteUser), status: 'authenticated' };
+      const ensuredUser = await ensurePrimaryAdminUser(remoteUser);
+      const sanitizedUser = sanitizeSessionUser(ensuredUser);
+      setCurrentUser(ensuredUser);
+
+      if (adminOnlyPages.includes(page) && !isAdminUser(sanitizedUser)) {
+        toast.show('Anda tidak memiliki akses ke halaman ini.');
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 600);
+        return { user: guest, status: 'forbidden' };
+      }
+
+      return { user: sanitizedUser, status: 'authenticated' };
     }
     setCurrentUser(null);
     return { user: guest, status: 'expired' };
@@ -7095,6 +7253,14 @@ async function ensureAuthenticatedPage() {
       console.error('Supabase belum siap.', supabaseError);
     }
     console.error('Gagal memuat data pengguna.', error);
+    if (adminOnlyPages.includes(page) && !isAdminUser(sessionUser)) {
+      toast.show('Anda tidak memiliki akses ke halaman ini.');
+      setTimeout(() => {
+        window.location.href = 'dashboard.html';
+      }, 600);
+      return { user: guest, status: 'forbidden' };
+    }
+
     return { user: sessionUser, status: 'authenticated' };
   }
 }
@@ -10432,6 +10598,21 @@ function initTopbarAuth() {
     profileToggle?.focus();
   });
 
+  const updateNavigationAccess = user => {
+    const isAdmin = isAdminUser(user);
+    document.querySelectorAll('[data-requires-admin]').forEach(link => {
+      link.hidden = !isAdmin;
+      if (!isAdmin) {
+        link.classList.remove('active');
+      }
+    });
+
+    document.querySelectorAll('[data-nav-section]').forEach(section => {
+      const visibleLinks = Array.from(section.querySelectorAll('.nav-link')).filter(link => !link.hidden);
+      section.hidden = visibleLinks.length === 0;
+    });
+  };
+
   const updateTopbarUser = user => {
     const guest = getGuestUser();
     const isGuest = isGuestUser(user);
@@ -10459,6 +10640,7 @@ function initTopbarAuth() {
     }
 
     lastUserId = activeUser?.id ?? null;
+    updateNavigationAccess(activeUser);
   };
 
   if (logoutButton) {
@@ -21931,6 +22113,196 @@ function initPurchasesPage() {
   });
 }
 
+const userManagementState = {
+  users: [],
+  loading: false,
+  error: ''
+};
+
+function renderUserRoleBadge(role) {
+  const normalized = normalizeUserRole(role);
+  const label = normalized === USER_ROLES.admin ? 'Admin' : 'Pengguna';
+  const badgeClass = normalized === USER_ROLES.admin ? 'status-badge--success' : 'status-badge--info';
+  return `<span class="status-badge ${badgeClass}">${label}</span>`;
+}
+
+function renderUserManagementTable() {
+  const tbody = document.getElementById('user-table-body');
+  const emptyState = document.getElementById('user-empty-state');
+  const errorState = document.getElementById('user-error-state');
+  const loadingState = document.getElementById('user-loading-row');
+  const counter = document.getElementById('user-count');
+
+  if (!tbody) {
+    return;
+  }
+
+  const { users, loading, error } = userManagementState;
+  const activeUser = getActiveUser();
+
+  tbody.innerHTML = '';
+  loadingState?.setAttribute('hidden', 'hidden');
+  errorState?.setAttribute('hidden', 'hidden');
+  emptyState?.setAttribute('hidden', 'hidden');
+
+  if (counter) {
+    counter.textContent = users.length.toString();
+  }
+
+  if (loading) {
+    if (loadingState) {
+      loadingState.removeAttribute('hidden');
+    }
+    return;
+  }
+
+  if (error && errorState) {
+    errorState.textContent = error;
+    errorState.removeAttribute('hidden');
+    return;
+  }
+
+  if (!users.length) {
+    emptyState?.removeAttribute('hidden');
+    return;
+  }
+
+  const rows = users.map(user => {
+    const initials = getNameInitials(user.name || user.email);
+    const normalizedRole = normalizeUserRole(user.role);
+    const isLockedAdmin = isPrimaryAdmin(user);
+    const disabled = !isAdminUser(activeUser) || isLockedAdmin;
+    const roleLabel = `Pilih peran untuk ${escapeHtml(user.email)}`;
+    const disabledAttr = disabled ? 'disabled' : '';
+
+    return `
+      <tr>
+        <td>
+          <div class="user-cell">
+            <div class="avatar avatar--sm">${initials}</div>
+            <div class="user-cell__meta">
+              <span class="user-cell__name">${escapeHtml(user.name || 'Pengguna')}</span>
+              <span class="user-cell__email">${escapeHtml(user.email)}</span>
+            </div>
+          </div>
+        </td>
+        <td>${escapeHtml(user.company || '-')}</td>
+        <td>${renderUserRoleBadge(user.role)}</td>
+        <td>
+          <div class="user-role-control">
+            <select class="input" data-user-role-select data-user-id="${user.id}" aria-label="${roleLabel}" ${disabledAttr}>
+              <option value="${USER_ROLES.admin}" ${normalizedRole === USER_ROLES.admin ? 'selected' : ''}>Admin</option>
+              <option value="${USER_ROLES.user}" ${normalizedRole === USER_ROLES.user ? 'selected' : ''}>Pengguna biasa</option>
+            </select>
+            ${
+              isLockedAdmin
+                ? '<span class="helper-text">Admin utama tidak dapat diubah.</span>'
+                : ''
+            }
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+async function refreshUserManagement() {
+  userManagementState.loading = true;
+  userManagementState.error = '';
+  renderUserManagementTable();
+
+  if (!isSupabaseConfigured()) {
+    userManagementState.loading = false;
+    userManagementState.error = 'Konfigurasi Supabase belum tersedia. Hubungi admin untuk mengaktifkan Supabase.';
+    renderUserManagementTable();
+    return;
+  }
+
+  try {
+    await ensureSupabase();
+    const users = await fetchAllUsers();
+    userManagementState.users = users.map(user => ({
+      ...user,
+      role: normalizeUserRole(user.role)
+    }));
+  } catch (error) {
+    console.error('Gagal memuat daftar pengguna.', error);
+    userManagementState.error = 'Gagal memuat daftar pengguna. Coba lagi nanti.';
+  } finally {
+    userManagementState.loading = false;
+    renderUserManagementTable();
+  }
+}
+
+function setupUserManagementPage() {
+  const table = document.getElementById('user-table');
+  const refreshButton = document.getElementById('user-refresh-btn');
+
+  if (refreshButton) {
+    refreshButton.addEventListener('click', () => {
+      refreshUserManagement();
+    });
+  }
+
+  if (table) {
+    table.addEventListener('change', async event => {
+      const select = event.target.closest('[data-user-role-select]');
+      if (!select) {
+        return;
+      }
+
+      const userId = select.dataset.userId;
+      const newRole = normalizeUserRole(select.value);
+      const targetUser = userManagementState.users.find(user => user.id === userId);
+
+      if (!targetUser) {
+        toast.show('Pengguna tidak ditemukan.');
+        return;
+      }
+
+      if (!canManageCatalog()) {
+        toast.show('Hanya admin yang dapat memperbarui peran.');
+        select.value = targetUser.role;
+        return;
+      }
+
+      if (isPrimaryAdmin(targetUser) && newRole !== USER_ROLES.admin) {
+        toast.show('Admin utama tidak dapat diturunkan ke peran lain.');
+        select.value = targetUser.role;
+        return;
+      }
+
+      if (targetUser.role === newRole) {
+        return;
+      }
+
+      select.disabled = true;
+      select.classList.add('is-loading');
+
+      try {
+        const updated = await updateUserRole(userId, newRole);
+        const role = normalizeUserRole(updated?.role ?? newRole);
+        userManagementState.users = userManagementState.users.map(user =>
+          user.id === userId ? { ...user, role } : user
+        );
+        renderUserManagementTable();
+        toast.show('Peran pengguna berhasil diperbarui.');
+      } catch (error) {
+        console.error('Gagal memperbarui peran pengguna.', error);
+        select.value = targetUser.role;
+        toast.show('Tidak dapat memperbarui peran, coba lagi.');
+      } finally {
+        select.disabled = false;
+        select.classList.remove('is-loading');
+      }
+    });
+  }
+
+  refreshUserManagement();
+}
+
 function setupTabbedSections() {
   const tabGroups = document.querySelectorAll('[data-tab-group]');
 
@@ -22002,21 +22374,30 @@ function initPage() {
         'categories',
         'shipping',
         'integrations',
-        'reports',
-        'sales',
-        'purchases',
-        'product-mapping-auto',
-        'product-mapping-manual'
-      ].includes(page)
-    ) {
-      setupSidebarToggle();
-      setupSidebarCollapse();
-      const { user, status } = await ensureAuthenticatedPage();
-      if (status === 'expired') {
-        toast.show('Sesi Anda telah berakhir. Silakan login kembali.');
-      }
-      topbarAuth.update(user);
+      'reports',
+      'sales',
+      'purchases',
+      'product-mapping-auto',
+      'product-mapping-manual',
+      'user-management'
+    ].includes(page)
+  ) {
+    setupSidebarToggle();
+    setupSidebarCollapse();
+    const { user, status } = await ensureAuthenticatedPage();
+    if (status === 'expired') {
+      toast.show('Sesi Anda telah berakhir. Silakan login kembali.');
     }
+    if (status === 'forbidden') {
+      return;
+    }
+    topbarAuth.update(user);
+
+    const adminPages = ['sales', 'purchases', 'user-management'];
+    if (adminPages.includes(page) && !isAdminUser(user)) {
+      return;
+    }
+  }
 
     if (page === 'dashboard') {
       initDashboard();
@@ -22052,6 +22433,10 @@ function initPage() {
 
     if (page === 'purchases') {
       await initPurchasesPage();
+    }
+
+    if (page === 'user-management') {
+      setupUserManagementPage();
     }
 
   });

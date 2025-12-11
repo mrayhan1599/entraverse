@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entraverse Admin - Vendor Pengiriman</title>
+  <title>Entraverse Admin - Manajemen Pengguna</title>
   <link rel="icon" type="image/png" href="assets/img/logo/entraverse-logo.png">
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="shipping">
+<body data-page="user-management">
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar-inner">
@@ -87,7 +87,7 @@
         </div>
         <div class="nav-section" data-nav-section>
           <p class="nav-title">Vendor</p>
-          <a class="nav-link active" href="shipping-vendors.html">
+          <a class="nav-link" href="shipping-vendors.html">
             <span class="nav-icon" aria-hidden="true">🚚</span>
             Vendor Pengiriman
           </a>
@@ -98,7 +98,7 @@
         </div>
         <div class="nav-section" data-nav-section>
           <p class="nav-title">Admin</p>
-          <a class="nav-link" href="user-management.html" data-requires-admin>
+          <a class="nav-link active" href="user-management.html" data-requires-admin>
             <span class="nav-icon" aria-hidden="true">👥</span>
             Manajemen Pengguna
           </a>
@@ -115,130 +115,51 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <h1>Vendor Pengiriman</h1>
-            <div class="title-actions" role="toolbar" aria-label="Aksi vendor pengiriman">
-              <button id="add-shipping-vendor-btn" class="btn primary-btn small" type="button">+ Tambah Vendor</button>
+            <h1>Manajemen Pengguna</h1>
+            <div class="title-actions" role="toolbar" aria-label="Aksi pengguna">
+              <button class="btn ghost-btn" type="button" id="user-refresh-btn">
+                🔄 Muat ulang
+              </button>
             </div>
           </div>
-          <p>Kelola seluruh kemitraan logistik untuk mendukung pemenuhan pesanan dan distribusi produk.</p>
+          <p>Kelola akses admin untuk tim Anda. Hanya admin yang dapat mengubah peran pengguna.</p>
         </div>
       </section>
       <section class="card">
-        <header class="card-header">
-          <div>
-            <h2>Daftar Vendor Pengiriman</h2>
-            <p class="card-subtitle">Detail mencakup layanan, cakupan area, serta PIC yang dapat dihubungi untuk setiap vendor.</p>
+        <header class="card-header card-header--controls">
+          <div class="card-title-group">
+            <div class="card-title-row">
+              <h2>Daftar Pengguna</h2>
+              <span class="badge" id="user-count">0</span>
+            </div>
+            <p class="card-subtitle">Admin dapat menaikkan atau menurunkan peran pengguna lain.</p>
           </div>
-          <span id="shipping-count" class="count-pill">0 vendor</span>
         </header>
         <div class="table-wrapper">
-          <table class="category-table">
+          <table class="data-table" id="user-table">
             <thead>
               <tr>
-                <th>Vendor</th>
-                <th>Jenis Layanan</th>
-                <th>Cakupan</th>
-                <th>Kontak</th>
+                <th>Pengguna</th>
+                <th>Perusahaan</th>
+                <th>Peran</th>
                 <th>Aksi</th>
               </tr>
             </thead>
-            <tbody id="shipping-table-body">
-              <tr class="empty-state">
-                <td colspan="5">Tidak ada vendor pengiriman ditemukan.</td>
+            <tbody id="user-table-body">
+              <tr id="user-loading-row">
+                <td colspan="4">Memuat daftar pengguna...</td>
               </tr>
             </tbody>
           </table>
+          <p class="empty-state" id="user-empty-state" hidden>Tidak ada pengguna yang terdaftar.</p>
+          <p class="empty-state" id="user-error-state" hidden>Gagal memuat pengguna.</p>
         </div>
+        <div class="helper-text">Admin utama dengan email <strong>rayhan1599@gmail.com</strong> tidak dapat diturunkan dari peran admin.</div>
       </section>
-    </main>
-    <div class="modal-backdrop" id="shipping-vendor-modal" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="shipping-vendor-modal-title">
-        <form id="shipping-vendor-form" class="modal-form">
-          <div class="modal-header">
-            <h2 id="shipping-vendor-modal-title">Tambah Vendor Pengiriman</h2>
-            <button class="icon-btn small" type="button" data-close-modal aria-label="Tutup formulir">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label for="shipping-vendor-name">Nama Vendor</label>
-              <input type="text" id="shipping-vendor-name" name="name" placeholder="Contoh: Logistik Nusantara" required>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="shipping-vendor-services">Jenis Layanan</label>
-                <input type="text" id="shipping-vendor-services" name="services" placeholder="Contoh: Udara, Laut, Darat">
-              </div>
-              <div class="form-group">
-                <label for="shipping-vendor-coverage">Cakupan</label>
-                <input type="text" id="shipping-vendor-coverage" name="coverage" placeholder="Contoh: Nasional">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="shipping-vendor-pic">PIC</label>
-                <input type="text" id="shipping-vendor-pic" name="pic" placeholder="Nama penanggung jawab">
-              </div>
-              <div class="form-group">
-                <label for="shipping-vendor-email">Email</label>
-                <input type="email" id="shipping-vendor-email" name="email" placeholder="contoh@vendor.co.id">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="shipping-vendor-phone">Nomor Telepon</label>
-                <input type="tel" id="shipping-vendor-phone" name="phone" placeholder="Contoh: +62 812 3456 7890">
-              </div>
-              <div class="form-group">
-                <label for="shipping-vendor-detail-url">URL Detail</label>
-                <input type="url" id="shipping-vendor-detail-url" name="detailUrl" placeholder="https://contoh.com/tarif">
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="shipping-vendor-air-rate">Tarif Udara</label>
-                <input
-                  type="text"
-                  id="shipping-vendor-air-rate"
-                  name="airRate"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  placeholder="Rp 0"
-                >
-              </div>
-              <div class="form-group">
-                <label for="shipping-vendor-sea-rate">Tarif Laut</label>
-                <input
-                  type="text"
-                  id="shipping-vendor-sea-rate"
-                  name="seaRate"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  placeholder="Rp 0"
-                >
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="shipping-vendor-note">Catatan</label>
-              <textarea id="shipping-vendor-note" name="note" rows="3" placeholder="Catatan tambahan terkait kerja sama"></textarea>
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button class="btn ghost-btn" type="button" data-close-modal>Batal</button>
-            <button class="btn primary-btn" type="submit">Simpan</button>
-          </div>
-        </form>
-      </div>
+      </main>
     </div>
   </div>
-  </div>
-  <script>
-    window.entraverseConfig = window.entraverseConfig || {};
-    window.entraverseConfig.supabase = window.entraverseConfig.supabase || {
-      url: 'https://wnewbuwmdrnjfjsxoybs.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InduZXdidXdtZHJuamZqc3hveWJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjY3ODYsImV4cCI6MjA3Njc0Mjc4Nn0.8nTueW4ogLAXbbq0Q_Z6z-a8J5n9zIOhmlWIP7pimAg'
-    };
-  </script>
-  <script src="assets/vendor/supabase-js-2.43.4.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.3/dist/umd/supabase.min.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
