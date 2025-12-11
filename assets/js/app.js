@@ -19982,7 +19982,9 @@ function parseSortableDate(value) {
   return date;
 }
 
-function resolveProcurementPeriods(referenceDate = new Date(), monthsAhead = 2) {
+const PROCUREMENT_MONTH_HORIZON = 14;
+
+function resolveProcurementPeriods(referenceDate = new Date(), monthsAhead = PROCUREMENT_MONTH_HORIZON) {
   const anchor = toWibDate(referenceDate);
   const periods = [];
 
@@ -20035,7 +20037,7 @@ function subtractDays(date, days) {
 }
 
 function deriveProcurementSchedule(products, referenceDate = new Date()) {
-  const periodCandidates = resolveProcurementPeriods(referenceDate, 3);
+  const periodCandidates = resolveProcurementPeriods(referenceDate, PROCUREMENT_MONTH_HORIZON);
   const today = toWibDate(referenceDate);
   const schedule = [];
 
