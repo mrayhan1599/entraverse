@@ -11120,10 +11120,6 @@ async function handleAddProductForm() {
   const WARRANTY_RATE = 0.03;
   const WARRANTY_PROFIT_RATE = 1;
   const WARRANTY_MULTIPLIER = 1 + WARRANTY_RATE * (1 + WARRANTY_PROFIT_RATE);
-  const TOKOPEDIA_FIXED_FEE = 1250;
-  const TOKOPEDIA_SERVICE_FEE = 0.018;
-  const TOKOPEDIA_DYNAMIC_COMMISSION_RATE = 0.04;
-  const TOKOPEDIA_XTRA_CASHBACK_RATE = 0.035;
 
   const parsePercentToDecimal = (value, fallback = 0) => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -11163,6 +11159,46 @@ async function handleAddProductForm() {
     }
 
     return fallback;
+  };
+
+  const computeFeeTotals = (feeField, purchasePriceIdr) => {
+    const normalized = normalizeFeeField(feeField);
+
+    let fixedTotal = 0;
+    let percentTotal = 0;
+
+    if (normalized.components.length && Number.isFinite(purchasePriceIdr) && purchasePriceIdr > 0) {
+      normalized.components.forEach(component => {
+        const normalizedComponent = normalizeFeeComponent(component);
+        if (!normalizedComponent) return;
+
+        const numericValue = parseNumericValue(normalizedComponent.value);
+        if (!Number.isFinite(numericValue) || numericValue < 0) return;
+
+        if (normalizedComponent.valueType === 'amount') {
+          fixedTotal += numericValue;
+          return;
+        }
+
+        let effectiveRate = toPercentDecimal(numericValue);
+
+        const maxCap = parseNumericValue(normalizedComponent.max);
+        if (Number.isFinite(maxCap) && maxCap > 0) {
+          effectiveRate = Math.min(effectiveRate, maxCap / purchasePriceIdr);
+        }
+
+        const minCap = parseNumericValue(normalizedComponent.min);
+        if (Number.isFinite(minCap) && minCap > 0) {
+          effectiveRate = Math.max(effectiveRate, minCap / purchasePriceIdr);
+        }
+
+        percentTotal += effectiveRate;
+      });
+    } else {
+      percentTotal = toPercentDecimal(normalized.summary ?? 0);
+    }
+
+    return { fixedTotal, percentTotal };
   };
 
   const getSelectedCategoryConfig = () => {
@@ -11276,45 +11312,20 @@ async function handleAddProductForm() {
     return Math.max(0, Math.round(roundedValue));
   };
 
-  const calculateOfflinePrice = (purchasePriceIdr, marginRate, hasWarranty) => {
-    if (!Number.isFinite(purchasePriceIdr) || purchasePriceIdr <= 0) {
-      return null;
-    }
-
-    const margin = Number.isFinite(marginRate) ? Math.max(0, marginRate) : 0;
-    if (margin >= 1) {
-      return null;
-    }
-
-    const basePrice = purchasePriceIdr / (1 - margin);
-    if (!Number.isFinite(basePrice) || basePrice <= 0) {
-      return null;
-    }
-
-    const adjustedPrice = hasWarranty ? basePrice * WARRANTY_MULTIPLIER : basePrice;
-    return applyRoundingRules(adjustedPrice);
-  };
-
-  const calculateTokopediaPrice = (purchasePriceIdr, { margin, marketplaceFee }, hasWarranty) => {
+  const calculateSellingPrice = (purchasePriceIdr, { margin, feeField }, hasWarranty) => {
     if (!Number.isFinite(purchasePriceIdr) || purchasePriceIdr <= 0) {
       return null;
     }
 
     const marginRate = Number.isFinite(margin) ? Math.max(0, margin) : 0;
-    const marketplaceRate = Number.isFinite(marketplaceFee) ? Math.max(0, marketplaceFee) : 0;
+    const { fixedTotal, percentTotal } = computeFeeTotals(feeField, purchasePriceIdr);
 
-    const serviceFee = Math.min(TOKOPEDIA_SERVICE_FEE, 50000 / purchasePriceIdr);
-    const dynamicCommission = Math.min(TOKOPEDIA_DYNAMIC_COMMISSION_RATE, 40000 / purchasePriceIdr);
-    const cashback = Math.min(TOKOPEDIA_XTRA_CASHBACK_RATE, 60000 / purchasePriceIdr);
-
-    const totalPercent =
-      marginRate + marketplaceRate + serviceFee + dynamicCommission + cashback;
-
+    const totalPercent = marginRate + percentTotal;
     if (!Number.isFinite(totalPercent) || totalPercent >= 1) {
       return null;
     }
 
-    const base = (purchasePriceIdr + TOKOPEDIA_FIXED_FEE) / (1 - totalPercent);
+    const base = (purchasePriceIdr + fixedTotal) / (1 - totalPercent);
     if (!Number.isFinite(base) || base <= 0) {
       return null;
     }
@@ -11358,25 +11369,30 @@ async function handleAddProductForm() {
 
     const category = getSelectedCategoryConfig();
     const marginRate = parsePercentToDecimal(category?.margin?.value ?? 0, 0);
-    const marketplaceFee = getFeePercentTotal(category?.fees?.marketplace);
     const hasWarranty = hasWarrantyForRow(row);
 
-    const offlinePrice = calculateOfflinePrice(idrValue, marginRate, hasWarranty);
+    const offlinePrice = calculateSellingPrice(idrValue, { margin: marginRate }, hasWarranty);
     setRupiahInputValue(offlineInput, offlinePrice ?? '');
 
-    // Sementara gunakan harga offline untuk Entraverse hingga rumus khusus tersedia.
-    const entraversePrice = Number.isFinite(offlinePrice) ? offlinePrice : null;
+    const entraversePrice = calculateSellingPrice(
+      idrValue,
+      { margin: marginRate, feeField: category?.fees?.entraverse },
+      hasWarranty
+    );
     setRupiahInputValue(entraverseInput, entraversePrice ?? '');
 
-    const tokopediaPrice = calculateTokopediaPrice(
+    const tokopediaPrice = calculateSellingPrice(
       idrValue,
-      { margin: marginRate, marketplaceFee },
+      { margin: marginRate, feeField: category?.fees?.marketplace },
       hasWarranty
     );
     setRupiahInputValue(tokopediaInput, tokopediaPrice ?? '');
 
-    // Harga Shopee juga mengikuti harga offline sampai rumus resmi diberikan.
-    const shopeePrice = Number.isFinite(offlinePrice) ? offlinePrice : null;
+    const shopeePrice = calculateSellingPrice(
+      idrValue,
+      { margin: marginRate, feeField: category?.fees?.shopee },
+      hasWarranty
+    );
     setRupiahInputValue(shopeeInput, shopeePrice ?? '');
   };
 
