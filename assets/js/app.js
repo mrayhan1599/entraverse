@@ -4353,6 +4353,33 @@ function mapUserToRecord(user) {
   };
 }
 
+let userDirectoryCache = [];
+
+function setUserDirectoryCache(users) {
+  userDirectoryCache = Array.isArray(users) ? users.map(mapSupabaseUser).filter(Boolean) : [];
+}
+
+function getUserDirectoryCache() {
+  return Array.isArray(userDirectoryCache) ? [...userDirectoryCache] : [];
+}
+
+async function refreshUsersFromSupabase() {
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from(SUPABASE_TABLES.users)
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const users = Array.isArray(data) ? data.map(mapSupabaseUser).filter(Boolean) : [];
+  setUserDirectoryCache(users);
+  return users;
+}
+
 async function fetchUserByEmail(email) {
   await ensureSupabase();
   const client = getSupabaseClient();
@@ -21970,6 +21997,109 @@ function setupTabbedSections() {
   });
 }
 
+function renderUserDirectory(filterText = '') {
+  const tbody = document.getElementById('user-table-body');
+  if (!tbody) return;
+
+  const countEl = document.getElementById('user-count');
+  const normalized = (filterText ?? '').toString().trim().toLowerCase();
+
+  const users = getUserDirectoryCache()
+    .filter(user => {
+      if (!normalized) return true;
+      return [user.name, user.email, user.company]
+        .map(field => (field ?? '').toString().toLowerCase())
+        .some(value => value.includes(normalized));
+    })
+    .sort((a, b) => {
+      const byName = a.name.localeCompare(b.name, 'id', { sensitivity: 'base' });
+      if (byName !== 0) return byName;
+      return a.email.localeCompare(b.email, 'id', { sensitivity: 'base' });
+    });
+
+  if (!users.length) {
+    tbody.innerHTML = '<tr class="empty-state"><td colspan="4">Tidak ada pengguna ditemukan.</td></tr>';
+  } else {
+    const rows = users
+      .map(user => {
+        const name = escapeHtml(user.name || '-');
+        const email = escapeHtml(user.email || '-');
+        const company = escapeHtml(user.company || '-');
+        const created = escapeHtml(formatDateTimeForDisplay(user.createdAt) || '-');
+        const updated = escapeHtml(formatDateTimeForDisplay(user.updatedAt) || '-');
+
+        return `
+          <tr>
+            <td><strong>${name}</strong></td>
+            <td>${email}</td>
+            <td>${company}</td>
+            <td>
+              <div class="user-dates">
+                <span>Dibuat: ${created}</span>
+                <span>Diupdate: ${updated}</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    tbody.innerHTML = rows;
+  }
+
+  if (countEl) {
+    const suffix = users.length === 1 ? 'pengguna' : 'pengguna';
+    countEl.textContent = `${users.length} ${suffix}`;
+  }
+}
+
+async function initUserManagementPage() {
+  const tbody = document.getElementById('user-table-body');
+  if (!tbody) return;
+
+  const countEl = document.getElementById('user-count');
+
+  const setTableMessage = message => {
+    tbody.innerHTML = `<tr class="empty-state"><td colspan="4">${escapeHtml(message)}</td></tr>`;
+    if (countEl) {
+      countEl.textContent = '0 pengguna';
+    }
+  };
+
+  if (!isSupabaseConfigured()) {
+    setTableMessage('Supabase belum dikonfigurasi. Hubungi administrator.');
+    return;
+  }
+
+  setTableMessage('Memuat pengguna dari Supabase...');
+
+  try {
+    await refreshUsersFromSupabase();
+    renderUserDirectory();
+  } catch (error) {
+    console.error('Gagal memuat data pengguna.', error);
+    setTableMessage('Gagal memuat data pengguna dari Supabase.');
+    toast.show('Tidak dapat memuat data pengguna dari Supabase.');
+    return;
+  }
+
+  handleSearch(value => renderUserDirectory(value));
+
+  document.addEventListener('entraverse:session-change', async () => {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+
+    try {
+      await refreshUsersFromSupabase();
+      const filter = document.getElementById('search-input')?.value ?? '';
+      renderUserDirectory(filter);
+    } catch (error) {
+      console.error('Gagal memperbarui daftar pengguna setelah perubahan sesi.', error);
+    }
+  });
+}
+
 function initPage() {
   document.addEventListener('DOMContentLoaded', async () => {
     const page = document.body.dataset.page;
@@ -22005,6 +22135,7 @@ function initPage() {
         'reports',
         'sales',
         'purchases',
+        'users',
         'product-mapping-auto',
         'product-mapping-manual'
       ].includes(page)
@@ -22040,6 +22171,10 @@ function initPage() {
 
     if (page === 'reports') {
       initReportsPage();
+    }
+
+    if (page === 'users') {
+      await initUserManagementPage();
     }
 
     if (page === 'product-mapping-auto') {
