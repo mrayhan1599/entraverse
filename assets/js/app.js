@@ -22502,7 +22502,7 @@ function renderUserDirectory(filterText = '') {
   const users = getUserDirectoryCache()
     .filter(user => {
       if (!normalized) return true;
-      return [user.name, user.email, user.company, formatUserRole(user.role)]
+      return [user.name, user.email, formatUserRole(user.role)]
         .map(field => (field ?? '').toString().toLowerCase())
         .some(value => value.includes(normalized));
     })
@@ -22513,16 +22513,13 @@ function renderUserDirectory(filterText = '') {
     });
 
   if (!users.length) {
-    tbody.innerHTML = '<tr class="empty-state"><td colspan="5">Tidak ada pengguna ditemukan.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-state"><td colspan="3">Tidak ada pengguna ditemukan.</td></tr>';
   } else {
     const rows = users
       .map(user => {
         const name = escapeHtml(user.name || '-');
         const email = escapeHtml(user.email || '-');
-        const company = escapeHtml(user.company || '-');
         const role = escapeHtml(formatUserRole(user.role));
-        const created = escapeHtml(formatDateTimeForDisplay(user.createdAt) || '-');
-        const updated = escapeHtml(formatDateTimeForDisplay(user.updatedAt) || '-');
         const isSuperAdmin = isSuperAdminUser(user);
         const currentRoleValue = normalizeUserRole(user.userType ?? user.role);
 
@@ -22563,14 +22560,7 @@ function renderUserDirectory(filterText = '') {
           <tr>
             <td><strong>${name}</strong></td>
             <td>${email}</td>
-            <td>${company}</td>
             <td>${roleControl}</td>
-            <td>
-              <div class="user-dates">
-                <span>Dibuat: ${created}</span>
-                <span>Diupdate: ${updated}</span>
-              </div>
-            </td>
           </tr>
         `;
       })
@@ -22592,7 +22582,7 @@ async function initUserManagementPage() {
   const countEl = document.getElementById('user-count');
 
   const setTableMessage = message => {
-    tbody.innerHTML = `<tr class="empty-state"><td colspan="5">${escapeHtml(message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-state"><td colspan="3">${escapeHtml(message)}</td></tr>`;
     if (countEl) {
       countEl.textContent = '0 pengguna';
     }
