@@ -2954,6 +2954,84 @@ async function upsertCategoryToSupabase(category) {
   });
 }
 
+async function recalculateProductPricingForCategories(categoryNames) {
+  const categories = getCategories();
+  if (!Array.isArray(categories) || !categories.length) {
+    return { updatedProducts: [], supabaseFailed: false };
+  }
+
+  const normalizedTargets = Array.isArray(categoryNames)
+    ? categoryNames
+        .map(name => (name ?? '').toString().trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  if (!normalizedTargets.length) {
+    return { updatedProducts: [], supabaseFailed: false };
+  }
+
+  const categoryMap = new Map(
+    categories
+      .map(category => [category?.name?.toString().trim().toLowerCase(), category])
+      .filter(([name]) => Boolean(name))
+  );
+
+  const products = getProductsFromCache();
+  if (!Array.isArray(products) || !products.length) {
+    return { updatedProducts: [], supabaseFailed: false };
+  }
+
+  const updatedProducts = [];
+  const productMap = new Map(products.map(product => [product?.id, product]).filter(([id]) => Boolean(id)));
+
+  products.forEach(product => {
+    const normalizedCategory = (product?.category ?? '').toString().trim().toLowerCase();
+    if (!normalizedCategory || !normalizedTargets.includes(normalizedCategory)) {
+      return;
+    }
+
+    const categoryConfig = categoryMap.get(normalizedCategory);
+    if (!categoryConfig) {
+      return;
+    }
+
+    const pricingRows = Array.isArray(product.variantPricing) ? product.variantPricing : [];
+    const { updatedPricing, changed } = recalculatePricingWithFees(pricingRows, categoryConfig);
+
+    if (!changed) {
+      return;
+    }
+
+    const updatedProduct = {
+      ...product,
+      variantPricing: updatedPricing,
+      updatedAt: Date.now()
+    };
+
+    productMap.set(product.id, updatedProduct);
+    updatedProducts.push(updatedProduct);
+  });
+
+  if (!updatedProducts.length) {
+    return { updatedProducts: [], supabaseFailed: false };
+  }
+
+  const nextCache = products.map(product => productMap.get(product?.id) ?? product);
+  setProductCache(nextCache);
+
+  let supabaseFailed = false;
+  if (isSupabaseConfigured()) {
+    try {
+      await bulkUpsertProductsToSupabase(updatedProducts);
+    } catch (error) {
+      supabaseFailed = true;
+      console.error('Gagal memperbarui harga produk di Supabase.', error);
+    }
+  }
+
+  return { updatedProducts, supabaseFailed };
+}
+
 function parseStockOutDate(value) {
   if (!value) {
     return null;
@@ -9931,6 +10009,24 @@ function handleCategoryActions() {
 
   const getCurrentFilter = () => (searchInput?.value ?? '').toString();
 
+  const triggerBackgroundPricingRefresh = categoryList => {
+    recalculateProductPricingForCategories(categoryList)
+      .then(({ updatedProducts, supabaseFailed }) => {
+        if (!Array.isArray(updatedProducts) || !updatedProducts.length) {
+          return;
+        }
+
+        if (supabaseFailed) {
+          toast.show('Harga produk terhitung ulang namun gagal tersinkron ke Supabase.');
+        } else {
+          toast.show('Harga produk diperbarui otomatis sesuai komponen fee terbaru.');
+        }
+      })
+      .catch(error => {
+        console.error('Gagal menghitung ulang harga produk setelah perubahan fee.', error);
+      });
+  };
+
   const resetFeeManagers = () => {
     Object.values(feeManagers).forEach(manager => manager?.reset());
   };
@@ -10155,6 +10251,7 @@ function handleCategoryActions() {
             ? 'Komponen fee ditambahkan. Beberapa kategori belum tersinkron ke Supabase.'
             : 'Komponen fee berhasil ditambahkan ke semua kategori.'
         );
+        triggerBackgroundPricingRefresh(updatedCategories.map(category => category.name));
       } finally {
         if (bulkSubmitBtn) {
           bulkSubmitBtn.disabled = false;
@@ -10285,6 +10382,7 @@ function handleCategoryActions() {
       toast.show(editingId ? 'Kategori berhasil diperbarui.' : 'Kategori berhasil ditambahkan.');
       closeModal();
       renderCategories(getCurrentFilter());
+      triggerBackgroundPricingRefresh([payload.name]);
     } catch (error) {
       console.error('Gagal menyimpan kategori.', error);
       toast.show('Gagal menyimpan kategori. Coba lagi.');
@@ -11332,6 +11430,121 @@ async function handleAddProductForm() {
 
     const adjusted = hasWarranty ? base * WARRANTY_MULTIPLIER : base;
     return applyRoundingRules(adjusted);
+  };
+
+  const normalizePriceNumber = value => {
+    const numeric = parseNumericValue(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null;
+    }
+    return Math.round(numeric);
+  };
+
+  const derivePurchasePriceIdr = pricing => {
+    const existing = normalizePriceNumber(
+      pricing?.purchasePriceIdr ?? pricing?.purchase_price_idr ?? pricing?.purchasePriceIdr
+    );
+    if (existing !== null) {
+      return existing;
+    }
+
+    const purchasePrice = normalizePriceNumber(pricing?.purchasePrice ?? pricing?.purchase_price);
+    if (purchasePrice === null) {
+      return null;
+    }
+
+    const currency = (pricing?.purchaseCurrency ?? pricing?.purchase_currency ?? '').toString().trim();
+    const exchangeRate = normalizePriceNumber(pricing?.exchangeRate ?? pricing?.exchange_rate);
+
+    if (!currency || currency.toUpperCase() === 'IDR') {
+      return purchasePrice;
+    }
+
+    if (exchangeRate !== null) {
+      return purchasePrice * exchangeRate;
+    }
+
+    return null;
+  };
+
+  const hasWarrantyForPricing = variants => {
+    if (!Array.isArray(variants) || !variants.length) {
+      return false;
+    }
+
+    return variants.some(option => {
+      const value = option?.value ?? option?.option ?? '';
+      if (valueMatchesWarranty(value)) {
+        return true;
+      }
+
+      const name = (option?.name ?? '').toString().trim().toLowerCase();
+      if (name.includes('garansi') && value) {
+        const normalizedValue = value.toString().toLowerCase();
+        return normalizedValue.includes('1') && normalizedValue.includes('tahun');
+      }
+
+      return false;
+    });
+  };
+
+  const recalculatePricingWithFees = (pricingRows, category) => {
+    if (!Array.isArray(pricingRows) || !pricingRows.length || !category) {
+      return { updatedPricing: pricingRows || [], changed: false };
+    }
+
+    const marginRate = parsePercentToDecimal(category?.margin?.value ?? 0, 0);
+    const categoryFees = category?.fees ?? {};
+    let changed = false;
+
+    const updatedPricing = pricingRows.map(row => {
+      const purchasePriceIdr = derivePurchasePriceIdr(row);
+      if (!Number.isFinite(purchasePriceIdr) || purchasePriceIdr <= 0) {
+        return row;
+      }
+
+      const hasWarranty = hasWarrantyForPricing(row?.variants);
+
+      const offlinePrice = calculateSellingPrice(purchasePriceIdr, { margin: marginRate }, hasWarranty);
+      const entraversePrice = calculateSellingPrice(
+        purchasePriceIdr,
+        { margin: marginRate, feeField: categoryFees.entraverse },
+        hasWarranty
+      );
+      const tokopediaPrice = calculateSellingPrice(
+        purchasePriceIdr,
+        { margin: marginRate, feeField: categoryFees.marketplace },
+        hasWarranty
+      );
+      const shopeePrice = calculateSellingPrice(
+        purchasePriceIdr,
+        { margin: marginRate, feeField: categoryFees.shopee },
+        hasWarranty
+      );
+
+      const applyPriceChange = (currentValue, nextValue) => {
+        const normalizedCurrent = normalizePriceNumber(currentValue);
+        const normalizedNext = normalizePriceNumber(nextValue);
+        if (normalizedCurrent !== normalizedNext) {
+          changed = true;
+        }
+        return normalizedNext !== null ? normalizedNext.toString() : '';
+      };
+
+      const updatedRow = {
+        ...row,
+        purchasePriceIdr: purchasePriceIdr.toString()
+      };
+
+      updatedRow.offlinePrice = applyPriceChange(row.offlinePrice, offlinePrice);
+      updatedRow.entraversePrice = applyPriceChange(row.entraversePrice, entraversePrice);
+      updatedRow.tokopediaPrice = applyPriceChange(row.tokopediaPrice, tokopediaPrice);
+      updatedRow.shopeePrice = applyPriceChange(row.shopeePrice, shopeePrice);
+
+      return updatedRow;
+    });
+
+    return { updatedPricing, changed };
   };
 
   const clearComputedPricing = row => {
