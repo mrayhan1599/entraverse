@@ -4386,16 +4386,21 @@ function mapSupabaseUser(record) {
     return null;
   }
 
-  return applySuperAdminRole({
-    id: record.id,
-    name: record.name ?? '',
-    company: record.company ?? '',
-    email: record.email ?? '',
-    role: normalizeUserRole(record.user_type ?? record.role),
-    passwordHash: record.password_hash ?? '',
-    createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
-    updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
-  });
+  const storedRole = normalizeUserRole(record.user_type ?? record.role);
+
+  return {
+    ...applySuperAdminRole({
+      id: record.id,
+      name: record.name ?? '',
+      company: record.company ?? '',
+      email: record.email ?? '',
+      role: storedRole,
+      passwordHash: record.password_hash ?? '',
+      createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
+      updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
+    }),
+    userType: storedRole
+  };
 }
 
 function mapUserToRecord(user) {
@@ -22142,19 +22147,26 @@ function renderUserDirectory(filterText = '') {
         const created = escapeHtml(formatDateTimeForDisplay(user.createdAt) || '-');
         const updated = escapeHtml(formatDateTimeForDisplay(user.updatedAt) || '-');
         const isSuperAdmin = isSuperAdminUser(user);
+        const currentRoleValue = normalizeUserRole(user.userType ?? user.role);
 
-        const roleControl = canEditRoles && !isSuperAdmin
+        const roleControl = canEditRoles
           ? (() => {
               const selectId = `role-${user.id}`;
               const normalizedRole = normalizeUserRole(user.role);
-              const roleOptions = [
-                { value: 'admin', label: formatUserRole('admin') },
-                { value: 'pelanggan', label: formatUserRole('pelanggan') }
-              ];
+              const roleOptions = isSuperAdmin
+                ? [
+                    { value: 'super_admin', label: formatUserRole('super_admin') },
+                    { value: 'admin', label: formatUserRole('admin') },
+                    { value: 'pelanggan', label: formatUserRole('pelanggan') }
+                  ]
+                : [
+                    { value: 'admin', label: formatUserRole('admin') },
+                    { value: 'pelanggan', label: formatUserRole('pelanggan') }
+                  ];
 
               const options = roleOptions
                 .map(option => {
-                  const selected = option.value === normalizedRole ? 'selected' : '';
+                  const selected = option.value === currentRoleValue ? 'selected' : '';
                   return `<option value="${option.value}" ${selected}>${escapeHtml(option.label)}</option>`;
                 })
                 .join('');
@@ -22163,7 +22175,7 @@ function renderUserDirectory(filterText = '') {
                 <label class="visually-hidden" for="${selectId}">Jenis akun ${name}</label>
                 <select id="${selectId}" class="table-select" data-user-role-selector data-user-id="${escapeHtml(
                   user.id
-                )}" data-user-email="${email}">
+                )}" data-user-email="${email}" data-user-role="${normalizedRole}" data-current-role="${currentRoleValue}">
                   ${options}
                 </select>
               `;
@@ -22243,10 +22255,19 @@ async function initUserManagementPage() {
 
     const userId = target.dataset.userId;
     const email = target.dataset.userEmail;
+    const userRole = normalizeUserRole(target.dataset.userRole);
+    const previousRole = normalizeUserRole(target.dataset.currentRole ?? target.value);
     const selectedRole = normalizeUserRole(target.value);
 
-    if (!userId || !selectedRole || selectedRole === 'super_admin') {
+    if (!userId || !selectedRole) {
       renderUserDirectory(document.getElementById('search-input')?.value ?? '');
+      return;
+    }
+
+    const isTargetSuperAdmin = userRole === 'super_admin';
+    if (isTargetSuperAdmin && selectedRole !== 'super_admin') {
+      toast.show('Super Admin tidak bisa diturunkan menjadi Admin atau Pelanggan.');
+      target.value = previousRole || 'super_admin';
       return;
     }
 
