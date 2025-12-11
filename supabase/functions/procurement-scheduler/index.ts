@@ -153,12 +153,7 @@ function computeProcurementPlan(
   period: PeriodWindow
 ): { plannedDate: Date; period: PeriodWindow } | null {
   const leadTime = parseNumber(variant.leadTime ?? variant.lead_time) ?? 0
-  // Gunakan lead time sebagai hari kalender penuh sebelum periode dimulai.
-  // Contoh: lead time 4 hari untuk periode mulai 16 Desember akan jatuh pada 11 Desember.
-  // Karena kebutuhan harus siap pada hari pertama periode, kita kurangi tambahan 1 hari
-  // sehingga perhitungan menjadi (start - (leadTime + 1)).
-  const leadTimeOffset = leadTime > 0 ? leadTime + 1 : 0
-  const plannedDate = subtractDays(period.start, leadTimeOffset)
+  const plannedDate = subtractDays(period.start, Math.max(0, leadTime))
   const dateOnly = toDateOnly(plannedDate)
   if (!dateOnly) return null
 
