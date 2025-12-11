@@ -7404,6 +7404,7 @@ async function ensureAuthenticatedPage() {
       'integrations',
       'reports',
       'sales',
+      'procurements',
       'purchases',
       'users',
       'product-mapping-auto',
@@ -19935,6 +19936,13 @@ const procurementScheduleState = {
   lastError: ''
 };
 
+const dailyProcurementState = {
+  loading: false,
+  items: [],
+  lastError: '',
+  lastUpdatedAt: null
+};
+
 const purchaseOrderDetailState = {
   loading: false,
   currentId: null
@@ -20155,6 +20163,21 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
   return schedule.sort((a, b) => a.procurementDate.getTime() - b.procurementDate.getTime());
 }
 
+function collectDueProcurements(schedule, referenceDate = new Date()) {
+  const today = toDateOnly(toWibDate(referenceDate));
+  if (!today) {
+    return [];
+  }
+
+  return (Array.isArray(schedule) ? schedule : [])
+    .map(item => ({
+      ...item,
+      procurementDate: toDateOnly(item?.procurementDate)
+    }))
+    .filter(item => item.procurementDate && item.procurementDate.getTime() <= today.getTime())
+    .sort((a, b) => a.procurementDate.getTime() - b.procurementDate.getTime());
+}
+
 function renderProcurementSchedule() {
   const tbody = document.getElementById('purchase-procurements-table-body');
   const meta = document.getElementById('purchase-procurements-meta');
@@ -20265,6 +20288,140 @@ async function refreshProcurementSchedule() {
   } finally {
     procurementScheduleState.loading = false;
     renderProcurementSchedule();
+  }
+}
+
+function renderDailyProcurements() {
+  const tbody = document.getElementById('daily-procurements-body');
+  const meta = document.getElementById('daily-procurements-meta');
+  const status = document.getElementById('procurement-status');
+
+  if (!tbody || !meta) {
+    return;
+  }
+
+  const setMessage = message => {
+    tbody.innerHTML = `<tr><td colspan="6" class="${dailyProcurementState.lastError ? 'error-state' : 'empty-state'}">${escapeHtml(message)}</td></tr>`;
+  };
+
+  if (dailyProcurementState.loading) {
+    setMessage('Memuat pengadaan harian…');
+    meta.textContent = 'Menampilkan 0 pengadaan';
+    if (status) status.textContent = 'Menyegarkan dari Supabase…';
+    return;
+  }
+
+  if (dailyProcurementState.lastError) {
+    setMessage(dailyProcurementState.lastError);
+    meta.textContent = 'Menampilkan 0 pengadaan';
+    if (status) status.textContent = 'Gagal memuat pengadaan harian';
+    return;
+  }
+
+  const items = Array.isArray(dailyProcurementState.items)
+    ? dailyProcurementState.items.filter(Boolean)
+    : [];
+
+  if (!items.length) {
+    setMessage('Tidak ada pengadaan yang jatuh tempo hari ini berdasarkan jadwal WIB (GMT+7).');
+    meta.textContent = 'Menampilkan 0 pengadaan';
+    if (status) status.textContent = 'Jadwal pengadaan sudah diperbarui. Tidak ada kebutuhan hari ini.';
+    return;
+  }
+
+  const currencyFormatter = new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0
+  });
+
+  const dateFormatter = new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Jakarta'
+  });
+
+  const rows = items
+    .map(item => {
+      const procurementDate = item.procurementDate ? dateFormatter.format(item.procurementDate) : '—';
+      const quantity = Number.isFinite(item.quantity) ? formatDecimalValue(item.quantity) : '—';
+      const price = Number.isFinite(item.purchasePrice) ? currencyFormatter.format(item.purchasePrice) : '—';
+
+      return `
+        <tr>
+          <td>${escapeHtml(procurementDate)}</td>
+          <td>${escapeHtml(item.period?.label ?? 'Periode belum ditentukan')}</td>
+          <td>${escapeHtml(item.sku || '—')}</td>
+          <td>
+            <div class="stacked-text">
+              <strong>${escapeHtml(item.productName)}</strong>
+              <span class="table-note">${escapeHtml(item.variantLabel)}</span>
+            </div>
+          </td>
+          <td class="numeric">${escapeHtml(quantity)}</td>
+          <td class="numeric">${escapeHtml(price)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  tbody.innerHTML = rows;
+  meta.textContent = `Menampilkan ${items.length} pengadaan`;
+
+  if (status) {
+    const updatedAt = dailyProcurementState.lastUpdatedAt;
+    const timeFormatter = new Intl.DateTimeFormat('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZone: 'Asia/Jakarta'
+    });
+    status.textContent = updatedAt
+      ? `Diperbarui ${timeFormatter.format(updatedAt)} WIB`
+      : 'Menunggu sinkronisasi harian Supabase';
+  }
+}
+
+async function refreshDailyProcurements({ forceSupabase = false } = {}) {
+  const tbody = document.getElementById('daily-procurements-body');
+  if (!tbody) {
+    return;
+  }
+
+  dailyProcurementState.loading = true;
+  dailyProcurementState.lastError = '';
+  renderDailyProcurements();
+
+  try {
+    let products = forceSupabase ? [] : getProductsFromCache();
+
+    if (isSupabaseConfigured()) {
+      try {
+        const liveProducts = await refreshProductsFromSupabase();
+        if (Array.isArray(liveProducts) && liveProducts.length) {
+          products = liveProducts;
+        }
+      } catch (error) {
+        console.error('Gagal memuat produk pengadaan dari Supabase.', error);
+        if (!products.length) {
+          throw error;
+        }
+        dailyProcurementState.lastError = 'Gagal memuat produk pengadaan dari Supabase. Menampilkan data terakhir yang tersedia.';
+      }
+    }
+
+    const schedule = deriveProcurementSchedule(products, new Date());
+    dailyProcurementState.items = collectDueProcurements(schedule, new Date());
+    dailyProcurementState.lastUpdatedAt = new Date();
+    dailyProcurementState.lastError = '';
+  } catch (error) {
+    console.error('Gagal menyusun pengadaan harian.', error);
+    dailyProcurementState.lastError = dailyProcurementState.lastError || 'Tidak dapat menampilkan daftar pengadaan hari ini.';
+  } finally {
+    dailyProcurementState.loading = false;
+    renderDailyProcurements();
   }
 }
 
@@ -22737,6 +22894,39 @@ function initPurchasesPage() {
   });
 }
 
+function setupProcurementPageControls() {
+  const refreshButton = document.getElementById('procurement-refresh-btn');
+  const reloadButton = document.getElementById('procurement-reload-btn');
+  const handleRefresh = () => refreshDailyProcurements({ forceSupabase: true });
+
+  [refreshButton, reloadButton].forEach(button => {
+    if (!button) return;
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      button.classList.add('is-loading');
+      handleRefresh()
+        .catch(error => {
+          console.error('Gagal memuat ulang pengadaan harian.', error);
+          toast.show('Tidak dapat menyegarkan pengadaan. Coba lagi.');
+        })
+        .finally(() => {
+          button.disabled = false;
+          button.classList.remove('is-loading');
+        });
+    });
+  });
+
+  document.addEventListener('integrations:changed', () => {
+    refreshDailyProcurements({ forceSupabase: true });
+  });
+}
+
+async function initProcurementsPage() {
+  ensureIntegrationsSeeded();
+  setupProcurementPageControls();
+  await refreshDailyProcurements({ forceSupabase: true });
+}
+
 function setupTabbedSections() {
   const tabGroups = document.querySelectorAll('[data-tab-group]');
 
@@ -22996,6 +23186,7 @@ function initPage() {
         'integrations',
         'reports',
         'sales',
+        'procurements',
         'purchases',
         'users',
         'product-mapping-auto',
@@ -23054,6 +23245,10 @@ function initPage() {
 
     if (page === 'purchases') {
       await initPurchasesPage();
+    }
+
+    if (page === 'procurements') {
+      await initProcurementsPage();
     }
 
   });
