@@ -4386,12 +4386,15 @@ function mapSupabaseUser(record) {
     return null;
   }
 
+  const normalizedRole = normalizeUserRole(record.user_type ?? record.role);
+
   return applySuperAdminRole({
     id: record.id,
     name: record.name ?? '',
     company: record.company ?? '',
     email: record.email ?? '',
-    role: normalizeUserRole(record.user_type ?? record.role),
+    role: normalizedRole,
+    originalRole: normalizedRole,
     passwordHash: record.password_hash ?? '',
     createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
     updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
@@ -4525,10 +4528,12 @@ async function enforceSuperAdminRoles(users) {
     .map(user => applySuperAdminRole(user))
     .filter(user => {
       const shouldBeSuperAdmin = isSuperAdminEmail(user.email);
-      if (shouldBeSuperAdmin && user.role !== 'super_admin') {
+      const storedRole = normalizeUserRole(user.originalRole ?? user.role);
+
+      if (shouldBeSuperAdmin && storedRole !== 'super_admin') {
         return true;
       }
-      if (!shouldBeSuperAdmin && user.role === 'super_admin') {
+      if (!shouldBeSuperAdmin && storedRole === 'super_admin') {
         return true;
       }
       return false;
