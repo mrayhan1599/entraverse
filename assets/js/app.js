@@ -7095,6 +7095,7 @@ async function ensureAuthenticatedPage() {
       'reports',
       'sales',
       'purchases',
+      'users',
       'product-mapping-auto',
       'product-mapping-manual'
     ].includes(page)
