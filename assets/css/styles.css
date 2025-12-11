@@ -88,6 +88,7 @@ body[data-page="suppliers"],
 body[data-page="shipping"],
 body[data-page="other-vendors"],
 body[data-page="integrations"],
+body[data-page="users"],
 body[data-page="reports"] {
   overflow-x: hidden;
 }
@@ -1513,6 +1514,14 @@ body[data-theme="dark"] .logo-badge {
   width: 100%;
   margin-left: auto;
   background: var(--color-surface-alt);
+}
+
+.user-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 14px;
 }
 
 .card-actions {

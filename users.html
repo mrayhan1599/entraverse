@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entraverse Admin - Penjualan</title>
+  <title>Entraverse Admin - Manajemen User</title>
   <link rel="icon" type="image/png" href="assets/img/logo/entraverse-logo.png">
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="sales">
+<body data-page="users">
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar-inner">
@@ -31,7 +31,7 @@
           </a>
         </div>
         <div class="topbar-actions">
-          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light,dark,system">
+          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light, dark,system">
             <button class="theme-switcher__button" type="button" data-theme-trigger aria-label="Ganti mode tampilan">
               <span class="theme-switcher__icon" aria-hidden="true" data-theme-icon></span>
               <span class="visually-hidden" data-theme-label aria-live="polite">Auto (System)</span>
@@ -72,7 +72,7 @@
             <span class="nav-icon" aria-hidden="true">📂</span>
             Kategori
           </a>
-          <a class="nav-link active" href="sales.html">
+          <a class="nav-link" href="sales.html">
             <span class="nav-icon" aria-hidden="true">🧾</span>
             Penjualan
           </a>
@@ -98,7 +98,7 @@
         </div>
         <div class="nav-section">
           <p class="nav-title">Admin</p>
-          <a class="nav-link" href="users.html">
+          <a class="nav-link active" href="users.html">
             <span class="nav-icon" aria-hidden="true">👥</span>
             Manajemen User
           </a>
@@ -115,92 +115,56 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <h1>Penjualan</h1>
-            <div class="title-actions" role="toolbar" aria-label="Aksi penjualan">
-              <button class="btn primary-btn" type="button">Buat penjualan baru</button>
-            </div>
+            <h1>Manajemen User</h1>
           </div>
-          <p>Ikuti siklus penjualan mulai dari penawaran hingga penagihan untuk seluruh marketplace Anda.</p>
+          <p>Lihat daftar pengguna yang terdaftar di Supabase untuk memastikan akses admin tetap terkontrol.</p>
         </div>
       </section>
       <section class="card">
-        <div class="tab-container" data-tab-group="sales-tabs">
-          <div class="tab-nav" role="tablist">
-            <button class="tab-nav__button is-active" type="button" data-tab-button data-tab-target="sales-offers" role="tab" aria-selected="true">Penawaran</button>
-            <button class="tab-nav__button" type="button" data-tab-button data-tab-target="sales-deliveries" role="tab" aria-selected="false">Pesanan Pengiriman</button>
-            <button class="tab-nav__button" type="button" data-tab-button data-tab-target="sales-billing" role="tab" aria-selected="false">Penagihan</button>
+        <header class="card-header card-header--controls">
+          <div class="card-title-group">
+            <div class="card-title-row">
+              <h2>Daftar Pengguna</h2>
+              <span id="user-count" class="count-pill">0 pengguna</span>
+            </div>
+            <p class="card-subtitle">Semua data diambil langsung dari tabel <strong>users</strong> di Supabase.</p>
           </div>
-          <div class="tab-panels">
-            <div class="tab-panel is-active" data-tab-panel="sales-offers" role="tabpanel">
-              <div class="table-wrapper">
-                <table class="record-table">
-                  <thead>
-                    <tr>
-                      <th>Tanggal</th>
-                      <th>Nomor</th>
-                      <th>Pelanggan</th>
-                      <th>Jatuh tempo</th>
-                      <th>Status</th>
-                      <th class="numeric">Nilai penawaran</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colspan="7" class="empty-state">Belum ada data penawaran. Hubungkan Mekari Jurnal untuk melihat data.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div class="tab-panel" data-tab-panel="sales-deliveries" role="tabpanel" hidden>
-              <div class="table-wrapper">
-                <table class="record-table">
-                  <thead>
-                    <tr>
-                      <th>Tanggal</th>
-                      <th>Nomor</th>
-                      <th>Pelanggan</th>
-                      <th>Sisa tagihan</th>
-                      <th>Status</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colspan="6" class="empty-state">Belum ada pesanan pengiriman. Integrasikan Mekari Jurnal untuk menarik data.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div class="tab-panel" data-tab-panel="sales-billing" role="tabpanel" hidden>
-              <div class="table-wrapper">
-                <table class="record-table">
-                  <thead>
-                    <tr>
-                      <th>Tanggal</th>
-                      <th>Nomor</th>
-                      <th>Pelanggan</th>
-                      <th>Jatuh tempo</th>
-                      <th>Status</th>
-                      <th class="numeric">Sisa tagihan</th>
-                      <th>Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td colspan="7" class="empty-state">Belum ada penagihan. Data akan tampil setelah tersinkron dengan Mekari Jurnal.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+          <div class="card-actions card-actions--stacked">
+            <form class="search-bar card-search" role="search">
+              <span class="search-icon" aria-hidden="true">🔍</span>
+              <input type="search" id="search-input" placeholder="Cari nama, email, atau perusahaan" aria-label="Cari pengguna">
+            </form>
           </div>
+        </header>
+        <div class="table-wrapper">
+          <table class="category-table">
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th>Email</th>
+                <th>Perusahaan</th>
+                <th>Riwayat</th>
+              </tr>
+            </thead>
+            <tbody id="user-table-body">
+              <tr class="empty-state">
+                <td colspan="4">Memuat pengguna dari Supabase...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
     </main>
   </div>
+  </div>
+  <script>
+    window.entraverseConfig = window.entraverseConfig || {};
+    window.entraverseConfig.supabase = window.entraverseConfig.supabase || {
+      url: 'https://wnewbuwmdrnjfjsxoybs.supabase.co',
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InduZXdidXdtZHJuamZqc3hveWJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjY3ODYsImV4cCI6MjA3Njc0Mjc4Nn0.8nTueW4ogLAXbbq0Q_Z6z-a8J5n9zIOhmlWIP7pimAg'
+    };
+  </script>
+  <script src="assets/vendor/supabase-js-2.43.4.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
