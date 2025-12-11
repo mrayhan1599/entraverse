@@ -1,4 +1,13 @@
 {
   "version": 1,
-  "crons": []
+  "crons": [
+    {
+      "name": "auto-procurement",
+      "schedule": "0 17 * * *",
+      "request": {
+        "method": "POST",
+        "path": "/functions/v1/auto-procurement"
+      }
+    }
+  ]
 }
