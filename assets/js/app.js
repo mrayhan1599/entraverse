@@ -4321,8 +4321,31 @@ function sanitizeSessionUser(user) {
     id: user.id,
     name: user.name ?? '',
     company: user.company ?? '',
-    email: user.email ?? ''
+    email: user.email ?? '',
+    role: normalizeUserRole(user.role)
   };
+}
+
+const USER_ROLE_LABELS = Object.freeze({
+  owner: 'Owner',
+  admin: 'Admin',
+  pelanggan: 'Pelanggan'
+});
+
+function normalizeUserRole(role) {
+  const value = (role ?? '').toString().trim().toLowerCase();
+  if (value === 'owner' || value === 'pemilik') {
+    return 'owner';
+  }
+  if (value === 'admin') {
+    return 'admin';
+  }
+  return 'pelanggan';
+}
+
+function formatUserRole(role) {
+  const normalized = normalizeUserRole(role);
+  return USER_ROLE_LABELS[normalized] ?? USER_ROLE_LABELS.pelanggan;
 }
 
 function mapSupabaseUser(record) {
@@ -4335,6 +4358,7 @@ function mapSupabaseUser(record) {
     name: record.name ?? '',
     company: record.company ?? '',
     email: record.email ?? '',
+    role: normalizeUserRole(record.user_type ?? record.role),
     passwordHash: record.password_hash ?? '',
     createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
     updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
@@ -4347,6 +4371,7 @@ function mapUserToRecord(user) {
     name: user.name,
     company: user.company,
     email: user.email,
+    user_type: normalizeUserRole(user.role),
     password_hash: user.passwordHash,
     created_at: toIsoTimestamp(user.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(user.updatedAt)
@@ -5768,7 +5793,7 @@ function setActiveSessionUser(user) {
 
   if (typeof document !== 'undefined' && document.body) {
     const isGuest = isGuestUser(activeSessionUser);
-    document.body.dataset.sessionRole = isGuest ? 'guest' : 'user';
+    document.body.dataset.sessionRole = isGuest ? 'guest' : (activeSessionUser.role ?? 'user');
     const event = new CustomEvent('entraverse:session-change', {
       detail: { user: activeSessionUser, isGuest }
     });
@@ -6984,6 +7009,7 @@ function handleRegister() {
         name,
         company,
         email,
+        role: 'pelanggan',
         passwordHash,
         createdAt: now,
         updatedAt: now
@@ -22008,7 +22034,7 @@ function renderUserDirectory(filterText = '') {
   const users = getUserDirectoryCache()
     .filter(user => {
       if (!normalized) return true;
-      return [user.name, user.email, user.company]
+      return [user.name, user.email, user.company, formatUserRole(user.role)]
         .map(field => (field ?? '').toString().toLowerCase())
         .some(value => value.includes(normalized));
     })
@@ -22019,13 +22045,14 @@ function renderUserDirectory(filterText = '') {
     });
 
   if (!users.length) {
-    tbody.innerHTML = '<tr class="empty-state"><td colspan="4">Tidak ada pengguna ditemukan.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-state"><td colspan="5">Tidak ada pengguna ditemukan.</td></tr>';
   } else {
     const rows = users
       .map(user => {
         const name = escapeHtml(user.name || '-');
         const email = escapeHtml(user.email || '-');
         const company = escapeHtml(user.company || '-');
+        const role = escapeHtml(formatUserRole(user.role));
         const created = escapeHtml(formatDateTimeForDisplay(user.createdAt) || '-');
         const updated = escapeHtml(formatDateTimeForDisplay(user.updatedAt) || '-');
 
@@ -22034,6 +22061,7 @@ function renderUserDirectory(filterText = '') {
             <td><strong>${name}</strong></td>
             <td>${email}</td>
             <td>${company}</td>
+            <td><span class="pill pill--subtle">${role}</span></td>
             <td>
               <div class="user-dates">
                 <span>Dibuat: ${created}</span>
@@ -22061,7 +22089,7 @@ async function initUserManagementPage() {
   const countEl = document.getElementById('user-count');
 
   const setTableMessage = message => {
-    tbody.innerHTML = `<tr class="empty-state"><td colspan="4">${escapeHtml(message)}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-state"><td colspan="5">${escapeHtml(message)}</td></tr>`;
     if (countEl) {
       countEl.textContent = '0 pengguna';
     }
