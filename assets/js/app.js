@@ -20059,11 +20059,7 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
     variants.forEach((variant, index) => {
       const leadTime = normalizeLeadTimeValue(variant?.leadTime ?? variant?.lead_time) ?? 0;
       const nextProcurement = parseNumericValue(
-        variant?.nextProcurement ??
-          variant?.next_procurement ??
-          variant?.fifteenDayRequirement ??
-          variant?.fifteen_day_requirement ??
-          ''
+        variant?.nextProcurement ?? variant?.next_procurement ?? ''
       );
 
       if (!Number.isFinite(nextProcurement) || nextProcurement <= 0) {
