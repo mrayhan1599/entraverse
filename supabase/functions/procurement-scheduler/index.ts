@@ -170,13 +170,7 @@ function deriveProcurementPlans(products: ProductRecord[], today = new Date()): 
   for (const product of products) {
     const variants = Array.isArray(product?.variant_pricing) ? product.variant_pricing : []
     variants.forEach(variant => {
-      const need = parseNumber(
-        variant?.nextProcurement ??
-          variant?.next_procurement ??
-          // Gunakan kebutuhan 15 hari sebagai fallback jika next_procurement belum dihitung
-          (variant as Record<string, unknown>)?.fifteenDayRequirement ??
-          (variant as Record<string, unknown>)?.fifteen_day_requirement
-      )
+      const need = parseNumber(variant?.nextProcurement ?? variant?.next_procurement)
       if (!Number.isFinite(need) || (need ?? 0) <= 0 || !product?.id) {
         return
       }
