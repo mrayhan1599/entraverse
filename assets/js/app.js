@@ -20197,12 +20197,9 @@ async function refreshProcurementSchedule() {
   try {
     let products = getProductsFromCache();
 
-    if (isSupabaseConfigured()) {
+    if ((!products || !products.length) && isSupabaseConfigured()) {
       try {
-        const liveProducts = await refreshProductsFromSupabase();
-        if (Array.isArray(liveProducts) && liveProducts.length) {
-          products = liveProducts;
-        }
+        products = await refreshProductsFromSupabase();
       } catch (error) {
         console.error('Gagal memuat produk untuk jadwal pengadaan.', error);
       }
