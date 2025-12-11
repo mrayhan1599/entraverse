@@ -11026,10 +11026,7 @@ async function handleAddProductForm() {
     }
 
     const rounded = Math.round(value * 100) / 100;
-    return rounded
-      .toFixed(2)
-      .replace(/\.0+$/, '')
-      .replace(/\.([0-9])0$/, '.$1');
+    return rounded.toFixed(2);
   };
 
   const updatePackageVolume = ({ preferExisting = false } = {}) => {
@@ -12299,10 +12296,7 @@ async function handleAddProductForm() {
 
     const computed = leadTime * finalAverage;
     const rounded = Math.round(computed * 100) / 100;
-    const formatted = rounded
-      .toFixed(2)
-      .replace(/\.0+$/, '')
-      .replace(/\.([0-9])0$/, '.$1');
+    const formatted = formatDecimalValue(rounded);
 
     reorderInput.value = formatted;
     reorderInput.dataset.numericValue = rounded;
@@ -12329,10 +12323,7 @@ async function handleAddProductForm() {
 
     const computed = finalAverage * 15;
     const rounded = Math.round(computed * 100) / 100;
-    const formatted = rounded
-      .toFixed(2)
-      .replace(/\.0+$/, '')
-      .replace(/\.([0-9])0$/, '.$1');
+    const formatted = formatDecimalValue(rounded);
 
     requirementInput.value = formatted;
     requirementInput.dataset.numericValue = rounded;
