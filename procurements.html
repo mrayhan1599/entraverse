@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entraverse Admin - Manajemen User</title>
+  <title>Entraverse Admin - Pengadaan</title>
   <link rel="icon" type="image/png" href="assets/img/logo/entraverse-logo.png">
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="users">
+<body data-page="procurements">
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar-inner">
@@ -31,7 +31,7 @@
           </a>
         </div>
         <div class="topbar-actions">
-          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light, dark,system">
+          <div class="theme-switcher theme-switcher--inline theme-switcher--compact" data-theme-control data-theme-cycle="light,dark,system">
             <button class="theme-switcher__button" type="button" data-theme-trigger aria-label="Ganti mode tampilan">
               <span class="theme-switcher__icon" aria-hidden="true" data-theme-icon></span>
               <span class="visually-hidden" data-theme-label aria-live="polite">Auto (System)</span>
@@ -76,7 +76,7 @@
             <span class="nav-icon" aria-hidden="true">🧾</span>
             Penjualan
           </a>
-          <a class="nav-link" href="procurements.html">
+          <a class="nav-link active" href="procurements.html">
             <span class="nav-icon" aria-hidden="true">📅</span>
             Pengadaan
           </a>
@@ -102,7 +102,7 @@
         </div>
         <div class="nav-section">
           <p class="nav-title">Admin</p>
-          <a class="nav-link active" href="users.html">
+          <a class="nav-link" href="users.html">
             <span class="nav-icon" aria-hidden="true">👥</span>
             Manajemen User
           </a>
@@ -119,54 +119,57 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <h1>Manajemen User</h1>
+            <h1>Pengadaan</h1>
+            <div class="title-actions" role="toolbar" aria-label="Aksi pengadaan">
+              <button class="btn ghost-btn" type="button" id="procurement-refresh-btn">Sinkronkan Pengadaan</button>
+            </div>
           </div>
-          <p>Lihat daftar pengguna yang terdaftar di Supabase untuk memastikan akses admin tetap terkontrol.</p>
+          <p>Daftar pengadaan harian yang otomatis dihasilkan oleh Supabase Edge Function, tersimpan di database Supabase, dan dihitung berdasarkan zona waktu WIB (GMT+7).</p>
         </div>
       </section>
+
       <section class="card">
-        <header class="card-header card-header--controls">
-          <div class="card-title-group">
-            <div class="card-title-row">
-              <h2>Daftar Pengguna</h2>
-              <span id="user-count" class="count-pill">0 pengguna</span>
-            </div>
-            <p class="card-subtitle">Semua data diambil langsung dari tabel <strong>users</strong> di Supabase.</p>
+        <div class="card__header">
+          <div>
+            <h2>Daftar Pengadaan Hari Ini</h2>
+            <p class="text-muted">Tampilkan produk yang harus dibeli hari ini atau yang belum selesai sesuai jadwal pengadaan harian.</p>
           </div>
-          <div class="card-actions card-actions--stacked">
-            <form class="search-bar card-search" role="search">
-              <span class="search-icon" aria-hidden="true">🔍</span>
-              <input type="search" id="search-input" placeholder="Cari nama atau email" aria-label="Cari pengguna">
-            </form>
-          </div>
-        </header>
+          <div class="status-indicator" id="procurement-status" aria-live="polite"></div>
+        </div>
         <div class="table-wrapper">
-          <table class="category-table users-table">
+          <table class="record-table">
             <thead>
               <tr>
-                <th>Nama</th>
-                <th>Email</th>
-                <th>Jenis Akun</th>
+                <th>Tanggal Pengadaan (WIB)</th>
+                <th>Periode Penjualan</th>
+                <th>SKU</th>
+                <th>Barang &amp; Varian</th>
+                <th class="numeric">Kebutuhan</th>
+                <th class="numeric">Harga</th>
               </tr>
             </thead>
-            <tbody id="user-table-body">
-              <tr class="empty-state">
-                <td colspan="3">Memuat pengguna dari Supabase...</td>
+            <tbody id="daily-procurements-body">
+              <tr>
+                <td colspan="6" class="empty-state">Memuat pengadaan harian…</td>
               </tr>
             </tbody>
           </table>
         </div>
+        <footer class="card-footer">
+          <div class="table-footer">
+            <div class="table-footer__meta">
+              <span class="table-meta" id="daily-procurements-meta">Menampilkan 0 pengadaan</span>
+              <span class="table-meta">Zona waktu: WIB (GMT+7)</span>
+            </div>
+            <div class="table-controls">
+              <button class="btn ghost-btn" type="button" id="procurement-reload-btn">Muat ulang</button>
+            </div>
+          </div>
+        </footer>
       </section>
-    </main>
+      </main>
+    </div>
   </div>
-  </div>
-  <script>
-    window.entraverseConfig = window.entraverseConfig || {};
-    window.entraverseConfig.supabase = window.entraverseConfig.supabase || {
-      url: 'https://wnewbuwmdrnjfjsxoybs.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InduZXdidXdtZHJuamZqc3hveWJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjY3ODYsImV4cCI6MjA3Njc0Mjc4Nn0.8nTueW4ogLAXbbq0Q_Z6z-a8J5n9zIOhmlWIP7pimAg'
-    };
-  </script>
   <script src="assets/vendor/supabase-js-2.43.4.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
