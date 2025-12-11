@@ -20036,15 +20036,6 @@ function subtractDays(date, days) {
   return base;
 }
 
-function toDateOnly(value) {
-  const date = value instanceof Date ? value : new Date(value || Date.now());
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
 function deriveProcurementSchedule(products, referenceDate = new Date()) {
   const periodCandidates = resolveProcurementPeriods(referenceDate, PROCUREMENT_MONTH_HORIZON);
   const today = toWibDate(referenceDate);
@@ -20068,10 +20059,7 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
 
       periodCandidates.forEach(period => {
         const plannedDate = subtractDays(period.start, leadTime);
-        const plannedDateOnly = toDateOnly(plannedDate);
-        const todayDateOnly = toDateOnly(today);
-
-        if (!plannedDateOnly || !todayDateOnly || plannedDateOnly < todayDateOnly) {
+        if (!plannedDate || plannedDate < today) {
           return;
         }
 
@@ -20090,7 +20078,7 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
         schedule.push({
           id: `${product?.id ?? 'product'}-${index}-${period.signature}`,
           period,
-          procurementDate: plannedDateOnly,
+          procurementDate: plannedDate,
           sku,
           productName,
           variantLabel,
