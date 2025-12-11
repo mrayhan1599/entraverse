@@ -87,7 +87,9 @@ type PeriodWindow = {
   label: string
 }
 
-function resolveProcurementPeriods(referenceDate = new Date(), monthsAhead = 2): PeriodWindow[] {
+const PLANNING_MONTH_HORIZON = 14
+
+function resolveProcurementPeriods(referenceDate = new Date(), monthsAhead = PLANNING_MONTH_HORIZON): PeriodWindow[] {
   const anchor = toWibDate(referenceDate)
   const periods: PeriodWindow[] = []
 
@@ -159,7 +161,7 @@ function computeProcurementPlan(
 }
 
 function deriveProcurementPlans(products: ProductRecord[], today = new Date()): ProcurementPlan[] {
-  const periods = resolveProcurementPeriods(today, 3)
+  const periods = resolveProcurementPeriods(today)
   if (!periods.length) return []
 
   const plans: ProcurementPlan[] = []
