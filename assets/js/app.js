@@ -4354,6 +4354,19 @@ function formatUserRole(role) {
   return USER_ROLE_LABELS[normalized] ?? USER_ROLE_LABELS.pelanggan;
 }
 
+function getUserRole(user) {
+  if (!user) {
+    return 'guest';
+  }
+
+  return normalizeUserRole(user.userType ?? user.role);
+}
+
+function isAdminRole(role) {
+  const normalized = normalizeUserRole(role);
+  return normalized === 'admin' || normalized === 'owner' || normalized === 'super_admin';
+}
+
 function isSuperAdminEmail(email) {
   return (email ?? '').toString().trim().toLowerCase() === SUPER_ADMIN_EMAIL;
 }
@@ -5613,13 +5626,78 @@ const toast = createToast();
 
 let actionMenusInitialized = false;
 
+const ADMIN_ONLY_NAV_LINKS = Object.freeze(['users.html', 'purchases.html', 'sales.html', 'reports.html']);
+const ADMIN_ONLY_PAGE_IDS = new Set(['users', 'purchases', 'sales', 'reports']);
+let pendingAccessRedirect = null;
+
+function enforceRestrictedPageAccess(page, user) {
+  if (!ADMIN_ONLY_PAGE_IDS.has(page)) {
+    return true;
+  }
+
+  if (isAdminRole(getUserRole(user))) {
+    return true;
+  }
+
+  toast.show('Halaman ini hanya tersedia untuk admin.');
+  if (!pendingAccessRedirect) {
+    pendingAccessRedirect = setTimeout(() => {
+      pendingAccessRedirect = null;
+      window.location.href = 'dashboard.html';
+    }, 400);
+  }
+  return false;
+}
+
+function updateNavigationVisibility(user) {
+  const role = getUserRole(user);
+  const isAdmin = isAdminRole(role);
+  const navLinks = Array.from(document.querySelectorAll('.sidebar-nav .nav-link'));
+
+  navLinks.forEach(link => {
+    const href = (link.getAttribute('href') || '').trim();
+    const adminOnly = ADMIN_ONLY_NAV_LINKS.some(path => href.endsWith(path));
+    const hidden = adminOnly && !isAdmin;
+
+    link.style.display = hidden ? 'none' : '';
+    if (hidden) {
+      link.setAttribute('aria-hidden', 'true');
+    } else {
+      link.removeAttribute('aria-hidden');
+    }
+  });
+
+  const navSections = Array.from(document.querySelectorAll('.nav-section'));
+  navSections.forEach(section => {
+    const links = Array.from(section.querySelectorAll('.nav-link'));
+    const hasVisibleLink = links.some(link => link.style.display !== 'none');
+    section.style.display = hasVisibleLink ? '' : 'none';
+    section.setAttribute('aria-hidden', hasVisibleLink ? 'false' : 'true');
+  });
+}
+
 function requireCatalogManager(message = 'Silakan login untuk mengelola katalog.') {
   if (canManageCatalog()) {
     return true;
   }
-  toast.show(message);
+
+  const user = getActiveUser();
+  const fallbackMessage = isGuestUser(user)
+    ? message
+    : 'Akses ini hanya tersedia untuk admin.';
+  toast.show(fallbackMessage);
   return false;
 }
+
+document.addEventListener('entraverse:session-change', event => {
+  const user = event.detail?.user;
+  updateNavigationVisibility(user);
+
+  const page = document.body?.dataset?.page;
+  if (page) {
+    enforceRestrictedPageAccess(page, user);
+  }
+});
 
 function clone(value) {
   if (value === null || value === undefined) {
@@ -5882,16 +5960,18 @@ function setActiveSessionUser(user) {
 
   if (typeof document !== 'undefined' && document.body) {
     const isGuest = isGuestUser(activeSessionUser);
-    document.body.dataset.sessionRole = isGuest ? 'guest' : (activeSessionUser.role ?? 'user');
+    const role = isGuest ? 'guest' : getUserRole(activeSessionUser);
+    document.body.dataset.sessionRole = role;
     const event = new CustomEvent('entraverse:session-change', {
-      detail: { user: activeSessionUser, isGuest }
+      detail: { user: activeSessionUser, isGuest, role }
     });
     document.dispatchEvent(event);
   }
 }
 
 function canManageCatalog() {
-  return !isGuestUser(getActiveUser());
+  const user = getActiveUser();
+  return !isGuestUser(user) && isAdminRole(getUserRole(user));
 }
 
 function getNameInitials(name) {
@@ -22355,7 +22435,12 @@ function initPage() {
       if (status === 'expired') {
         toast.show('Sesi Anda telah berakhir. Silakan login kembali.');
       }
+      const accessGranted = enforceRestrictedPageAccess(page, user);
       topbarAuth.update(user);
+      updateNavigationVisibility(user);
+      if (!accessGranted) {
+        return;
+      }
     }
 
     if (page === 'dashboard') {
