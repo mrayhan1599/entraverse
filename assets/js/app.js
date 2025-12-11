@@ -4317,16 +4317,19 @@ function sanitizeSessionUser(user) {
     return null;
   }
 
-  return {
+  return applySuperAdminRole({
     id: user.id,
     name: user.name ?? '',
     company: user.company ?? '',
     email: user.email ?? '',
     role: normalizeUserRole(user.role)
-  };
+  });
 }
 
+const SUPER_ADMIN_EMAIL = 'rayhan1599@gmail.com';
+
 const USER_ROLE_LABELS = Object.freeze({
+  super_admin: 'Super Admin',
   owner: 'Owner',
   admin: 'Admin',
   pelanggan: 'Pelanggan'
@@ -4334,6 +4337,9 @@ const USER_ROLE_LABELS = Object.freeze({
 
 function normalizeUserRole(role) {
   const value = (role ?? '').toString().trim().toLowerCase();
+  if (value === 'super_admin' || value === 'super admin' || value === 'superadmin') {
+    return 'super_admin';
+  }
   if (value === 'owner' || value === 'pemilik') {
     return 'owner';
   }
@@ -4348,12 +4354,39 @@ function formatUserRole(role) {
   return USER_ROLE_LABELS[normalized] ?? USER_ROLE_LABELS.pelanggan;
 }
 
+function isSuperAdminEmail(email) {
+  return (email ?? '').toString().trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
+
+function applySuperAdminRole(user) {
+  if (!user) {
+    return user;
+  }
+
+  const normalizedEmail = (user.email ?? '').toString().trim().toLowerCase();
+  const normalizedRole = normalizeUserRole(user.role);
+
+  if (isSuperAdminEmail(normalizedEmail)) {
+    return { ...user, role: 'super_admin' };
+  }
+
+  if (normalizedRole === 'super_admin') {
+    return { ...user, role: 'admin' };
+  }
+
+  return { ...user, role: normalizedRole };
+}
+
+function isSuperAdminUser(user) {
+  return applySuperAdminRole(user)?.role === 'super_admin';
+}
+
 function mapSupabaseUser(record) {
   if (!record) {
     return null;
   }
 
-  return {
+  return applySuperAdminRole({
     id: record.id,
     name: record.name ?? '',
     company: record.company ?? '',
@@ -4362,16 +4395,18 @@ function mapSupabaseUser(record) {
     passwordHash: record.password_hash ?? '',
     createdAt: record.created_at ? new Date(record.created_at).getTime() : Date.now(),
     updatedAt: record.updated_at ? new Date(record.updated_at).getTime() : null
-  };
+  });
 }
 
 function mapUserToRecord(user) {
+  const normalized = applySuperAdminRole(user);
+
   return {
     id: user.id,
     name: user.name,
     company: user.company,
     email: user.email,
-    user_type: normalizeUserRole(user.role),
+    user_type: normalizeUserRole(normalized.role),
     password_hash: user.passwordHash,
     created_at: toIsoTimestamp(user.createdAt) ?? new Date().toISOString(),
     updated_at: toIsoTimestamp(user.updatedAt)
@@ -4402,6 +4437,7 @@ async function refreshUsersFromSupabase() {
 
   const users = Array.isArray(data) ? data.map(mapSupabaseUser).filter(Boolean) : [];
   setUserDirectoryCache(users);
+  await enforceSuperAdminRoles(users);
   return users;
 }
 
@@ -4462,6 +4498,54 @@ async function insertUserToSupabase(user) {
   });
 
   return mapSupabaseUser(data ?? payload);
+}
+
+async function updateUserRoleInSupabase({ userId, role, email }) {
+  await ensureSupabase();
+  const client = getSupabaseClient();
+  const normalizedRole = applySuperAdminRole({ id: userId, role, email }).role;
+
+  const { data } = await executeSupabaseMutation({
+    client,
+    table: SUPABASE_TABLES.users,
+    method: 'update',
+    payload: { user_type: normalizedRole, updated_at: new Date().toISOString() },
+    transform: builder => builder.eq('id', userId).select().maybeSingle()
+  });
+
+  return mapSupabaseUser(data ?? { id: userId, role: normalizedRole });
+}
+
+async function enforceSuperAdminRoles(users) {
+  if (!Array.isArray(users)) {
+    return;
+  }
+
+  const corrections = users
+    .map(user => applySuperAdminRole(user))
+    .filter(user => {
+      const shouldBeSuperAdmin = isSuperAdminEmail(user.email);
+      if (shouldBeSuperAdmin && user.role !== 'super_admin') {
+        return true;
+      }
+      if (!shouldBeSuperAdmin && user.role === 'super_admin') {
+        return true;
+      }
+      return false;
+    })
+    .map(user => ({
+      userId: user.id,
+      role: isSuperAdminEmail(user.email) ? 'super_admin' : 'admin',
+      email: user.email
+    }));
+
+  for (const correction of corrections) {
+    try {
+      await updateUserRoleInSupabase(correction);
+    } catch (error) {
+      console.warn('Gagal memastikan peran Super Admin tunggal.', error);
+    }
+  }
 }
 
 async function ensureSeeded() {
@@ -22030,6 +22114,8 @@ function renderUserDirectory(filterText = '') {
 
   const countEl = document.getElementById('user-count');
   const normalized = (filterText ?? '').toString().trim().toLowerCase();
+  const currentUser = getCurrentUser();
+  const canEditRoles = isSuperAdminUser(currentUser);
 
   const users = getUserDirectoryCache()
     .filter(user => {
@@ -22055,13 +22141,41 @@ function renderUserDirectory(filterText = '') {
         const role = escapeHtml(formatUserRole(user.role));
         const created = escapeHtml(formatDateTimeForDisplay(user.createdAt) || '-');
         const updated = escapeHtml(formatDateTimeForDisplay(user.updatedAt) || '-');
+        const isSuperAdmin = isSuperAdminUser(user);
+
+        const roleControl = canEditRoles && !isSuperAdmin
+          ? (() => {
+              const selectId = `role-${user.id}`;
+              const normalizedRole = normalizeUserRole(user.role);
+              const roleOptions = [
+                { value: 'admin', label: formatUserRole('admin') },
+                { value: 'pelanggan', label: formatUserRole('pelanggan') }
+              ];
+
+              const options = roleOptions
+                .map(option => {
+                  const selected = option.value === normalizedRole ? 'selected' : '';
+                  return `<option value="${option.value}" ${selected}>${escapeHtml(option.label)}</option>`;
+                })
+                .join('');
+
+              return `
+                <label class="visually-hidden" for="${selectId}">Jenis akun ${name}</label>
+                <select id="${selectId}" class="table-select" data-user-role-selector data-user-id="${escapeHtml(
+                  user.id
+                )}" data-user-email="${email}">
+                  ${options}
+                </select>
+              `;
+            })()
+          : `<span class="pill pill--subtle">${role}</span>`;
 
         return `
           <tr>
             <td><strong>${name}</strong></td>
             <td>${email}</td>
             <td>${company}</td>
-            <td><span class="pill pill--subtle">${role}</span></td>
+            <td>${roleControl}</td>
             <td>
               <div class="user-dates">
                 <span>Dibuat: ${created}</span>
@@ -22113,6 +22227,51 @@ async function initUserManagementPage() {
   }
 
   handleSearch(value => renderUserDirectory(value));
+
+  tbody.addEventListener('change', async event => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement) || !target.matches('[data-user-role-selector]')) {
+      return;
+    }
+
+    const sessionUser = getCurrentUser();
+    if (!isSuperAdminUser(sessionUser)) {
+      toast.show('Hanya Super Admin yang dapat mengubah jenis akun.');
+      renderUserDirectory(document.getElementById('search-input')?.value ?? '');
+      return;
+    }
+
+    const userId = target.dataset.userId;
+    const email = target.dataset.userEmail;
+    const selectedRole = normalizeUserRole(target.value);
+
+    if (!userId || !selectedRole || selectedRole === 'super_admin') {
+      renderUserDirectory(document.getElementById('search-input')?.value ?? '');
+      return;
+    }
+
+    const currentRecord = getUserDirectoryCache().find(user => user.id === userId);
+    if (currentRecord && normalizeUserRole(currentRecord.role) === selectedRole) {
+      return;
+    }
+
+    target.disabled = true;
+    target.classList.add('is-loading');
+
+    try {
+      await updateUserRoleInSupabase({ userId, role: selectedRole, email });
+      await refreshUsersFromSupabase();
+      const filter = document.getElementById('search-input')?.value ?? '';
+      renderUserDirectory(filter);
+      toast.show('Jenis akun pengguna berhasil diperbarui.');
+    } catch (error) {
+      console.error('Gagal memperbarui jenis akun pengguna.', error);
+      toast.show('Tidak dapat memperbarui jenis akun, coba lagi.');
+      target.disabled = false;
+    } finally {
+      target.classList.remove('is-loading');
+    }
+  });
 
   document.addEventListener('entraverse:session-change', async () => {
     if (!isSupabaseConfigured()) {
