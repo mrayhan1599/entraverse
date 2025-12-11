@@ -91,21 +91,20 @@ function computeNextProcurement(row: VariantPricingRow, today: Date) {
 
   const daysSinceStart = calculateDaysSince(startDate, today)
   if (daysSinceStart === null) return null
-
-  const requirement = parseNumber(row.fifteenDayRequirement ?? row.fifteen_day_requirement)
-  const reorderPoint = parseNumber(row.reorderPoint ?? row.reorder_point)
-  const stock = parseNumber(row.stock ?? row.current_stock) ?? 0
-  const inTransit = parseNumber(row.inTransitStock ?? row.in_transit_stock) ?? 0
-  const combined = stock + inTransit
-
-  // Selama 30 hari pertama, tetap prioritaskan kebutuhan aktual jika data sudah tersedia
-  if (daysSinceStart < 30 && (requirement === null || reorderPoint === null)) {
+  if (daysSinceStart < 30) {
     return formatResult(initialStock)
   }
 
+  const requirement = parseNumber(row.fifteenDayRequirement ?? row.fifteen_day_requirement)
+  const reorderPoint = parseNumber(row.reorderPoint ?? row.reorder_point)
   if (requirement === null || reorderPoint === null) {
     return null
   }
+
+  const stock =
+    parseNumber(row.stock ?? row.current_stock) ?? 0
+  const inTransit = parseNumber(row.inTransitStock ?? row.in_transit_stock) ?? 0
+  const combined = stock + inTransit
 
   const computed =
     combined <= reorderPoint ? requirement : Math.max(requirement - (combined - reorderPoint), 0)
