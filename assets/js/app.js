@@ -3032,6 +3032,43 @@ async function recalculateProductPricingForCategories(categoryNames) {
   return { updatedProducts, supabaseFailed };
 }
 
+async function triggerSupabasePricingRecalculation(categoryNames) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const config = getSupabaseConfig();
+  if (!config?.url || !config?.anonKey) {
+    return null;
+  }
+
+  const normalized = Array.isArray(categoryNames)
+    ? categoryNames.map(name => (name ?? '').toString().trim()).filter(Boolean)
+    : [];
+
+  if (!normalized.length) {
+    return null;
+  }
+
+  const endpoint = `${config.url.replace(/\/+$/, '')}/functions/v1/recalculate-pricing`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: config.anonKey,
+      Authorization: `Bearer ${config.anonKey}`
+    },
+    body: JSON.stringify({ categories: normalized })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Supabase Edge Function gagal: ${errorText || response.statusText}`);
+  }
+
+  return response.json();
+}
+
 function parseStockOutDate(value) {
   if (!value) {
     return null;
@@ -10010,21 +10047,52 @@ function handleCategoryActions() {
   const getCurrentFilter = () => (searchInput?.value ?? '').toString();
 
   const triggerBackgroundPricingRefresh = categoryList => {
-    recalculateProductPricingForCategories(categoryList)
-      .then(({ updatedProducts, supabaseFailed }) => {
-        if (!Array.isArray(updatedProducts) || !updatedProducts.length) {
-          return;
-        }
+    const normalized = Array.isArray(categoryList)
+      ? categoryList.map(name => (name ?? '').toString().trim()).filter(Boolean)
+      : [];
 
-        if (supabaseFailed) {
-          toast.show('Harga produk terhitung ulang namun gagal tersinkron ke Supabase.');
-        } else {
-          toast.show('Harga produk diperbarui otomatis sesuai komponen fee terbaru.');
-        }
-      })
-      .catch(error => {
-        console.error('Gagal menghitung ulang harga produk setelah perubahan fee.', error);
-      });
+    const runLocalRecalculation = () =>
+      recalculateProductPricingForCategories(normalized)
+        .then(({ updatedProducts, supabaseFailed }) => {
+          if (!Array.isArray(updatedProducts) || !updatedProducts.length) {
+            return;
+          }
+
+          if (supabaseFailed) {
+            toast.show('Harga produk terhitung ulang namun gagal tersinkron ke Supabase.');
+          } else {
+            toast.show('Harga produk diperbarui otomatis sesuai komponen fee terbaru.');
+          }
+        })
+        .catch(error => {
+          console.error('Gagal menghitung ulang harga produk setelah perubahan fee.', error);
+        });
+
+    if (!normalized.length) {
+      return;
+    }
+
+    if (isSupabaseConfigured()) {
+      triggerSupabasePricingRecalculation(normalized)
+        .then(result => {
+          refreshProductsFromSupabase().catch(err => {
+            console.warn('Gagal menyegarkan produk setelah perhitungan harga di Supabase.', err);
+          });
+
+          const updatedCount = Number(result?.updatedProducts ?? 0);
+          if (updatedCount > 0) {
+            toast.show('Harga produk diperbarui otomatis sesuai komponen fee terbaru.');
+          }
+        })
+        .catch(error => {
+          console.error('Gagal memicu perhitungan harga di Supabase.', error);
+          runLocalRecalculation();
+        });
+
+      return;
+    }
+
+    runLocalRecalculation();
   };
 
   const resetFeeManagers = () => {
