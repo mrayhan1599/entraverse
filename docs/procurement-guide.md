@@ -4,9 +4,9 @@
 - **Periode bulanan**
   - Periode A: tanggal 1–15 setiap bulan.
   - Periode B: tanggal 16–akhir bulan (28/29/30/31 sesuai kalender).
-  - **Lead time**
-    - Untuk setiap varian produk, lead time dibaca dari `variant_pricing.lead_time` (atau `leadTime`).
-    - Tanggal pengadaan dihitung **H-lead time + 1 hari** dari tanggal mulai periode (contoh lead time 15 hari → pengadaan untuk Periode A bulan depan jatuh pada 16 hari sebelum 1 tanggal tersebut dalam WIB). Tambahan 1 hari memastikan stok sudah siap pada hari pertama periode.
+- **Lead time**
+  - Untuk setiap varian produk, lead time dibaca dari `variant_pricing.lead_time` (atau `leadTime`).
+  - Tanggal pengadaan dihitung **H-lead time** dari tanggal mulai periode (contoh lead time 15 hari → pengadaan untuk Periode A bulan depan jatuh pada 16 hari sebelum 1 tanggal tersebut dalam WIB).
 - **Kebutuhan pengadaan**
   - Sistem memakai nilai `next_procurement` per varian sebagai jumlah yang harus disiapkan untuk periode tersebut.
 - **Harga**
