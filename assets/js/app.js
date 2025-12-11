@@ -20076,10 +20076,9 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
 
     variants.forEach((variant, index) => {
       const leadTime = normalizeLeadTimeValue(variant?.leadTime ?? variant?.lead_time) ?? 0;
-      // Seragamkan logika dengan Edge Function: lead time dihitung sebagai hari penuh
-      // sebelum periode dimulai, sehingga tanggal pengadaan = start - (leadTime + 1)
-      // untuk memastikan stok siap pada hari pertama periode.
-      const leadTimeOffset = leadTime > 0 ? leadTime + 1 : 0;
+      // Lead time dihitung sebagai jumlah hari penuh sebelum periode dimulai,
+      // sehingga tanggal pengadaan = start - leadTime sesuai ekspektasi UI.
+      const leadTimeOffset = leadTime > 0 ? leadTime : 0;
       const nextProcurement = parseNumericValue(
         variant?.nextProcurement ??
           variant?.next_procurement ??
