@@ -19937,6 +19937,12 @@ const purchaseOrdersState = {
   hasMore: false
 };
 
+const procurementScheduleState = {
+  loading: false,
+  items: [],
+  lastError: ''
+};
+
 const purchaseOrderDetailState = {
   loading: false,
   currentId: null
@@ -19982,6 +19988,228 @@ function parseSortableDate(value) {
   }
 
   return date;
+}
+
+function resolveProcurementPeriods(referenceDate = new Date(), monthsAhead = 2) {
+  const anchor = toWibDate(referenceDate);
+  const periods = [];
+
+  const totalMonths = Math.max(0, Number(monthsAhead) || 0);
+  for (let offset = 0; offset <= totalMonths; offset += 1) {
+    const current = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + offset, 1));
+    const year = current.getUTCFullYear();
+    const month = current.getUTCMonth();
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+    const periodAStart = new Date(Date.UTC(year, month, 1));
+    const periodAEnd = new Date(Date.UTC(year, month, Math.min(15, daysInMonth)));
+
+    const periodBStart = new Date(Date.UTC(year, month, 16));
+    const periodBEnd = new Date(Date.UTC(year, month, daysInMonth));
+
+    periods.push({
+      key: 'period-a',
+      start: periodAStart,
+      end: periodAEnd,
+      signature: `procurement-${year}-${String(month + 1).padStart(2, '0')}-a`
+    });
+
+    periods.push({
+      key: 'period-b',
+      start: periodBStart,
+      end: periodBEnd,
+      signature: `procurement-${year}-${String(month + 1).padStart(2, '0')}-b`
+    });
+  }
+
+  return periods
+    .filter(period => period.end >= anchor)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+    .map(period => ({
+      ...period,
+      label: `${period.start.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })} – ${period.end.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+    }));
+}
+
+function subtractDays(date, days) {
+  const base = date instanceof Date ? new Date(date) : new Date(date || Date.now());
+  if (Number.isNaN(base.getTime())) {
+    return null;
+  }
+
+  const normalizedDays = Number.isFinite(days) ? Number(days) : 0;
+  base.setUTCDate(base.getUTCDate() - normalizedDays);
+  return base;
+}
+
+function deriveProcurementSchedule(products, referenceDate = new Date()) {
+  const periodCandidates = resolveProcurementPeriods(referenceDate, 3);
+  const today = toWibDate(referenceDate);
+  const schedule = [];
+
+  const targetPeriod = periodCandidates.find(period => period.start >= today) ?? periodCandidates[periodCandidates.length - 1];
+  if (!targetPeriod) {
+    return schedule;
+  }
+
+  const normalizedProducts = Array.isArray(products) ? products.filter(Boolean) : [];
+  normalizedProducts.forEach(product => {
+    const variants = Array.isArray(product?.variantPricing ?? product?.variant_pricing)
+      ? product.variantPricing ?? product.variant_pricing
+      : [];
+
+    variants.forEach((variant, index) => {
+      const leadTime = normalizeLeadTimeValue(variant?.leadTime ?? variant?.lead_time) ?? 0;
+      const nextProcurement = parseNumericValue(
+        variant?.nextProcurement ?? variant?.next_procurement ?? ''
+      );
+
+      if (!Number.isFinite(nextProcurement) || nextProcurement <= 0) {
+        return;
+      }
+
+      const plannedDate = subtractDays(targetPeriod.start, leadTime);
+      if (!plannedDate) {
+        return;
+      }
+
+      const priceCandidate =
+        variant?.purchasePriceIdr ??
+        variant?.purchase_price_idr ??
+        variant?.purchasePrice ??
+        variant?.purchase_price ??
+        product?.inventory?.purchasePriceIdr;
+      const purchasePrice = parseNumericValue(priceCandidate);
+
+      const sku = (variant?.sellerSku ?? variant?.sku ?? product?.sku ?? '').toString().trim();
+      const variantLabel = resolveVariantSuffix(variant) || 'Tanpa varian';
+      const productName = (product?.name ?? 'Produk tanpa nama').toString();
+
+      schedule.push({
+        id: `${product?.id ?? 'product'}-${index}-${targetPeriod.signature}`,
+        period: targetPeriod,
+        procurementDate: plannedDate,
+        sku,
+        productName,
+        variantLabel,
+        quantity: nextProcurement,
+        purchasePrice,
+        total: Number.isFinite(purchasePrice) ? Math.max(0, purchasePrice * nextProcurement) : null
+      });
+    });
+  });
+
+  return schedule.sort((a, b) => a.procurementDate.getTime() - b.procurementDate.getTime());
+}
+
+function renderProcurementSchedule() {
+  const tbody = document.getElementById('purchase-procurements-table-body');
+  const meta = document.getElementById('purchase-procurements-meta');
+
+  if (!tbody || !meta) {
+    return;
+  }
+
+  const setMessage = message => {
+    tbody.innerHTML = `<tr><td colspan="6" class="${procurementScheduleState.lastError ? 'error-state' : 'empty-state'}">${escapeHtml(message)}</td></tr>`;
+  };
+
+  if (procurementScheduleState.loading) {
+    setMessage('Memuat jadwal pengadaan…');
+    meta.textContent = 'Menampilkan 0 jadwal pengadaan';
+    return;
+  }
+
+  if (procurementScheduleState.lastError) {
+    setMessage(procurementScheduleState.lastError);
+    meta.textContent = 'Menampilkan 0 jadwal pengadaan';
+    return;
+  }
+
+  const items = Array.isArray(procurementScheduleState.items)
+    ? procurementScheduleState.items.filter(Boolean)
+    : [];
+
+  if (!items.length) {
+    setMessage('Belum ada jadwal pengadaan terhitung dari lead time produk.');
+    meta.textContent = 'Menampilkan 0 jadwal pengadaan';
+    return;
+  }
+
+  const currencyFormatter = new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0
+  });
+
+  const rows = items
+    .map(item => {
+      const procurementDate = item.procurementDate?.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      }) ?? '—';
+
+      const quantity = Number.isFinite(item.quantity)
+        ? formatDecimalValue(item.quantity)
+        : '—';
+
+      const price = Number.isFinite(item.purchasePrice)
+        ? currencyFormatter.format(item.purchasePrice)
+        : '—';
+
+      return `
+        <tr>
+          <td>${escapeHtml(item.period?.label ?? 'Periode tidak dikenal')}</td>
+          <td>${escapeHtml(procurementDate)}</td>
+          <td>${escapeHtml(item.sku || '—')}</td>
+          <td>
+            <div class="stacked-text">
+              <strong>${escapeHtml(item.productName)}</strong>
+              <span class="table-note">${escapeHtml(item.variantLabel)}</span>
+            </div>
+          </td>
+          <td class="numeric">${escapeHtml(quantity)}</td>
+          <td class="numeric">${escapeHtml(price)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  tbody.innerHTML = rows;
+  meta.textContent = `Menampilkan ${items.length} jadwal pengadaan`;
+}
+
+async function refreshProcurementSchedule() {
+  const tbody = document.getElementById('purchase-procurements-table-body');
+  if (!tbody) {
+    return;
+  }
+
+  procurementScheduleState.loading = true;
+  procurementScheduleState.lastError = '';
+  renderProcurementSchedule();
+
+  try {
+    let products = getProductsFromCache();
+
+    if ((!products || !products.length) && isSupabaseConfigured()) {
+      try {
+        products = await refreshProductsFromSupabase();
+      } catch (error) {
+        console.error('Gagal memuat produk untuk jadwal pengadaan.', error);
+      }
+    }
+
+    procurementScheduleState.items = deriveProcurementSchedule(products);
+  } catch (error) {
+    console.error('Gagal menyusun jadwal pengadaan.', error);
+    procurementScheduleState.lastError = 'Tidak dapat menghitung jadwal pengadaan otomatis.';
+  } finally {
+    procurementScheduleState.loading = false;
+    renderProcurementSchedule();
+  }
 }
 
 async function fetchMekariPurchaseOrders({
@@ -22440,11 +22668,13 @@ function initPurchasesPage() {
   setupPurchaseDocumentControls();
   setupPurchaseDocumentActions();
   setupPurchaseDocumentDetailModal();
+  refreshProcurementSchedule();
   refreshPurchaseOrders();
   refreshPurchaseDocuments();
   refreshPurchaseMetrics();
 
   document.addEventListener('integrations:changed', () => {
+    refreshProcurementSchedule();
     refreshPurchaseOrders({ page: 1 });
     refreshPurchaseDocuments();
     refreshPurchaseMetrics();

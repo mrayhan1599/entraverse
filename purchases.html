@@ -126,6 +126,7 @@
       <section class="card">
         <div class="tab-container purchase-tab-container" data-tab-group="purchase-tabs">
           <div class="tab-nav" role="tablist">
+            <button class="tab-nav__button" type="button" data-tab-button data-tab-target="purchase-procurements" role="tab" aria-selected="false">Pengadaan</button>
             <button class="tab-nav__button is-active" type="button" data-tab-button data-tab-target="purchase-requests" role="tab" aria-selected="true">Permintaan</button>
             <button class="tab-nav__button" type="button" data-tab-button data-tab-target="purchase-offers" role="tab" aria-selected="false">Penawaran</button>
             <button class="tab-nav__button" type="button" data-tab-button data-tab-target="purchase-orders" role="tab" aria-selected="false">Pesanan</button>
@@ -133,6 +134,34 @@
             <button class="tab-nav__button" type="button" data-tab-button data-tab-target="purchase-invoices" role="tab" aria-selected="false">Faktur</button>
           </div>
           <div class="tab-panels">
+            <div class="tab-panel" data-tab-panel="purchase-procurements" role="tabpanel" hidden>
+              <div class="table-wrapper">
+                <table class="record-table">
+                  <thead>
+                    <tr>
+                      <th>Periode</th>
+                      <th>Tanggal Pengadaan</th>
+                      <th>SKU</th>
+                      <th>Barang &amp; Varian</th>
+                      <th class="numeric">Kebutuhan</th>
+                      <th class="numeric">Harga</th>
+                    </tr>
+                  </thead>
+                  <tbody id="purchase-procurements-table-body">
+                    <tr>
+                      <td colspan="6" class="empty-state">Memuat jadwal pengadaan…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <footer class="card-footer">
+                <div class="table-footer">
+                  <div class="table-footer__meta">
+                    <span class="table-meta" id="purchase-procurements-meta">Menampilkan 0 jadwal pengadaan</span>
+                  </div>
+                </div>
+              </footer>
+            </div>
             <div class="tab-panel is-active" data-tab-panel="purchase-requests" role="tabpanel">
               <div class="table-wrapper">
                 <table class="record-table">
