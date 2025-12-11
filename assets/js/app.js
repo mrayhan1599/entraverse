@@ -20056,6 +20056,16 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
       ? product.variantPricing ?? product.variant_pricing
       : [];
 
+    const todayDateOnly = toDateOnly(today);
+    const resolvePeriodFromSignature = signature =>
+      periodCandidates.find(period => period.signature === signature) ?? null;
+    const resolvePeriodFromDate = dateOnly =>
+      periodCandidates.find(period =>
+        dateOnly?.getTime() >= period.start.getTime() && dateOnly?.getTime() <= period.end.getTime()
+      ) ?? null;
+
+    const normalizedToday = todayDateOnly?.getTime();
+
     variants.forEach((variant, index) => {
       const leadTime = normalizeLeadTimeValue(variant?.leadTime ?? variant?.lead_time) ?? 0;
       // Seragamkan logika dengan Edge Function: lead time dihitung sebagai hari penuh
@@ -20074,12 +20084,44 @@ function deriveProcurementSchedule(products, referenceDate = new Date()) {
         return;
       }
 
+      const metadataDate = toDateOnly(variant?.nextProcurementDate ?? variant?.next_procurement_date);
+      const metadataSignature = variant?.nextProcurementSignature ?? variant?.next_procurement_signature;
+      const metadataPeriod = metadataSignature ? resolvePeriodFromSignature(metadataSignature) : null;
+
+      if (metadataDate && normalizedToday !== undefined && metadataDate.getTime() >= normalizedToday) {
+        const matchedPeriod = metadataPeriod ?? resolvePeriodFromDate(metadataDate);
+
+        const priceCandidate =
+          variant?.purchasePriceIdr ??
+          variant?.purchase_price_idr ??
+          variant?.purchasePrice ??
+          variant?.purchase_price ??
+          product?.inventory?.purchasePriceIdr;
+        const purchasePrice = parseNumericValue(priceCandidate);
+        const sku = (variant?.sellerSku ?? variant?.sku ?? product?.sku ?? '').toString().trim();
+        const variantLabel = resolveVariantSuffix(variant) || 'Tanpa varian';
+        const productName = (product?.name ?? 'Produk tanpa nama').toString();
+
+        schedule.push({
+          id: `${product?.id ?? 'product'}-${index}-${metadataSignature || 'metadata'}`,
+          period: matchedPeriod,
+          procurementDate: metadataDate,
+          sku,
+          productName,
+          variantLabel,
+          quantity: nextProcurement,
+          purchasePrice,
+          total: Number.isFinite(purchasePrice) ? Math.max(0, purchasePrice * nextProcurement) : null
+        });
+
+        return;
+      }
+
       periodCandidates.forEach(period => {
         const plannedDate = subtractDays(period.start, leadTimeOffset);
         const plannedDateOnly = toDateOnly(plannedDate);
-        const todayDateOnly = toDateOnly(today);
 
-        if (!plannedDateOnly || !todayDateOnly || plannedDateOnly < todayDateOnly) {
+        if (!plannedDateOnly || normalizedToday === undefined || plannedDateOnly.getTime() < normalizedToday) {
           return;
         }
 
