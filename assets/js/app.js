@@ -11029,6 +11029,21 @@ async function handleAddProductForm() {
     return rounded.toFixed(2);
   };
 
+  const readNumericValue = input => {
+    if (!input) {
+      return null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(input.dataset ?? {}, 'numericValue')) {
+      const numeric = Number(input.dataset.numericValue);
+      if (Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+
+    return parseNumericValue(input.value ?? '');
+  };
+
   const updatePackageVolume = ({ preferExisting = false } = {}) => {
     if (!packageVolumeInput) {
       return;
@@ -12280,12 +12295,8 @@ async function handleAddProductForm() {
 
     delete reorderInput.dataset.userOverride;
 
-    const leadTime = parseNumericValue(
-      leadTimeInput.dataset.numericValue ?? leadTimeInput.value ?? ''
-    );
-    const finalAverage = parseNumericValue(
-      finalAverageInput.dataset.numericValue ?? finalAverageInput.value ?? ''
-    );
+    const leadTime = readNumericValue(leadTimeInput);
+    const finalAverage = readNumericValue(finalAverageInput);
 
     if (!Number.isFinite(leadTime) || leadTime < 0 || !Number.isFinite(finalAverage) || finalAverage < 0) {
       reorderInput.value = '';
@@ -12311,9 +12322,7 @@ async function handleAddProductForm() {
 
     if (!requirementInput || !finalAverageInput) return;
 
-    const finalAverage = parseNumericValue(
-      finalAverageInput.dataset.numericValue ?? finalAverageInput.value ?? ''
-    );
+    const finalAverage = readNumericValue(finalAverageInput);
 
     if (!Number.isFinite(finalAverage) || finalAverage < 0) {
       requirementInput.value = '';
@@ -12345,9 +12354,7 @@ async function handleAddProductForm() {
       return;
     }
 
-    const parsedInitialStock = parseNumericValue(
-      initialStockInput.dataset.numericValue ?? initialStockInput.value ?? ''
-    );
+    const parsedInitialStock = readNumericValue(initialStockInput);
     const initialStock = Number.isFinite(parsedInitialStock) && parsedInitialStock >= 0
       ? parsedInitialStock
       : 0;
@@ -12366,12 +12373,8 @@ async function handleAddProductForm() {
       return;
     }
 
-    const reorderPoint = parseNumericValue(
-      reorderPointInput?.dataset.numericValue ?? reorderPointInput?.value ?? ''
-    );
-    const requirement = parseNumericValue(
-      requirementInput?.dataset.numericValue ?? requirementInput?.value ?? ''
-    );
+    const reorderPoint = readNumericValue(reorderPointInput);
+    const requirement = readNumericValue(requirementInput);
 
     if (!Number.isFinite(reorderPoint) || reorderPoint < 0 || !Number.isFinite(requirement) || requirement < 0) {
       nextProcurementInput.value = '';
@@ -12379,10 +12382,8 @@ async function handleAddProductForm() {
       return;
     }
 
-    const currentStock = parseNumericValue(stockInput?.dataset.numericValue ?? stockInput?.value ?? '');
-    const inTransitStock = parseNumericValue(
-      inTransitInput?.dataset.numericValue ?? inTransitInput?.value ?? ''
-    );
+    const currentStock = readNumericValue(stockInput);
+    const inTransitStock = readNumericValue(inTransitInput);
 
     const safeCurrentStock = Number.isFinite(currentStock) ? currentStock : 0;
     const safeInTransit = Number.isFinite(inTransitStock) ? inTransitStock : 0;
