@@ -3574,6 +3574,71 @@ body[data-warehouse-source='manual'] [data-warehouse-manual-container] {
   font-size: 13px;
 }
 
+.avatar--sm {
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+}
+
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-cell__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-cell__name {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-cell__email {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.user-role-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.user-role-control .input {
+  min-width: 180px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table th {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--color-surface-alt);
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-surface-hover);
+}
+
 .report-integration-guide {
   display: grid;
   gap: 16px;
