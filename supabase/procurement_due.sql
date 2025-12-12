@@ -19,6 +19,8 @@ create table if not exists public.procurement_due (
 create index if not exists procurement_due_date_idx on public.procurement_due (next_procurement_date);
 create index if not exists procurement_due_signature_idx on public.procurement_due (next_procurement_signature);
 
+grant select on public.procurement_due to anon, authenticated;
+
 alter table public.procurement_due enable row level security;
 
 drop policy if exists "Allow read procurement due" on public.procurement_due;
@@ -51,3 +53,5 @@ as
 select *
 from public.procurement_due
 where next_procurement_date = timezone('Asia/Jakarta', now())::date;
+
+grant select on public.procurement_due_today to anon, authenticated;
