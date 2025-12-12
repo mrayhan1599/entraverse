@@ -22433,6 +22433,107 @@ function setupPurchaseDocumentActions() {
 }
 
 function buildDailyProcurementPlan(products = []) {
+  const WIB_TIMEZONE = 'Asia/Jakarta';
+
+  const toWibDateKey = date => {
+    if (!(date instanceof Date)) return '';
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: WIB_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    return formatter.format(date);
+  };
+
+  const createWibDate = (year, monthIndex, day) => {
+    const paddedMonth = (monthIndex + 1).toString().padStart(2, '0');
+    const paddedDay = day.toString().padStart(2, '0');
+    return new Date(`${year}-${paddedMonth}-${paddedDay}T00:00:00+07:00`);
+  };
+
+  const getTodayInWib = () => {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: WIB_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    const parts = formatter.formatToParts(new Date());
+    const year = Number(parts.find(part => part.type === 'year')?.value ?? '0');
+    const month = Number(parts.find(part => part.type === 'month')?.value ?? '1');
+    const day = Number(parts.find(part => part.type === 'day')?.value ?? '1');
+
+    return createWibDate(year, month - 1, day);
+  };
+
+  const formatDateInWib = date => {
+    const formatted = formatDateTimeForDisplay(date);
+    if (formatted) return formatted;
+
+    const fallback = new Intl.DateTimeFormat('id-ID', {
+      timeZone: WIB_TIMEZONE,
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    }).format(date);
+
+    return fallback;
+  };
+
+  const subtractDays = (date, days) => {
+    const result = new Date(date);
+    result.setUTCDate(result.getUTCDate() - days);
+    return result;
+  };
+
+  const getUpcomingPeriods = today => {
+    const year = today.getFullYear();
+    const monthIndex = today.getMonth();
+    const day = today.getDate();
+
+    const periods = [];
+
+    if (day <= 15) {
+      periods.push({ label: 'Periode B', start: createWibDate(year, monthIndex, 16) });
+      const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
+      const nextYear = monthIndex === 11 ? year + 1 : year;
+      periods.push({ label: 'Periode A', start: createWibDate(nextYear, nextMonth, 1) });
+    } else {
+      const nextMonth = monthIndex === 11 ? 0 : monthIndex + 1;
+      const nextYear = monthIndex === 11 ? year + 1 : year;
+      periods.push({ label: 'Periode A', start: createWibDate(nextYear, nextMonth, 1) });
+
+      const followingMonth = nextMonth === 11 ? 0 : nextMonth + 1;
+      const followingYear = nextMonth === 11 ? nextYear + 1 : nextYear;
+      periods.push({ label: 'Periode B', start: createWibDate(followingYear, followingMonth, 16) });
+    }
+
+    return periods;
+  };
+
+  const resolveUnitPrice = product => {
+    const candidates = [
+      product?.purchasePriceIdr,
+      product?.purchase_price_idr,
+      product?.purchasePrice,
+      product?.purchase_price,
+      product?.offlinePriceIdr,
+      product?.offline_price_idr,
+      product?.offlinePrice,
+      product?.offline_price
+    ]
+      .map(value => parseNumericValue(value))
+      .filter(value => Number.isFinite(value) && value > 0);
+
+    return candidates.length ? candidates[0] : null;
+  };
+
+  const todayWib = getTodayInWib();
+  const todayKey = toWibDateKey(todayWib);
+  const upcomingPeriods = getUpcomingPeriods(todayWib);
   const plan = [];
   const parseInventoryNumber = value => {
     const numeric = parseNumericValue(value ?? '');
@@ -22518,6 +22619,8 @@ function buildDailyProcurementPlan(products = []) {
       plan.push({
         productName: product.name || 'Produk tanpa nama',
         variantLabel,
+        sku: normalizeSku(product.productCode ?? product.product_code ?? product.sku ?? ''),
+        leadTime: normalizeLeadTimeValue(product.leadTime ?? product.lead_time) ?? 0,
         stock,
         inTransit,
         available,
@@ -22526,12 +22629,33 @@ function buildDailyProcurementPlan(products = []) {
         stockoutDate,
         requirement: fifteenDayRequirement,
         recommendation,
-        nextProcurement: formattedNextProcurement
+        nextProcurement: formattedNextProcurement,
+        unitPrice: resolveUnitPrice(product)
       });
     });
   });
 
-  return plan.sort((a, b) => {
+  const scheduled = plan
+    .map(entry => {
+      const periodMatch = upcomingPeriods.find(period => {
+        if (!Number.isFinite(entry.leadTime)) return false;
+        const triggerDate = subtractDays(period.start, entry.leadTime);
+        return toWibDateKey(triggerDate) === todayKey;
+      });
+
+      if (!periodMatch) return null;
+
+      return {
+        ...entry,
+        periodLabel: periodMatch.label,
+        periodStart: periodMatch.start,
+        triggerDate: todayWib
+      };
+    })
+    .filter(Boolean)
+    .filter(entry => entry.recommendation > 0);
+
+  return scheduled.sort((a, b) => {
     const coverageA = Number.isFinite(a.coverageDays) ? a.coverageDays : Infinity;
     const coverageB = Number.isFinite(b.coverageDays) ? b.coverageDays : Infinity;
 
@@ -22541,6 +22665,10 @@ function buildDailyProcurementPlan(products = []) {
 
     if (b.recommendation !== a.recommendation) {
       return b.recommendation - a.recommendation;
+    }
+
+    if (a.periodStart && b.periodStart && a.periodStart.getTime() !== b.periodStart.getTime()) {
+      return a.periodStart - b.periodStart;
     }
 
     return a.productName.localeCompare(b.productName);
@@ -22557,7 +22685,7 @@ function renderProcurementTable(plan = [], filterText = '') {
 
   const rows = normalized
     ? plan.filter(entry =>
-        [entry.productName, entry.variantLabel]
+        [entry.productName, entry.variantLabel, entry.sku]
           .map(value => (value ?? '').toString().toLowerCase())
           .some(value => value.includes(normalized))
       )
@@ -22572,46 +22700,56 @@ function renderProcurementTable(plan = [], filterText = '') {
   if (metaEl) {
     metaEl.textContent = rows.length
       ? `Menampilkan ${formatNumber(rows.length)} rekomendasi dengan total ${formatNumber(totalRecommendation)} unit.`
-      : 'Tidak ada kebutuhan pengadaan untuk hari ini.';
+      : 'Tidak ada kebutuhan pengadaan otomatis untuk hari ini.';
   }
 
   if (!rows.length) {
     tbody.innerHTML =
-      '<tr><td colspan="7" class="empty-state">Semua stok masih aman. Tidak ada pengadaan yang perlu dibuat hari ini.</td></tr>';
+      '<tr><td colspan="6" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
     return;
   }
 
   const rowMarkup = rows
     .map(entry => {
-      const coverageLabel = Number.isFinite(entry.coverageDays)
-        ? `${entry.coverageDays.toFixed(1)} hari`
-        : 'Tidak ada data';
-      const stockoutLabel = entry.stockoutDate
-        ? formatDateTimeForDisplay(entry.stockoutDate) || formatDateForPicker(entry.stockoutDate)
-        : '—';
-      const nextProcurementLabel = entry.nextProcurement || '—';
+      const totalCost = Number.isFinite(entry.unitPrice)
+        ? entry.unitPrice * entry.recommendation
+        : null;
+      const periodLabel = entry.periodLabel || 'Periode berikutnya';
+      const periodStartLabel = entry.periodStart ? formatDateInWib(entry.periodStart) : '—';
+      const leadTimeLabel = Number.isFinite(entry.leadTime) ? `${entry.leadTime} hari` : '—';
+      const skuLabel = entry.sku || 'Tanpa SKU';
 
       return `
         <tr>
           <td>
-            <div class="table-primary">${escapeHtml(entry.productName)}</div>
+            <div class="table-primary">${escapeHtml(skuLabel)}</div>
+            <div class="table-meta">Lead time: ${escapeHtml(leadTimeLabel)}</div>
           </td>
-          <td>${escapeHtml(entry.variantLabel)}</td>
           <td>
-            <div class="table-primary">${formatNumber(entry.stock)}</div>
+            <div class="table-primary">${escapeHtml(entry.productName)}</div>
+            <div class="table-meta">${escapeHtml(entry.variantLabel)}</div>
+          </td>
+          <td>
+            <div class="table-primary">${escapeHtml(periodLabel)}</div>
+            <div class="table-meta">Mulai: ${escapeHtml(periodStartLabel)}</div>
+          </td>
+          <td>
+            <div class="table-primary"><strong>${escapeHtml(formatNumber(entry.recommendation))}</strong> unit</div>
+            <div class="table-meta">Kebutuhan 15 hari: ${escapeHtml(formatNumber(Math.ceil(entry.requirement)))}</div>
+          </td>
+          <td>
+            <div class="table-primary">${escapeHtml(
+              Number.isFinite(entry.unitPrice) ? formatCurrency(entry.unitPrice, 'IDR') : 'Belum ada harga'
+            )}</div>
             <div class="table-meta">${escapeHtml(
-              entry.inTransit ? `+ ${formatNumber(entry.inTransit)} dalam perjalanan` : 'Tidak ada in-transit'
+              totalCost !== null ? `Estimasi total: ${formatCurrency(totalCost, 'IDR')}` : 'Tambahkan harga beli'
             )}</div>
           </td>
           <td>
-            <div class="table-primary">${escapeHtml(formatNumber(entry.dailyAverage))} / hari</div>
-            <div class="table-meta">Perkiraan habis: ${escapeHtml(stockoutLabel)}</div>
-          </td>
-          <td>${escapeHtml(formatNumber(Math.ceil(entry.requirement)))}</td>
-          <td><strong>${escapeHtml(formatNumber(entry.recommendation))}</strong></td>
-          <td>
-            <div class="table-primary">${escapeHtml(coverageLabel)}</div>
-            <div class="table-meta">Jadwal: ${escapeHtml(nextProcurementLabel)}</div>
+            <div class="table-primary">${escapeHtml(formatNumber(entry.stock))}</div>
+            <div class="table-meta">${escapeHtml(
+              entry.inTransit ? `+ ${formatNumber(entry.inTransit)} in-transit` : 'Tidak ada in-transit'
+            )}</div>
           </td>
         </tr>
       `;
@@ -22634,7 +22772,7 @@ async function initProcurementPage() {
   const refreshPlan = async () => {
     if (tbody) {
       tbody.innerHTML =
-        '<tr><td colspan="7" class="loading-state">Menghitung rekomendasi pengadaan otomatis...</td></tr>';
+        '<tr><td colspan="6" class="loading-state">Menghitung rekomendasi pengadaan otomatis...</td></tr>';
     }
 
     try {
