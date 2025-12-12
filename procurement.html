@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entraverse Admin - Pemetaan Produk Otomatis</title>
+  <title>Entraverse Admin - Pengadaan</title>
   <link rel="icon" type="image/png" href="assets/img/logo/entraverse-logo.png">
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body data-page="product-mapping-auto">
+<body data-page="procurement">
   <div class="app-shell">
     <header class="topbar">
       <div class="topbar-inner">
@@ -64,7 +64,7 @@
         <nav class="sidebar-nav">
         <div class="nav-section">
           <p class="nav-title">E-Commerce</p>
-          <a class="nav-link active" href="dashboard.html">
+          <a class="nav-link" href="dashboard.html">
             <span class="nav-icon" aria-hidden="true">📦</span>
             Produk
           </a>
@@ -80,7 +80,7 @@
             <span class="nav-icon" aria-hidden="true">🛒</span>
             Pembelian
           </a>
-          <a class="nav-link" href="procurement.html">
+          <a class="nav-link active" href="procurement.html">
             <span class="nav-icon" aria-hidden="true">🤖</span>
             Pengadaan
           </a>
@@ -119,40 +119,56 @@
       <section class="content-header">
         <div class="title-stack">
           <div class="title-bar">
-            <div>
-              <a class="back-link" href="dashboard.html">← Kembali ke Produk</a>
-              <h1>Petakan Produk</h1>
-            </div>
-            <a class="btn ghost-btn" href="product-mapping-manual.html">Metode manual</a>
+            <h1>Pengadaan</h1>
           </div>
-          <p>Satukan SKU dengan awalan yang sama agar berbagi SPU yang konsisten di seluruh kanal.</p>
-          <p>Gunakan metode otomatis ini untuk mempercepat pemetaan SPU berdasarkan pola SKU sebelum tanda strip (-).</p>
+          <p>Rencana pengadaan barang otomatis setiap hari berdasarkan data stok dan kebutuhan produk.</p>
+          <p class="sync-meta">Rekomendasi dihitung dari stok terkini, stok dalam perjalanan, serta kebutuhan 15 hari dari menu Produk.</p>
         </div>
       </section>
-      <section class="card mapping-card" data-auto-mapping>
-        <header class="card-header">
-          <div>
-            <h2>Metode otomatis</h2>
-            <p>Temukan SKU dengan awalan identik, lalu satukan menjadi satu SPU.</p>
+      <section class="card">
+        <header class="card-header card-header--controls">
+          <div class="card-title-group">
+            <div class="card-title-row">
+              <h2>Rencana Pengadaan Hari Ini</h2>
+              <span id="procurement-count" class="count-pill">0 item</span>
+            </div>
+            <p id="procurement-meta" class="card-subtitle">Memuat rekomendasi pengadaan...</p>
           </div>
-          <button class="btn ghost-btn" type="button" data-auto-refresh>Segarkan data</button>
+          <div class="input-group search">
+            <label class="visually-hidden" for="procurement-search">Cari produk atau varian</label>
+            <input
+              id="procurement-search"
+              type="search"
+              placeholder="Cari produk atau varian"
+              autocomplete="off"
+              data-procurement-search
+            >
+          </div>
         </header>
-        <p class="manual-selection-info" data-auto-mapping-meta>Memindai SKU berdasarkan awalan…</p>
-        <div class="mapping-empty-state" data-mapping-loading>Memindai SKU berdasarkan awalan…</div>
-        <div class="mapping-empty-state" data-mapping-empty hidden>Semua SKU dengan awalan serupa sudah tergabung.</div>
-        <div class="mapping-groups" data-mapping-groups hidden></div>
+        <div class="table-wrapper">
+          <table class="record-table">
+            <thead>
+              <tr>
+                <th>Produk</th>
+                <th>Varian</th>
+                <th>Stok & In-transit</th>
+                <th>Rata-rata</th>
+                <th>Kebutuhan 15 Hari</th>
+                <th>Rekomendasi Beli</th>
+                <th>Estimasi Habis / Jadwal</th>
+              </tr>
+            </thead>
+            <tbody id="procurement-table-body">
+              <tr>
+                <td colspan="7" class="loading-state">Menghitung rekomendasi pengadaan...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
-    </main>
+      </main>
     </div>
   </div>
-  <script>
-    window.entraverseConfig = window.entraverseConfig || {};
-    window.entraverseConfig.supabase = window.entraverseConfig.supabase || {
-      url: 'https://wnewbuwmdrnjfjsxoybs.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InduZXdidXdtZHJuamZqc3hveWJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjY3ODYsImV4cCI6MjA3Njc0Mjc4Nn0.8nTueW4ogLAXbbq0Q_Z6z-a8J5n9zIOhmlWIP7pimAg'
-    };
-  </script>
-  <script src="assets/vendor/supabase-js-2.43.4.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
