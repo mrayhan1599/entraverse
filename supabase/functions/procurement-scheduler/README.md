@@ -40,6 +40,6 @@ supabase functions invoke procurement-scheduler --project-ref <project-ref>
 ```
 
 ## Catatan
-- Lead time diambil dari `leadTime`/`lead_time` pada setiap entri `variant_pricing`. Field `products.lead_time` hanya dipakai jika disediakan sebagai fallback; kolom `products.leadTime` tidak diperlukan.
+- Lead time diambil dari `leadTime`/`lead_time` pada setiap entri `variant_pricing`. Field `products.leadTime` (atau `products.lead_time` bila ada) hanya dipakai sebagai fallback.
 - Fungsi hanya menjadwalkan varian dengan `next_procurement` > 0 dan `leadTime`/`lead_time` >= 0.
 - Tanggal dihitung dengan zona waktu WIB, lalu disimpan sebagai ISO string (UTC) di Supabase.

@@ -6,6 +6,7 @@ type JsonRecord = Record<string, unknown>
 type ProductRecord = {
   id: string
   name?: string | null
+  leadTime?: unknown
   lead_time?: unknown
   variant_pricing?: unknown
 }
@@ -184,7 +185,7 @@ function computeNextProcurement(
 }
 
 async function fetchProducts(client: SupabaseClient) {
-  const { data, error } = await client.from("products").select("id, name, lead_time, variant_pricing")
+  const { data, error } = await client.from("products").select("id, name, leadTime, variant_pricing")
   if (error) {
     throw new Error(`Failed to fetch products: ${error.message}`)
   }
@@ -222,7 +223,12 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
 
     let changed = false
     const updatedRows = rawRows.map(row => {
-      const computed = computeNextProcurement(row as VariantPricingRow, parseNumber(record.lead_time), periods, today)
+      const computed = computeNextProcurement(
+        row as VariantPricingRow,
+        parseNumber(record.lead_time ?? record.leadTime),
+        periods,
+        today
+      )
 
       if (!shouldUpdate(row as VariantPricingRow, computed)) {
         return row
