@@ -45,7 +45,9 @@ create trigger set_procurement_due_updated_at
   for each row
   execute function public.set_procurement_due_updated_at();
 
-create or replace view public.procurement_due_today as
+create or replace view public.procurement_due_today
+with (security_invoker = true)
+as
 select *
 from public.procurement_due
 where next_procurement_date = timezone('Asia/Jakarta', now())::date;
