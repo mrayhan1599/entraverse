@@ -22759,6 +22759,36 @@ async function initProcurementPage() {
 
   let currentPlan = [];
 
+  const describeSupabaseError = error => {
+    if (!error) {
+      return 'Alasan tidak diketahui.';
+    }
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    const candidateMessages = [error.message, error.error_description, error.error, error.name].filter(
+      Boolean
+    );
+    const message = candidateMessages[0];
+    const detailParts = [message];
+
+    if (error.details) {
+      detailParts.push(error.details);
+    }
+
+    if (error.hint) {
+      detailParts.push(`Hint: ${error.hint}`);
+    }
+
+    if (error.code) {
+      detailParts.push(`Kode: ${error.code}`);
+    }
+
+    return detailParts.filter(Boolean).join(' ');
+  };
+
   const retry = async (operation, { attempts = 3, delay = 350 } = {}) => {
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -22840,6 +22870,11 @@ async function initProcurementPage() {
         let entries;
         try {
           entries = await fetchFromView();
+
+          if (!entries.length) {
+            console.info('View procurement_due_today kosong, mencoba mengambil langsung dari tabel.');
+            entries = await fetchFromTable();
+          }
         } catch (viewError) {
           console.warn('Gagal memuat view procurement_due_today, mencoba tabel dasar.', viewError);
           entries = await fetchFromTable();
@@ -22891,8 +22926,9 @@ async function initProcurementPage() {
       renderProcurementTable(currentPlan, searchInput?.value ?? '');
     } catch (error) {
       console.error('Gagal memuat daftar pengadaan jatuh tempo.', error);
-      setTableMessage('Tidak dapat memuat daftar pengadaan jatuh tempo dari Supabase.');
-      toast.show('Tidak dapat memuat data pengadaan dari Supabase.');
+      const reason = describeSupabaseError(error);
+      setTableMessage(`Tidak dapat memuat daftar pengadaan jatuh tempo dari Supabase: ${reason}`);
+      toast.show(`Tidak dapat memuat data pengadaan dari Supabase: ${reason}`);
     }
   };
 
