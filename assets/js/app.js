@@ -22616,11 +22616,16 @@ function buildDailyProcurementPlan(products = []) {
         return 'Default';
       })();
 
+      const leadTime =
+        normalizeLeadTimeValue(entry.leadTime ?? entry.lead_time) ??
+        normalizeLeadTimeValue(product.leadTime ?? product.lead_time) ??
+        0;
+
       plan.push({
         productName: product.name || 'Produk tanpa nama',
         variantLabel,
         sku: normalizeSku(product.productCode ?? product.product_code ?? product.sku ?? ''),
-        leadTime: normalizeLeadTimeValue(product.leadTime ?? product.lead_time) ?? 0,
+        leadTime,
         stock,
         inTransit,
         available,
