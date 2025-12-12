@@ -147,109 +147,6 @@
         </div>
         <p class="helper-text" id="sales-period-note">Periode B berlangsung dari tanggal 16 sampai akhir bulan.</p>
       </section>
-
-      <section class="card form-card" id="auto-procurement-card">
-        <header class="card-header">
-          <div>
-            <p class="eyebrow">Otomasi</p>
-            <h2>Pengadaan Otomatis Berbasis Lead Time</h2>
-            <p class="helper-text">Supabase Edge Function akan mengecek lead time setiap produk katalog dan menjadwalkan pengadaan ketika jatuh tempo.</p>
-          </div>
-        </header>
-        <div class="info-grid">
-          <div class="info-block">
-            <p class="eyebrow">Tanggal WIB Hari Ini</p>
-            <h3 id="wib-today">-</h3>
-            <p class="helper-text">Tanggal patokan untuk pengecekan otomatis.</p>
-          </div>
-          <div class="info-block">
-            <p class="eyebrow">Mulai Periode Berikutnya</p>
-            <h3 id="next-period-start">-</h3>
-            <p class="helper-text">Periode A dimulai tanggal 1, periode B dimulai tanggal 16.</p>
-          </div>
-          <div class="info-block">
-            <p class="eyebrow">Produk Terpicu Hari Ini</p>
-            <h3 id="auto-products-count">0 SKU</h3>
-            <p class="helper-text" id="auto-products-note">Menunggu perhitungan.</p>
-          </div>
-        </div>
-        <div class="table-card">
-          <div class="table-card__header">
-            <div>
-              <p class="eyebrow">Simulasi Lead Time</p>
-              <h3>SKU yang otomatis dijadwalkan hari ini</h3>
-            </div>
-          </div>
-          <div class="table-wrapper">
-            <table class="data-table" aria-label="Daftar SKU yang terpicu otomatis">
-              <thead>
-                <tr>
-                  <th>Produk</th>
-                  <th>SKU</th>
-                  <th>Lead Time</th>
-                  <th>Tanggal Pesan</th>
-                  <th>Catatan</th>
-                </tr>
-              </thead>
-              <tbody id="auto-procurement-rows">
-                <tr>
-                  <td colspan="5" class="helper-text">Menyiapkan kalkulasi otomatis...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="grid two-columns" id="edge-function-helper">
-        <article class="card form-card">
-          <header class="card-header">
-            <div>
-              <p class="eyebrow">Supabase</p>
-              <h2>Edge Function auto-procurement</h2>
-            </div>
-          </header>
-          <div class="card-body">
-            <p>Fungsi akan membuat baris di <code>procurement_needs</code> ketika tanggal WIB hari ini sama dengan <code>tanggal mulai periode - lead_time</code> pada katalog produk.</p>
-            <div class="code-block" aria-label="Endpoint Supabase">
-              <code>POST https://&lt;project-ref&gt;.functions.supabase.co/auto-procurement</code>
-            </div>
-            <p class="helper-text">Cron dijadwalkan setiap 00:00 WIB (17:00 UTC) melalui <code>supabase/cron.json</code>.</p>
-            <ul class="checklist">
-              <li>Memakai zona waktu <strong>Asia/Jakarta</strong>.</li>
-              <li>Melewati SKU yang sudah memiliki <code>target_date</code> sama pada tabel pengadaan.</li>
-              <li>Menandai prioritas sebagai <strong>tinggi</strong> dengan status <strong>direncanakan</strong>.</li>
-            </ul>
-          </div>
-        </article>
-        <article class="card form-card">
-          <header class="card-header">
-            <div>
-              <p class="eyebrow">SQL Editor</p>
-              <h2>Katalog Lead Time</h2>
-            </div>
-          </header>
-          <div class="card-body">
-            <p>Jalankan skrip berikut di Supabase SQL Editor untuk membuat tabel sumber otomatisasi.</p>
-            <pre class="code-block" aria-label="SQL pembuatan tabel"><code>-- Lihat file supabase/procurement_auto.sql
-create table if not exists procurement_catalog (
-  id uuid primary key default uuid_generate_v4(),
-  product_name text not null,
-  sku text not null unique,
-  lead_time_days integer not null default 0,
-  default_vendor text,
-  default_quantity numeric not null default 0,
-  unit text not null default 'pcs',
-  is_active boolean not null default true,
-  notes text,
-  created_at timestamptz default timezone('utc', now()),
-  updated_at timestamptz default timezone('utc', now())
-);
-</code></pre>
-            <p class="helper-text">Tambahkan baris contoh untuk mengetes otomatisasi: <code>('VR Headset', 'SKU-VR-001', 5, 'Vendor A', 25, 'pcs')</code>.</p>
-          </div>
-        </article>
-      </section>
     </main>
     </div>
   </div>
@@ -260,11 +157,6 @@ create table if not exists procurement_catalog (
       const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
       const periodBRange = document.getElementById('period-b-range');
       const note = document.getElementById('sales-period-note');
-      const wibTodayEl = document.getElementById('wib-today');
-      const nextPeriodEl = document.getElementById('next-period-start');
-      const autoProductsCount = document.getElementById('auto-products-count');
-      const autoProductsNote = document.getElementById('auto-products-note');
-      const autoProcurementRows = document.getElementById('auto-procurement-rows');
 
       if (periodBRange) {
         periodBRange.textContent = `16 - ${lastDay}`;
@@ -272,84 +164,6 @@ create table if not exists procurement_catalog (
 
       if (note) {
         note.textContent = `Periode B berlangsung dari tanggal 16 sampai ${lastDay} (30/31 atau 28/29 jika Februari).`;
-      }
-
-      const formatDate = (date) => new Intl.DateTimeFormat('id-ID', {
-        weekday: 'long',
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      }).format(date);
-
-      const getWibDateOnly = (reference = new Date()) => {
-        const wibString = new Date(reference).toLocaleString('en-US', { timeZone: 'Asia/Jakarta' });
-        const wibDate = new Date(wibString);
-        return new Date(wibDate.getFullYear(), wibDate.getMonth(), wibDate.getDate());
-      };
-
-      const getNextPeriodStart = (date) => {
-        const year = date.getFullYear();
-        const month = date.getMonth();
-        const day = date.getDate();
-        if (day <= 15) return new Date(year, month, 16);
-        return new Date(year, month + 1, 1);
-      };
-
-      const subtractDays = (date, days) => {
-        const clone = new Date(date);
-        clone.setDate(clone.getDate() - days);
-        return new Date(clone.getFullYear(), clone.getMonth(), clone.getDate());
-      };
-
-      const wibToday = getWibDateOnly();
-      const nextPeriodStart = getNextPeriodStart(wibToday);
-
-      if (wibTodayEl) wibTodayEl.textContent = formatDate(wibToday);
-      if (nextPeriodEl) nextPeriodEl.textContent = formatDate(nextPeriodStart);
-
-      const leadTimeSamples = [
-        { name: 'VR Headset', sku: 'SKU-VR-001', leadTime: 5, vendor: 'Vendor A' },
-        { name: 'Kardus 40x40', sku: 'SKU-KDS-040', leadTime: 3, vendor: 'LogiPack' },
-        { name: 'Bubble Wrap', sku: 'SKU-BW-100', leadTime: 7, vendor: 'SafePack' }
-      ];
-
-      const triggeredToday = leadTimeSamples.filter(item => {
-        const procurementDate = subtractDays(nextPeriodStart, item.leadTime);
-        return procurementDate.toDateString() === wibToday.toDateString();
-      });
-
-      if (autoProductsCount) {
-        autoProductsCount.textContent = `${triggeredToday.length} SKU`;
-      }
-
-      if (autoProductsNote) {
-        if (!triggeredToday.length) {
-          autoProductsNote.textContent = 'Tidak ada SKU yang jatuh tempo hari ini berdasarkan lead time sampel.';
-        } else {
-          autoProductsNote.textContent = 'SKU di bawah ini otomatis dijadwalkan melalui Edge Function.';
-        }
-      }
-
-      if (autoProcurementRows) {
-        autoProcurementRows.innerHTML = '';
-        if (!triggeredToday.length) {
-          const row = document.createElement('tr');
-          row.innerHTML = '<td colspan="5" class="helper-text">Tidak ada kebutuhan yang jatuh tempo hari ini.</td>';
-          autoProcurementRows.appendChild(row);
-        } else {
-          triggeredToday.forEach(item => {
-            const row = document.createElement('tr');
-            const procurementDate = subtractDays(nextPeriodStart, item.leadTime);
-            row.innerHTML = `
-              <td>${item.name}</td>
-              <td>${item.sku}</td>
-              <td>${item.leadTime} hari</td>
-              <td>${formatDate(procurementDate)}</td>
-              <td>Lead time ${item.leadTime} hari menuju periode ${formatDate(nextPeriodStart)} (${item.vendor}).</td>
-            `;
-            autoProcurementRows.appendChild(row);
-          });
-        }
       }
     });
   </script>
