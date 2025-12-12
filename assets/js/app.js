@@ -22698,6 +22698,13 @@ function normalizeProcurementPlan(entries = []) {
       next_procurement_period: entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
       next_procurement_signature:
         entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature ?? '—',
+      required_stock:
+        parseNumericValue(entry.required_stock ?? entry.requiredStock) ??
+        parseNumericValue(
+          entry.metadata?.nextProcurement ?? entry.metadata?.next_Procurement ?? entry.metadata?.next_procurement
+        ) ??
+        null,
+      unit_price: parseNumericValue(entry.unit_price ?? entry.unitPrice) ?? null,
       metadata: entry.metadata ?? {}
     };
   });
@@ -22734,7 +22741,7 @@ function renderProcurementTable(plan = [], filterText = '') {
 
   if (!rows.length) {
     tbody.innerHTML =
-      '<tr><td colspan="4" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
+      '<tr><td colspan="5" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
     return;
   }
 
@@ -22747,7 +22754,25 @@ function renderProcurementTable(plan = [], filterText = '') {
       const procurementDate = entry.next_procurement_date
         ? formatDateInWib(new Date(entry.next_procurement_date))
         : '—';
-      const signature = entry.next_procurement_signature || '—';
+      const resolvedRequiredStock = (() => {
+        const primary = parseNumericValue(entry.required_stock);
+        if (Number.isFinite(primary)) return primary;
+
+        const fromMeta = parseNumericValue(entry.metadata?.nextProcurement ?? entry.metadata?.next_procurement);
+        return Number.isFinite(fromMeta) ? fromMeta : null;
+      })();
+
+      const resolvedUnitPrice = (() => {
+        const primary = parseNumericValue(entry.unit_price);
+        return Number.isFinite(primary) ? primary : null;
+      })();
+
+      const requiredStockDisplay =
+        resolvedRequiredStock !== null && resolvedRequiredStock !== undefined
+          ? formatNumber(resolvedRequiredStock)
+          : '—';
+
+      const unitPriceDisplay = Number.isFinite(resolvedUnitPrice) ? formatCurrency(resolvedUnitPrice) : '';
 
       return `
         <tr>
@@ -22764,8 +22789,12 @@ function renderProcurementTable(plan = [], filterText = '') {
             <div class="table-meta">Jatuh tempo: ${escapeHtml(procurementDate)}</div>
           </td>
           <td>
-            <div class="table-primary">${escapeHtml(signature)}</div>
+            <div class="table-primary">${escapeHtml(requiredStockDisplay)}</div>
             <div class="table-meta">ID Varian: ${escapeHtml(entry.variant_id || '—')}</div>
+          </td>
+          <td>
+            <div class="table-primary">${escapeHtml(unitPriceDisplay)}</div>
+            <div class="table-meta">${escapeHtml(periodLabel)}</div>
           </td>
         </tr>
       `;
@@ -22833,7 +22862,7 @@ async function initProcurementPage() {
 
   const setTableMessage = message => {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">${escapeHtml(message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(message)}</td></tr>`;
     }
 
     const countEl = document.getElementById('procurement-count');
@@ -22851,7 +22880,7 @@ async function initProcurementPage() {
   const refreshPlan = async () => {
     if (tbody) {
       tbody.innerHTML =
-        '<tr><td colspan="4" class="loading-state">Mengambil daftar pengadaan jatuh tempo...</td></tr>';
+        '<tr><td colspan="5" class="loading-state">Mengambil daftar pengadaan jatuh tempo...</td></tr>';
     }
 
     try {
