@@ -1,10 +1,4 @@
 {
   "version": 1,
-  "crons": [
-    {
-      "name": "daily-procurement-scheduler",
-      "schedule": "0 5 * * *",
-      "endpoint": "/procurement-scheduler"
-    }
-  ]
+  "crons": []
 }
