@@ -3394,38 +3394,6 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   min-width: 140px;
 }
 
-body[data-page='procurement'] .record-table th:nth-child(1),
-body[data-page='procurement'] .record-table td:nth-child(1) {
-  min-width: 140px;
-  width: 18%;
-}
-
-body[data-page='procurement'] .record-table th:nth-child(2),
-body[data-page='procurement'] .record-table td:nth-child(2) {
-  min-width: 220px;
-  width: 30%;
-}
-
-body[data-page='procurement'] .record-table th:nth-child(3),
-body[data-page='procurement'] .record-table td:nth-child(3) {
-  min-width: 150px;
-  width: 16%;
-}
-
-body[data-page='procurement'] .record-table th:nth-child(4),
-body[data-page='procurement'] .record-table td:nth-child(4),
-body[data-page='procurement'] .record-table th:nth-child(5),
-body[data-page='procurement'] .record-table td:nth-child(5) {
-  min-width: 130px;
-  width: 12%;
-}
-
-body[data-page='procurement'] .record-table th:nth-child(6),
-body[data-page='procurement'] .record-table td:nth-child(6) {
-  min-width: 160px;
-  width: 12%;
-}
-
 .record-table {
   width: 100%;
   border-collapse: collapse;
