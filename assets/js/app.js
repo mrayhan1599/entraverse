@@ -22809,19 +22809,54 @@ async function initProcurementPage() {
     try {
       const fetchPlan = async () => {
         const client = getSupabaseClient();
-        const { data, error } = await client
-          .from('procurement_due_today')
-          .select(
-            'product_id, variant_id, sku, product_name, variant_label, next_procurement_date, next_procurement_period, next_procurement_signature, metadata'
-          )
-          .order('product_name', { ascending: true })
-          .order('variant_label', { ascending: true });
+        const { data, error } = await client.from('procurement_due_today').select('*');
 
         if (error) {
           throw error;
         }
 
-        return data ?? [];
+        const entries = Array.isArray(data) ? data : [];
+
+        const normalizedEntries = entries.map(entry => {
+          const normalized = value => (value ?? '').toString();
+
+          const resolvedName = normalized(
+            entry.product_name ?? entry.productName ?? entry.name ?? entry.product_label
+          );
+
+          const resolvedVariant = normalized(
+            entry.variant_label ?? entry.variantLabel ?? entry.variant_name ?? entry.variant
+          );
+
+          return {
+            ...entry,
+            product_id:
+              entry.product_id ?? entry.productId ?? entry.product_id_uuid ?? entry.product_uuid,
+            variant_id:
+              entry.variant_id ?? entry.variantId ?? entry.variant_id_uuid ?? entry.variant_uuid,
+            sku: normalized(entry.sku ?? entry.product_sku ?? entry.productCode ?? entry.code),
+            product_name: resolvedName || 'Produk tanpa nama',
+            variant_label: resolvedVariant || 'Varian default',
+            next_procurement_date:
+              entry.next_procurement_date ?? entry.nextProcurementDate ?? entry.due_date,
+            next_procurement_period:
+              entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
+            next_procurement_signature:
+              entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature,
+            metadata: entry.metadata ?? {}
+          };
+        });
+
+        return normalizedEntries.sort((a, b) => {
+          const nameA = normalized(a.product_name);
+          const nameB = normalized(b.product_name);
+          const nameOrder = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
+          if (nameOrder !== 0) return nameOrder;
+
+          const variantA = normalized(a.variant_label);
+          const variantB = normalized(b.variant_label);
+          return variantA.localeCompare(variantB, 'id', { sensitivity: 'base' });
+        });
       };
 
       currentPlan = await retry(fetchPlan, { attempts: 3, delay: 500 });
