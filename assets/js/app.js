@@ -22759,6 +22759,22 @@ async function initProcurementPage() {
 
   let currentPlan = [];
 
+  const retry = async (operation, { attempts = 3, delay = 350 } = {}) => {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (attempt === attempts) {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError;
+  };
+
   const setTableMessage = message => {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="4" class="empty-state">${escapeHtml(message)}</td></tr>`;
@@ -22791,20 +22807,24 @@ async function initProcurementPage() {
     }
 
     try {
-      const client = getSupabaseClient();
-      const { data, error } = await client
-        .from('procurement_due_today')
-        .select(
-          'product_id, variant_id, sku, product_name, variant_label, next_procurement_date, next_procurement_period, next_procurement_signature, metadata'
-        )
-        .order('product_name', { ascending: true })
-        .order('variant_label', { ascending: true });
+      const fetchPlan = async () => {
+        const client = getSupabaseClient();
+        const { data, error } = await client
+          .from('procurement_due_today')
+          .select(
+            'product_id, variant_id, sku, product_name, variant_label, next_procurement_date, next_procurement_period, next_procurement_signature, metadata'
+          )
+          .order('product_name', { ascending: true })
+          .order('variant_label', { ascending: true });
 
-      if (error) {
-        throw error;
-      }
+        if (error) {
+          throw error;
+        }
 
-      currentPlan = data ?? [];
+        return data ?? [];
+      };
+
+      currentPlan = await retry(fetchPlan, { attempts: 3, delay: 500 });
       renderProcurementTable(currentPlan, searchInput?.value ?? '');
     } catch (error) {
       console.error('Gagal memuat daftar pengadaan jatuh tempo.', error);
