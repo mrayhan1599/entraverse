@@ -6,8 +6,6 @@ type JsonRecord = Record<string, unknown>
 type ProductRecord = {
   id: string
   name?: string | null
-  leadTime?: unknown
-  lead_time?: unknown
   variant_pricing?: unknown
 }
 
@@ -155,13 +153,8 @@ function isSameDate(a: Date | null, b: Date | null) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-function computeNextProcurement(
-  row: VariantPricingRow,
-  productLeadTime: number | null,
-  periods: ProcurementPeriod[],
-  today: Date
-): ComputedProcurement {
-  const leadTime = parseNumber(row.leadTime ?? row.lead_time ?? productLeadTime)
+function computeNextProcurement(row: VariantPricingRow, periods: ProcurementPeriod[], today: Date): ComputedProcurement {
+  const leadTime = parseNumber(row.leadTime ?? row.lead_time)
   const requirement = parseNumber(row.nextProcurement ?? row.next_procurement)
 
   if (leadTime === null || leadTime < 0 || requirement === null || requirement <= 0) {
@@ -185,7 +178,7 @@ function computeNextProcurement(
 }
 
 async function fetchProducts(client: SupabaseClient) {
-  const { data, error } = await client.from("products").select("id, name, lead_time, variant_pricing")
+  const { data, error } = await client.from("products").select("id, name, variant_pricing")
   if (error) {
     throw new Error(`Failed to fetch products: ${error.message}`)
   }
@@ -225,7 +218,6 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
     const updatedRows = rawRows.map(row => {
       const computed = computeNextProcurement(
         row as VariantPricingRow,
-        parseNumber(record.lead_time ?? record.leadTime),
         periods,
         today
       )
