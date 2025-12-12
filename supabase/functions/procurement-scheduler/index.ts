@@ -69,27 +69,25 @@ function toDateOnly(value: unknown) {
   if (!value) return null
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+
+  const wibString = date.toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
+  const wibDate = new Date(wibString)
+
+  return new Date(Date.UTC(wibDate.getFullYear(), wibDate.getMonth(), wibDate.getDate()))
 }
 
 function getWibDateOnly(reference = new Date()) {
-  const wibString = new Date(reference).toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
-  const wibDate = new Date(wibString)
-  return new Date(wibDate.getFullYear(), wibDate.getMonth(), wibDate.getDate())
+  return toDateOnly(reference) ?? new Date()
 }
 
 function createWibDate(year: number, monthZeroBased: number, day: number) {
-  const yyyy = year.toString().padStart(4, "0")
-  const mm = pad2(monthZeroBased + 1)
-  const dd = pad2(day)
-
-  return toDateOnly(`${yyyy}-${mm}-${dd}T00:00:00+07:00`)
+  return new Date(Date.UTC(year, monthZeroBased, day))
 }
 
 function subtractDays(date: Date, days: number) {
   const result = new Date(date)
   result.setUTCDate(result.getUTCDate() - Math.max(0, Math.floor(days)))
-  return new Date(result.getFullYear(), result.getMonth(), result.getDate())
+  return new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth(), result.getUTCDate()))
 }
 
 function daysInMonth(year: number, monthZeroBased: number) {
