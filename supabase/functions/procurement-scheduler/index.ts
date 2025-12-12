@@ -87,6 +87,12 @@ function parseNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function roundRequiredStock(value: unknown) {
+  const parsed = parseNumber(value)
+  if (parsed === null) return null
+  return Math.round(parsed)
+}
+
 function normalizeText(value: unknown) {
   if (value === null || value === undefined) return ""
   return value.toString().trim()
@@ -302,7 +308,7 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
           next_procurement_date: procurementDate ? procurementDate.toISOString().slice(0, 10) : today.toISOString().slice(0, 10),
           next_procurement_period: computed.periodLabel,
           next_procurement_signature: computed.signature,
-          required_stock: parseNumber(
+          required_stock: roundRequiredStock(
             row.nextProcurement ?? (row as { next_Procurement?: unknown }).next_Procurement ?? row.next_procurement
           ),
           unit_price: null,

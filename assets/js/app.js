@@ -22767,12 +22767,17 @@ function renderProcurementTable(plan = [], filterText = '') {
         return Number.isFinite(primary) ? primary : null;
       })();
 
-      const requiredStockDisplay =
+      const roundedRequiredStock =
         resolvedRequiredStock !== null && resolvedRequiredStock !== undefined
-          ? formatNumber(resolvedRequiredStock)
+          ? Math.round(resolvedRequiredStock)
+          : null;
+
+      const requiredStockDisplay =
+        roundedRequiredStock !== null && roundedRequiredStock !== undefined
+          ? formatNumber(roundedRequiredStock)
           : '—';
 
-      const unitPriceDisplay = Number.isFinite(resolvedUnitPrice) ? formatCurrency(resolvedUnitPrice) : '';
+      const unitPriceValue = Number.isFinite(resolvedUnitPrice) ? resolvedUnitPrice : '';
 
       return `
         <tr>
@@ -22786,15 +22791,21 @@ function renderProcurementTable(plan = [], filterText = '') {
           </td>
           <td>
             <div class="table-primary">${escapeHtml(periodLabel)}</div>
-            <div class="table-meta">Jatuh tempo: ${escapeHtml(procurementDate)}</div>
           </td>
           <td>
             <div class="table-primary">${escapeHtml(requiredStockDisplay)}</div>
-            <div class="table-meta">ID Varian: ${escapeHtml(entry.variant_id || '—')}</div>
           </td>
           <td>
-            <div class="table-primary">${escapeHtml(unitPriceDisplay)}</div>
-            <div class="table-meta">${escapeHtml(periodLabel)}</div>
+            <div class="table-primary">
+              <input
+                type="number"
+                class="table-input"
+                value="${escapeHtml(unitPriceValue.toString())}"
+                placeholder="Isi harga produk"
+                min="0"
+                step="any"
+              >
+            </div>
           </td>
         </tr>
       `;
