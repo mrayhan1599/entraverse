@@ -3399,6 +3399,22 @@ body[data-theme='dark'] .mekari-status__badge.has-tooltip::before {
   color: var(--color-text);
 }
 
+.record-table .table-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--color-surface);
+  outline: none;
+}
+
+.record-table .table-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
 .record-table th,
 .record-table td {
   text-align: left;
