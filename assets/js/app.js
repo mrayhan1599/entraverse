@@ -5741,8 +5741,14 @@ const toast = createToast();
 
 let actionMenusInitialized = false;
 
-const ADMIN_ONLY_NAV_LINKS = Object.freeze(['users.html', 'purchases.html', 'sales.html', 'reports.html']);
-const ADMIN_ONLY_PAGE_IDS = new Set(['users', 'purchases', 'sales', 'reports']);
+const ADMIN_ONLY_NAV_LINKS = Object.freeze([
+  'users.html',
+  'purchases.html',
+  'sales.html',
+  'reports.html',
+  'procurement.html'
+]);
+const ADMIN_ONLY_PAGE_IDS = new Set(['users', 'purchases', 'sales', 'reports', 'procurement']);
 let pendingAccessRedirect = null;
 
 function enforceRestrictedPageAccess(page, user) {
@@ -7405,6 +7411,7 @@ async function ensureAuthenticatedPage() {
       'reports',
       'sales',
       'purchases',
+      'procurement',
       'users',
       'product-mapping-auto',
       'product-mapping-manual'
@@ -22425,6 +22432,238 @@ function setupPurchaseDocumentActions() {
   });
 }
 
+function buildDailyProcurementPlan(products = []) {
+  const plan = [];
+  const parseInventoryNumber = value => {
+    const numeric = parseNumericValue(value ?? '');
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  products.forEach(product => {
+    const variantEntries =
+      (Array.isArray(product.variantPricing) && product.variantPricing.length
+        ? product.variantPricing
+        : [product.inventory].filter(Boolean)) ?? [];
+
+    variantEntries.forEach(entry => {
+      if (!entry) return;
+
+      const stock = parseInventoryNumber(entry.stock ?? entry.currentStock);
+      const inTransit = parseInventoryNumber(entry.inTransitStock ?? entry.in_transit_stock);
+      const dailyAverage = (() => {
+        const candidates = [
+          parseInventoryNumber(entry.finalDailyAveragePerDay ?? entry.final_daily_average_per_day),
+          parseInventoryNumber(
+            entry.dailyAverageSalesPeriodA ?? entry.daily_average_sales_period_a ?? entry.dailyAverageSales
+          ),
+          parseInventoryNumber(entry.dailyAverageSalesPeriodB ?? entry.daily_average_sales_period_b),
+          parseInventoryNumber(entry.dailyAverageSales)
+        ].filter(value => value > 0);
+
+        return candidates.length ? candidates[0] : 0;
+      })();
+
+      const fifteenDayRequirement = (() => {
+        const direct = parseInventoryNumber(entry.fifteenDayRequirement ?? entry.fifteen_day_requirement);
+        if (direct > 0) return direct;
+        if (dailyAverage > 0) return dailyAverage * 15;
+        return 0;
+      })();
+
+      const available = stock + inTransit;
+      const recommendation = Math.max(0, Math.ceil(fifteenDayRequirement - available));
+
+      if (recommendation <= 0) {
+        return;
+      }
+
+      const coverageDays = dailyAverage > 0 ? available / dailyAverage : null;
+      const stockoutDate = Number.isFinite(coverageDays)
+        ? new Date(Date.now() + coverageDays * 24 * 60 * 60 * 1000)
+        : null;
+
+      const nextProcurement = entry.nextProcurement ?? entry.next_procurement ?? '';
+      const formattedNextProcurement = nextProcurement
+        ? formatDateTimeForDisplay(nextProcurement) || formatDateForPicker(nextProcurement)
+        : '';
+
+      const variantLabel = (() => {
+        if (entry.variantLabel) return entry.variantLabel;
+
+        if (Array.isArray(entry.variants) && entry.variants.length) {
+          return entry.variants.map(item => `${item.name}: ${item.value}`).join(' / ');
+        }
+
+        const definitions = Array.isArray(product?.variants) ? product.variants : [];
+        if (definitions.length && Array.isArray(entry.variants)) {
+          const values = definitions
+            .map(definition => {
+              const definitionName = (definition?.name ?? '').toString().trim().toLowerCase();
+              if (!definitionName) return '';
+              const match = entry.variants.find(
+                item => (item?.name ?? '').toString().trim().toLowerCase() === definitionName
+              );
+              return match?.value ?? '';
+            })
+            .filter(Boolean);
+
+          if (values.length) {
+            return values.join(' / ');
+          }
+        }
+
+        return 'Default';
+      })();
+
+      plan.push({
+        productName: product.name || 'Produk tanpa nama',
+        variantLabel,
+        stock,
+        inTransit,
+        available,
+        dailyAverage,
+        coverageDays,
+        stockoutDate,
+        requirement: fifteenDayRequirement,
+        recommendation,
+        nextProcurement: formattedNextProcurement
+      });
+    });
+  });
+
+  return plan.sort((a, b) => {
+    const coverageA = Number.isFinite(a.coverageDays) ? a.coverageDays : Infinity;
+    const coverageB = Number.isFinite(b.coverageDays) ? b.coverageDays : Infinity;
+
+    if (coverageA !== coverageB) {
+      return coverageA - coverageB;
+    }
+
+    if (b.recommendation !== a.recommendation) {
+      return b.recommendation - a.recommendation;
+    }
+
+    return a.productName.localeCompare(b.productName);
+  });
+}
+
+function renderProcurementTable(plan = [], filterText = '') {
+  const tbody = document.getElementById('procurement-table-body');
+  if (!tbody) return;
+
+  const countEl = document.getElementById('procurement-count');
+  const metaEl = document.getElementById('procurement-meta');
+  const normalized = (filterText ?? '').toString().trim().toLowerCase();
+
+  const rows = normalized
+    ? plan.filter(entry =>
+        [entry.productName, entry.variantLabel]
+          .map(value => (value ?? '').toString().toLowerCase())
+          .some(value => value.includes(normalized))
+      )
+    : [...plan];
+
+  const totalRecommendation = rows.reduce((total, entry) => total + entry.recommendation, 0);
+
+  if (countEl) {
+    countEl.textContent = `${formatNumber(rows.length)} item`;
+  }
+
+  if (metaEl) {
+    metaEl.textContent = rows.length
+      ? `Menampilkan ${formatNumber(rows.length)} rekomendasi dengan total ${formatNumber(totalRecommendation)} unit.`
+      : 'Tidak ada kebutuhan pengadaan untuk hari ini.';
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="7" class="empty-state">Semua stok masih aman. Tidak ada pengadaan yang perlu dibuat hari ini.</td></tr>';
+    return;
+  }
+
+  const rowMarkup = rows
+    .map(entry => {
+      const coverageLabel = Number.isFinite(entry.coverageDays)
+        ? `${entry.coverageDays.toFixed(1)} hari`
+        : 'Tidak ada data';
+      const stockoutLabel = entry.stockoutDate
+        ? formatDateTimeForDisplay(entry.stockoutDate) || formatDateForPicker(entry.stockoutDate)
+        : '—';
+      const nextProcurementLabel = entry.nextProcurement || '—';
+
+      return `
+        <tr>
+          <td>
+            <div class="table-primary">${escapeHtml(entry.productName)}</div>
+          </td>
+          <td>${escapeHtml(entry.variantLabel)}</td>
+          <td>
+            <div class="table-primary">${formatNumber(entry.stock)}</div>
+            <div class="table-meta">${escapeHtml(
+              entry.inTransit ? `+ ${formatNumber(entry.inTransit)} dalam perjalanan` : 'Tidak ada in-transit'
+            )}</div>
+          </td>
+          <td>
+            <div class="table-primary">${escapeHtml(formatNumber(entry.dailyAverage))} / hari</div>
+            <div class="table-meta">Perkiraan habis: ${escapeHtml(stockoutLabel)}</div>
+          </td>
+          <td>${escapeHtml(formatNumber(Math.ceil(entry.requirement)))}</td>
+          <td><strong>${escapeHtml(formatNumber(entry.recommendation))}</strong></td>
+          <td>
+            <div class="table-primary">${escapeHtml(coverageLabel)}</div>
+            <div class="table-meta">Jadwal: ${escapeHtml(nextProcurementLabel)}</div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  tbody.innerHTML = rowMarkup;
+}
+
+async function initProcurementPage() {
+  const searchInput = document.querySelector('[data-procurement-search]');
+  const tbody = document.getElementById('procurement-table-body');
+
+  if (!tbody) {
+    return;
+  }
+
+  let currentPlan = [];
+
+  const refreshPlan = async () => {
+    if (tbody) {
+      tbody.innerHTML =
+        '<tr><td colspan="7" class="loading-state">Menghitung rekomendasi pengadaan otomatis...</td></tr>';
+    }
+
+    try {
+      await ensureSeeded();
+      try {
+        await refreshProductsFromSupabase();
+      } catch (error) {
+        console.warn('Gagal memuat produk terbaru untuk pengadaan.', error);
+      }
+    } catch (error) {
+      console.warn('Gagal menyiapkan data pengadaan.', error);
+    }
+
+    const products = getProductsFromCache();
+    currentPlan = buildDailyProcurementPlan(products);
+    renderProcurementTable(currentPlan, searchInput?.value ?? '');
+  };
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderProcurementTable(currentPlan, searchInput.value);
+    });
+  }
+
+  await refreshPlan();
+
+  document.addEventListener('entraverse:session-change', refreshPlan);
+}
+
 function initPurchasesPage() {
   ensureIntegrationsSeeded();
   setupPurchaseOrdersControls();
@@ -22703,6 +22942,7 @@ function initPage() {
         'reports',
         'sales',
         'purchases',
+        'procurement',
         'users',
         'product-mapping-auto',
         'product-mapping-manual'
@@ -22760,6 +23000,10 @@ function initPage() {
 
     if (page === 'purchases') {
       await initPurchasesPage();
+    }
+
+    if (page === 'procurement') {
+      await initProcurementPage();
     }
 
   });
