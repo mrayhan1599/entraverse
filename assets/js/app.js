@@ -22840,6 +22840,11 @@ async function initProcurementPage() {
         let entries;
         try {
           entries = await fetchFromView();
+
+          if (!entries.length) {
+            console.info('View procurement_due_today kosong, mencoba mengambil langsung dari tabel.');
+            entries = await fetchFromTable();
+          }
         } catch (viewError) {
           console.warn('Gagal memuat view procurement_due_today, mencoba tabel dasar.', viewError);
           entries = await fetchFromTable();
