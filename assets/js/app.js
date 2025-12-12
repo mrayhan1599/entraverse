@@ -22690,13 +22690,11 @@ function renderProcurementTable(plan = [], filterText = '') {
 
   const rows = normalized
     ? plan.filter(entry =>
-        [entry.productName, entry.variantLabel, entry.sku]
+        [entry.product_name, entry.variant_label, entry.sku, entry.next_procurement_period]
           .map(value => (value ?? '').toString().toLowerCase())
           .some(value => value.includes(normalized))
       )
     : [...plan];
-
-  const totalRecommendation = rows.reduce((total, entry) => total + entry.recommendation, 0);
 
   if (countEl) {
     countEl.textContent = `${formatNumber(rows.length)} item`;
@@ -22704,57 +22702,44 @@ function renderProcurementTable(plan = [], filterText = '') {
 
   if (metaEl) {
     metaEl.textContent = rows.length
-      ? `Menampilkan ${formatNumber(rows.length)} rekomendasi dengan total ${formatNumber(totalRecommendation)} unit.`
+      ? `Menampilkan ${formatNumber(rows.length)} pengadaan jatuh tempo hari ini.`
       : 'Tidak ada kebutuhan pengadaan otomatis untuk hari ini.';
   }
 
   if (!rows.length) {
     tbody.innerHTML =
-      '<tr><td colspan="6" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
+      '<tr><td colspan="4" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
     return;
   }
 
   const rowMarkup = rows
     .map(entry => {
-      const totalCost = Number.isFinite(entry.unitPrice)
-        ? entry.unitPrice * entry.recommendation
-        : null;
-      const periodLabel = entry.periodLabel || 'Periode berikutnya';
-      const periodStartLabel = entry.periodStart ? formatDateInWib(entry.periodStart) : '—';
-      const leadTimeLabel = Number.isFinite(entry.leadTime) ? `${entry.leadTime} hari` : '—';
       const skuLabel = entry.sku || 'Tanpa SKU';
+      const productName = entry.product_name || 'Produk tanpa nama';
+      const variantLabel = entry.variant_label || 'Varian default';
+      const periodLabel = entry.next_procurement_period || 'Periode belum tercatat';
+      const procurementDate = entry.next_procurement_date
+        ? formatDateInWib(new Date(entry.next_procurement_date))
+        : '—';
+      const signature = entry.next_procurement_signature || '—';
 
       return `
         <tr>
           <td>
             <div class="table-primary">${escapeHtml(skuLabel)}</div>
-            <div class="table-meta">Lead time: ${escapeHtml(leadTimeLabel)}</div>
+            <div class="table-meta">Tanggal: ${escapeHtml(procurementDate)}</div>
           </td>
           <td>
-            <div class="table-primary">${escapeHtml(entry.productName)}</div>
-            <div class="table-meta">${escapeHtml(entry.variantLabel)}</div>
+            <div class="table-primary">${escapeHtml(productName)}</div>
+            <div class="table-meta">${escapeHtml(variantLabel)}</div>
           </td>
           <td>
             <div class="table-primary">${escapeHtml(periodLabel)}</div>
-            <div class="table-meta">Mulai: ${escapeHtml(periodStartLabel)}</div>
+            <div class="table-meta">Jatuh tempo: ${escapeHtml(procurementDate)}</div>
           </td>
           <td>
-            <div class="table-primary"><strong>${escapeHtml(formatNumber(entry.recommendation))}</strong> unit</div>
-            <div class="table-meta">Kebutuhan 15 hari: ${escapeHtml(formatNumber(Math.ceil(entry.requirement)))}</div>
-          </td>
-          <td>
-            <div class="table-primary">${escapeHtml(
-              Number.isFinite(entry.unitPrice) ? formatCurrency(entry.unitPrice, 'IDR') : 'Belum ada harga'
-            )}</div>
-            <div class="table-meta">${escapeHtml(
-              totalCost !== null ? `Estimasi total: ${formatCurrency(totalCost, 'IDR')}` : 'Tambahkan harga beli'
-            )}</div>
-          </td>
-          <td>
-            <div class="table-primary">${escapeHtml(formatNumber(entry.stock))}</div>
-            <div class="table-meta">${escapeHtml(
-              entry.inTransit ? `+ ${formatNumber(entry.inTransit)} in-transit` : 'Tidak ada in-transit'
-            )}</div>
+            <div class="table-primary">${escapeHtml(signature)}</div>
+            <div class="table-meta">ID Varian: ${escapeHtml(entry.variant_id || '—')}</div>
           </td>
         </tr>
       `;
@@ -22774,26 +22759,58 @@ async function initProcurementPage() {
 
   let currentPlan = [];
 
+  const setTableMessage = message => {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">${escapeHtml(message)}</td></tr>`;
+    }
+
+    const countEl = document.getElementById('procurement-count');
+    const metaEl = document.getElementById('procurement-meta');
+
+    if (countEl) {
+      countEl.textContent = '0 item';
+    }
+
+    if (metaEl) {
+      metaEl.textContent = message;
+    }
+  };
+
   const refreshPlan = async () => {
     if (tbody) {
       tbody.innerHTML =
-        '<tr><td colspan="6" class="loading-state">Menghitung rekomendasi pengadaan otomatis...</td></tr>';
+        '<tr><td colspan="4" class="loading-state">Mengambil daftar pengadaan jatuh tempo...</td></tr>';
     }
 
     try {
-      await ensureSeeded();
-      try {
-        await refreshProductsFromSupabase();
-      } catch (error) {
-        console.warn('Gagal memuat produk terbaru untuk pengadaan.', error);
-      }
+      await ensureSupabase();
     } catch (error) {
-      console.warn('Gagal menyiapkan data pengadaan.', error);
+      console.error('Konfigurasi Supabase belum siap.', error);
+      setTableMessage('Supabase belum dikonfigurasi dengan benar.');
+      return;
     }
 
-    const products = getProductsFromCache();
-    currentPlan = buildDailyProcurementPlan(products);
-    renderProcurementTable(currentPlan, searchInput?.value ?? '');
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client
+        .from('procurement_due_today')
+        .select(
+          'product_id, variant_id, sku, product_name, variant_label, next_procurement_date, next_procurement_period, next_procurement_signature, metadata'
+        )
+        .order('product_name', { ascending: true })
+        .order('variant_label', { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      currentPlan = data ?? [];
+      renderProcurementTable(currentPlan, searchInput?.value ?? '');
+    } catch (error) {
+      console.error('Gagal memuat daftar pengadaan jatuh tempo.', error);
+      setTableMessage('Tidak dapat memuat daftar pengadaan jatuh tempo dari Supabase.');
+      toast.show('Tidak dapat memuat data pengadaan dari Supabase.');
+    }
   };
 
   if (searchInput) {

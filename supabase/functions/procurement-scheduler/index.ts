@@ -36,6 +36,18 @@ type ComputedProcurement = {
   signature: string | null
 }
 
+type ProcurementDueRow = {
+  product_id: string
+  variant_id: string
+  sku: string | null
+  product_name: string | null
+  variant_label: string | null
+  next_procurement_date: string
+  next_procurement_period: string | null
+  next_procurement_signature: string | null
+  metadata: Record<string, unknown>
+}
+
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -63,6 +75,47 @@ function parseNumber(value: unknown) {
 
   const parsed = Number.parseFloat(stringified)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeText(value: unknown) {
+  if (value === null || value === undefined) return ""
+  return value.toString().trim()
+}
+
+function resolveVariantId(row: VariantPricingRow) {
+  const candidate =
+    normalizeText(row.id) ||
+    normalizeText((row as { variantId?: unknown }).variantId) ||
+    normalizeText((row as { variant_id?: unknown }).variant_id) ||
+    normalizeText((row as { sellerSku?: unknown }).sellerSku) ||
+    normalizeText((row as { seller_sku?: unknown }).seller_sku) ||
+    normalizeText((row as { sku?: unknown }).sku)
+
+  return candidate || "default"
+}
+
+function resolveSku(row: VariantPricingRow) {
+  const sku =
+    normalizeText((row as { sellerSku?: unknown }).sellerSku) ||
+    normalizeText((row as { seller_sku?: unknown }).seller_sku) ||
+    normalizeText((row as { sku?: unknown }).sku)
+
+  return sku || null
+}
+
+function buildVariantLabel(row: VariantPricingRow) {
+  const variants = Array.isArray((row as { variants?: unknown }).variants)
+    ? ((row as { variants?: unknown }).variants as { name?: unknown; value?: unknown }[])
+    : []
+
+  if (!variants.length) return null
+
+  const label = variants
+    .map(item => `${normalizeText(item.name) || "Varian"}: ${normalizeText(item.value) || ""}`.trim())
+    .filter(text => !!text && text !== "Varian:")
+    .join(" / ")
+
+  return label || null
 }
 
 function toDateOnly(value: unknown) {
@@ -204,6 +257,7 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
   let variantsUpdated = 0
   let productsWritten = 0
   let dueToday = 0
+  const dueRows: ProcurementDueRow[] = []
 
   for (const record of products) {
     const rawRows = Array.isArray(record?.variant_pricing)
@@ -220,15 +274,27 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
         today
       )
 
+      const procurementDate = computed.date ? toDateOnly(computed.date) : null
+      if (isSameDate(procurementDate, today)) {
+        dueToday += 1
+        dueRows.push({
+          product_id: record.id,
+          variant_id: resolveVariantId(row as VariantPricingRow),
+          sku: resolveSku(row as VariantPricingRow),
+          product_name: record.name ?? null,
+          variant_label: buildVariantLabel(row as VariantPricingRow),
+          next_procurement_date: procurementDate ? procurementDate.toISOString().slice(0, 10) : today.toISOString().slice(0, 10),
+          next_procurement_period: computed.periodLabel,
+          next_procurement_signature: computed.signature,
+          metadata: row as Record<string, unknown>
+        })
+      }
+
       if (!shouldUpdate(row as VariantPricingRow, computed)) {
         return row
       }
 
       changed = true
-      const procurementDate = computed.date ? toDateOnly(computed.date) : null
-      if (isSameDate(procurementDate, today)) {
-        dueToday += 1
-      }
       variantsUpdated += 1
 
       return {
@@ -255,6 +321,16 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
 
     if (updateError) {
       throw new Error(`Failed to update product ${record.id}: ${updateError.message}`)
+    }
+  }
+
+  if (dueRows.length) {
+    const { error: upsertError } = await client
+      .from("procurement_due")
+      .upsert(dueRows, { onConflict: "product_id,variant_id,next_procurement_signature" })
+
+    if (upsertError) {
+      throw new Error(`Failed to upsert procurement due entries: ${upsertError.message}`)
     }
   }
 
