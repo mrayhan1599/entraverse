@@ -18,6 +18,11 @@ create table if not exists public.procurement_due (
   constraint procurement_due_product_variant_unique unique (product_id, variant_id, next_procurement_signature)
 );
 
+alter table public.procurement_due
+  add column if not exists required_stock numeric,
+  add column if not exists unit_price numeric,
+  add column if not exists metadata jsonb default '{}'::jsonb;
+
 create index if not exists procurement_due_date_idx on public.procurement_due (next_procurement_date);
 create index if not exists procurement_due_signature_idx on public.procurement_due (next_procurement_signature);
 
@@ -48,6 +53,8 @@ create trigger set_procurement_due_updated_at
   before update on public.procurement_due
   for each row
   execute function public.set_procurement_due_updated_at();
+
+drop view if exists public.procurement_due_today;
 
 create or replace view public.procurement_due_today
 with (security_invoker = true)
