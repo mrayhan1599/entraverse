@@ -167,6 +167,20 @@ function formatDateTimeForDisplay(value) {
   }).format(date);
 }
 
+const WIB_TIMEZONE = 'Asia/Jakarta';
+
+function formatDateInWib(date) {
+  const formatted = formatDateTimeForDisplay(date);
+  if (formatted) return formatted;
+
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: WIB_TIMEZONE,
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }).format(date);
+}
+
 function resolveMekariStatusTooltip(status) {
   if (!status || typeof status !== 'object') {
     return '';
@@ -22433,8 +22447,6 @@ function setupPurchaseDocumentActions() {
 }
 
 function buildDailyProcurementPlan(products = []) {
-  const WIB_TIMEZONE = 'Asia/Jakarta';
-
   const toWibDateKey = date => {
     if (!(date instanceof Date)) return '';
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -22467,20 +22479,6 @@ function buildDailyProcurementPlan(products = []) {
     const day = Number(parts.find(part => part.type === 'day')?.value ?? '1');
 
     return createWibDate(year, month - 1, day);
-  };
-
-  const formatDateInWib = date => {
-    const formatted = formatDateTimeForDisplay(date);
-    if (formatted) return formatted;
-
-    const fallback = new Intl.DateTimeFormat('id-ID', {
-      timeZone: WIB_TIMEZONE,
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric'
-    }).format(date);
-
-    return fallback;
   };
 
   const subtractDays = (date, days) => {
@@ -22680,6 +22678,34 @@ function buildDailyProcurementPlan(products = []) {
   });
 }
 
+function normalizeProcurementPlan(entries = []) {
+  const normalizeText = value => (value ?? '').toString();
+
+  return (Array.isArray(entries) ? entries : []).map(entry => {
+    const resolvedName = normalizeText(entry.product_name ?? entry.productName ?? entry.name ?? entry.product_label);
+    const resolvedVariant = normalizeText(
+      entry.variant_label ?? entry.variantLabel ?? entry.variant_name ?? entry.variant
+    );
+
+    return {
+      ...entry,
+      product_id: entry.product_id ?? entry.productId ?? entry.product_id_uuid ?? entry.product_uuid,
+      variant_id: entry.variant_id ?? entry.variantId ?? entry.variant_id_uuid ?? entry.variant_uuid,
+      sku: normalizeText(entry.sku ?? entry.product_sku ?? entry.productCode ?? entry.code),
+      product_name: resolvedName || 'Produk tanpa nama',
+      variant_label: resolvedVariant || 'Varian default',
+      next_procurement_date: entry.next_procurement_date ?? entry.nextProcurementDate ?? entry.due_date,
+      next_procurement_period: entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
+      next_procurement_signature:
+        entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature ?? '—',
+      metadata: entry.metadata ?? {}
+    };
+  });
+}
+
+// Backwards-compatibility for older inline calls.
+const normalizePlan = normalizeProcurementPlan;
+
 function renderProcurementTable(plan = [], filterText = '') {
   const tbody = document.getElementById('procurement-table-body');
   if (!tbody) return;
@@ -22758,6 +22784,36 @@ async function initProcurementPage() {
   }
 
   let currentPlan = [];
+
+  const describeSupabaseError = error => {
+    if (!error) {
+      return 'Alasan tidak diketahui.';
+    }
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    const candidateMessages = [error.message, error.error_description, error.error, error.name].filter(
+      Boolean
+    );
+    const message = candidateMessages[0];
+    const detailParts = [message];
+
+    if (error.details) {
+      detailParts.push(error.details);
+    }
+
+    if (error.hint) {
+      detailParts.push(`Hint: ${error.hint}`);
+    }
+
+    if (error.code) {
+      detailParts.push(`Kode: ${error.code}`);
+    }
+
+    return detailParts.filter(Boolean).join(' ');
+  };
 
   const retry = async (operation, { attempts = 3, delay = 350 } = {}) => {
     let lastError;
@@ -22840,49 +22896,28 @@ async function initProcurementPage() {
         let entries;
         try {
           entries = await fetchFromView();
+
+          if (!entries.length) {
+            console.info('View procurement_due_today kosong, mencoba mengambil langsung dari tabel.');
+            entries = await fetchFromTable();
+          }
         } catch (viewError) {
           console.warn('Gagal memuat view procurement_due_today, mencoba tabel dasar.', viewError);
           entries = await fetchFromTable();
         }
 
-        const normalizedEntries = entries.map(entry => {
-          const normalized = value => (value ?? '').toString();
+        const normalizedEntries = normalizeProcurementPlan(entries);
 
-          const resolvedName = normalized(
-            entry.product_name ?? entry.productName ?? entry.name ?? entry.product_label
-          );
-
-          const resolvedVariant = normalized(
-            entry.variant_label ?? entry.variantLabel ?? entry.variant_name ?? entry.variant
-          );
-
-          return {
-            ...entry,
-            product_id:
-              entry.product_id ?? entry.productId ?? entry.product_id_uuid ?? entry.product_uuid,
-            variant_id:
-              entry.variant_id ?? entry.variantId ?? entry.variant_id_uuid ?? entry.variant_uuid,
-            sku: normalized(entry.sku ?? entry.product_sku ?? entry.productCode ?? entry.code),
-            product_name: resolvedName || 'Produk tanpa nama',
-            variant_label: resolvedVariant || 'Varian default',
-            next_procurement_date:
-              entry.next_procurement_date ?? entry.nextProcurementDate ?? entry.due_date,
-            next_procurement_period:
-              entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
-            next_procurement_signature:
-              entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature,
-            metadata: entry.metadata ?? {}
-          };
-        });
+        const normalizeText = value => (value ?? '').toString();
 
         return normalizedEntries.sort((a, b) => {
-          const nameA = normalized(a.product_name);
-          const nameB = normalized(b.product_name);
+          const nameA = normalizeText(a.product_name);
+          const nameB = normalizeText(b.product_name);
           const nameOrder = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
           if (nameOrder !== 0) return nameOrder;
 
-          const variantA = normalized(a.variant_label);
-          const variantB = normalized(b.variant_label);
+          const variantA = normalizeText(a.variant_label);
+          const variantB = normalizeText(b.variant_label);
           return variantA.localeCompare(variantB, 'id', { sensitivity: 'base' });
         });
       };
@@ -22891,8 +22926,9 @@ async function initProcurementPage() {
       renderProcurementTable(currentPlan, searchInput?.value ?? '');
     } catch (error) {
       console.error('Gagal memuat daftar pengadaan jatuh tempo.', error);
-      setTableMessage('Tidak dapat memuat daftar pengadaan jatuh tempo dari Supabase.');
-      toast.show('Tidak dapat memuat data pengadaan dari Supabase.');
+      const reason = describeSupabaseError(error);
+      setTableMessage(`Tidak dapat memuat daftar pengadaan jatuh tempo dari Supabase: ${reason}`);
+      toast.show(`Tidak dapat memuat data pengadaan dari Supabase: ${reason}`);
     }
   };
 
