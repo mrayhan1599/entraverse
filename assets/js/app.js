@@ -22741,7 +22741,7 @@ function renderProcurementTable(plan = [], filterText = '') {
 
   if (!rows.length) {
     tbody.innerHTML =
-      '<tr><td colspan="5" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
+      '<tr><td colspan="6" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
     return;
   }
 
@@ -22767,14 +22767,44 @@ function renderProcurementTable(plan = [], filterText = '') {
         return Number.isFinite(primary) ? primary : null;
       })();
 
+      const resolvedAvailableStock = (() => {
+        const candidates = [
+          parseNumericValue(entry.available_stock),
+          parseNumericValue(entry.availableStock),
+          parseNumericValue(entry.available)
+        ].filter(Number.isFinite);
+
+        if (candidates.length) {
+          return candidates[0];
+        }
+
+        const stock = parseNumericValue(entry.stock);
+        const inTransit = parseNumericValue(entry.in_transit_stock ?? entry.inTransitStock);
+        if (Number.isFinite(stock) || Number.isFinite(inTransit)) {
+          return (Number.isFinite(stock) ? stock : 0) + (Number.isFinite(inTransit) ? inTransit : 0);
+        }
+
+        return null;
+      })();
+
       const roundedRequiredStock =
         resolvedRequiredStock !== null && resolvedRequiredStock !== undefined
           ? Math.round(resolvedRequiredStock)
           : null;
 
+      const roundedAvailableStock =
+        resolvedAvailableStock !== null && resolvedAvailableStock !== undefined
+          ? Math.round(resolvedAvailableStock)
+          : null;
+
       const requiredStockDisplay =
         roundedRequiredStock !== null && roundedRequiredStock !== undefined
           ? formatNumber(roundedRequiredStock)
+          : '—';
+
+      const availableStockDisplay =
+        roundedAvailableStock !== null && roundedAvailableStock !== undefined
+          ? formatNumber(roundedAvailableStock)
           : '—';
 
       const unitPriceValue = Number.isFinite(resolvedUnitPrice) ? resolvedUnitPrice : '';
@@ -22791,6 +22821,9 @@ function renderProcurementTable(plan = [], filterText = '') {
           </td>
           <td>
             <div class="table-primary">${escapeHtml(periodLabel)}</div>
+          </td>
+          <td>
+            <div class="table-primary">${escapeHtml(availableStockDisplay)}</div>
           </td>
           <td>
             <div class="table-primary">${escapeHtml(requiredStockDisplay)}</div>
@@ -22873,7 +22906,7 @@ async function initProcurementPage() {
 
   const setTableMessage = message => {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${escapeHtml(message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(message)}</td></tr>`;
     }
 
     const countEl = document.getElementById('procurement-count');
@@ -22891,7 +22924,7 @@ async function initProcurementPage() {
   const refreshPlan = async () => {
     if (tbody) {
       tbody.innerHTML =
-        '<tr><td colspan="5" class="loading-state">Mengambil daftar pengadaan jatuh tempo...</td></tr>';
+        '<tr><td colspan="6" class="loading-state">Mengambil daftar pengadaan jatuh tempo...</td></tr>';
     }
 
     try {
