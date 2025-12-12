@@ -10,6 +10,8 @@ create table if not exists public.procurement_due (
   next_procurement_date date not null,
   next_procurement_period text,
   next_procurement_signature text not null,
+  required_stock numeric,
+  unit_price numeric,
   metadata jsonb default '{}'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
