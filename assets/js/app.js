@@ -167,6 +167,20 @@ function formatDateTimeForDisplay(value) {
   }).format(date);
 }
 
+const WIB_TIMEZONE = 'Asia/Jakarta';
+
+function formatDateInWib(date) {
+  const formatted = formatDateTimeForDisplay(date);
+  if (formatted) return formatted;
+
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: WIB_TIMEZONE,
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }).format(date);
+}
+
 function resolveMekariStatusTooltip(status) {
   if (!status || typeof status !== 'object') {
     return '';
@@ -22433,8 +22447,6 @@ function setupPurchaseDocumentActions() {
 }
 
 function buildDailyProcurementPlan(products = []) {
-  const WIB_TIMEZONE = 'Asia/Jakarta';
-
   const toWibDateKey = date => {
     if (!(date instanceof Date)) return '';
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -22467,20 +22479,6 @@ function buildDailyProcurementPlan(products = []) {
     const day = Number(parts.find(part => part.type === 'day')?.value ?? '1');
 
     return createWibDate(year, month - 1, day);
-  };
-
-  const formatDateInWib = date => {
-    const formatted = formatDateTimeForDisplay(date);
-    if (formatted) return formatted;
-
-    const fallback = new Intl.DateTimeFormat('id-ID', {
-      timeZone: WIB_TIMEZONE,
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric'
-    }).format(date);
-
-    return fallback;
   };
 
   const subtractDays = (date, days) => {
