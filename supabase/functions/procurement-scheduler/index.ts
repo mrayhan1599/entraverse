@@ -6,6 +6,14 @@ type JsonRecord = Record<string, unknown>
 type ProductRecord = {
   id: string
   name?: string | null
+  purchase_price_idr?: number | null
+  purchasePriceIdr?: number | null
+  purchase_price?: number | null
+  purchasePrice?: number | null
+  offlinePriceIdr?: number | null
+  offline_price_idr?: number | null
+  offlinePrice?: number | null
+  offline_price?: number | null
   variant_pricing?: unknown
 }
 
@@ -45,6 +53,8 @@ type ProcurementDueRow = {
   next_procurement_date: string
   next_procurement_period: string | null
   next_procurement_signature: string | null
+  required_stock: number | null
+  unit_price: number | null
   metadata: Record<string, unknown>
 }
 
@@ -206,7 +216,9 @@ function isSameDate(a: Date | null, b: Date | null) {
 
 function computeNextProcurement(row: VariantPricingRow, periods: ProcurementPeriod[], today: Date): ComputedProcurement {
   const leadTime = parseNumber(row.leadTime ?? row.lead_time)
-  const requirement = parseNumber(row.nextProcurement ?? row.next_procurement)
+  const requirement = parseNumber(
+    row.nextProcurement ?? (row as { next_Procurement?: unknown }).next_Procurement ?? row.next_procurement
+  )
 
   if (leadTime === null || leadTime < 0 || requirement === null || requirement <= 0) {
     return { date: null, periodLabel: null, signature: null }
@@ -229,7 +241,11 @@ function computeNextProcurement(row: VariantPricingRow, periods: ProcurementPeri
 }
 
 async function fetchProducts(client: SupabaseClient) {
-  const { data, error } = await client.from("products").select("id, name, variant_pricing")
+  const { data, error } = await client
+    .from("products")
+    .select(
+      "id, name, variant_pricing"
+    )
   if (error) {
     throw new Error(`Failed to fetch products: ${error.message}`)
   }
@@ -286,6 +302,10 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
           next_procurement_date: procurementDate ? procurementDate.toISOString().slice(0, 10) : today.toISOString().slice(0, 10),
           next_procurement_period: computed.periodLabel,
           next_procurement_signature: computed.signature,
+          required_stock: parseNumber(
+            row.nextProcurement ?? (row as { next_Procurement?: unknown }).next_Procurement ?? row.next_procurement
+          ),
+          unit_price: null,
           metadata: row as Record<string, unknown>
         })
       }
