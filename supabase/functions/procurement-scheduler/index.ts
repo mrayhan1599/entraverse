@@ -215,30 +215,6 @@ function generatePeriods(reference: Date, monthsAhead = 6) {
   return periods.sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
 }
 
-async function removeOlderProcurements(client: SupabaseClient, dueRows: ProcurementDueRow[]) {
-  const pairs = new Map<string, ProcurementDueRow>()
-
-  for (const row of dueRows) {
-    const key = `${row.product_id}::${row.variant_id}`
-    if (!pairs.has(key)) {
-      pairs.set(key, row)
-    }
-  }
-
-  for (const row of pairs.values()) {
-    const { error: deleteError } = await client
-      .from("procurement_due")
-      .delete()
-      .lt("next_procurement_date", row.next_procurement_date)
-      .eq("product_id", row.product_id)
-      .eq("variant_id", row.variant_id)
-
-    if (deleteError) {
-      throw new Error(`Failed to delete old procurement entries: ${deleteError.message}`)
-    }
-  }
-}
-
 function isSameDate(a: Date | null, b: Date | null) {
   if (!a || !b) return false
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
@@ -322,26 +298,22 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
 
       const procurementDate = computed.date ? toDateOnly(computed.date) : null
       if (isSameDate(procurementDate, today)) {
-        const requiredStock = roundRequiredStock(
-          row.nextProcurement ?? (row as { next_Procurement?: unknown }).next_Procurement ?? row.next_procurement
-        )
-
-        if (requiredStock !== 0) {
-          dueToday += 1
-          dueRows.push({
-            product_id: record.id,
-            variant_id: resolveVariantId(row as VariantPricingRow),
-            sku: resolveSku(row as VariantPricingRow),
-            product_name: record.name ?? null,
-            variant_label: buildVariantLabel(row as VariantPricingRow),
-            next_procurement_date: procurementDate ? procurementDate.toISOString().slice(0, 10) : today.toISOString().slice(0, 10),
-            next_procurement_period: computed.periodLabel,
-            next_procurement_signature: computed.signature,
-            required_stock: requiredStock,
-            unit_price: null,
-            metadata: row as Record<string, unknown>
-          })
-        }
+        dueToday += 1
+        dueRows.push({
+          product_id: record.id,
+          variant_id: resolveVariantId(row as VariantPricingRow),
+          sku: resolveSku(row as VariantPricingRow),
+          product_name: record.name ?? null,
+          variant_label: buildVariantLabel(row as VariantPricingRow),
+          next_procurement_date: procurementDate ? procurementDate.toISOString().slice(0, 10) : today.toISOString().slice(0, 10),
+          next_procurement_period: computed.periodLabel,
+          next_procurement_signature: computed.signature,
+          required_stock: roundRequiredStock(
+            row.nextProcurement ?? (row as { next_Procurement?: unknown }).next_Procurement ?? row.next_procurement
+          ),
+          unit_price: null,
+          metadata: row as Record<string, unknown>
+        })
       }
 
       if (!shouldUpdate(row as VariantPricingRow, computed)) {
@@ -379,8 +351,6 @@ async function updateProducts(client: SupabaseClient, products: ProductRecord[],
   }
 
   if (dueRows.length) {
-    await removeOlderProcurements(client, dueRows)
-
     const { error: upsertError } = await client
       .from("procurement_due")
       .upsert(dueRows, { onConflict: "product_id,variant_id,next_procurement_signature" })
