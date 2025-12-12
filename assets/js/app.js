@@ -22678,6 +22678,34 @@ function buildDailyProcurementPlan(products = []) {
   });
 }
 
+function normalizeProcurementPlan(entries = []) {
+  const normalizeText = value => (value ?? '').toString();
+
+  return (Array.isArray(entries) ? entries : []).map(entry => {
+    const resolvedName = normalizeText(entry.product_name ?? entry.productName ?? entry.name ?? entry.product_label);
+    const resolvedVariant = normalizeText(
+      entry.variant_label ?? entry.variantLabel ?? entry.variant_name ?? entry.variant
+    );
+
+    return {
+      ...entry,
+      product_id: entry.product_id ?? entry.productId ?? entry.product_id_uuid ?? entry.product_uuid,
+      variant_id: entry.variant_id ?? entry.variantId ?? entry.variant_id_uuid ?? entry.variant_uuid,
+      sku: normalizeText(entry.sku ?? entry.product_sku ?? entry.productCode ?? entry.code),
+      product_name: resolvedName || 'Produk tanpa nama',
+      variant_label: resolvedVariant || 'Varian default',
+      next_procurement_date: entry.next_procurement_date ?? entry.nextProcurementDate ?? entry.due_date,
+      next_procurement_period: entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
+      next_procurement_signature:
+        entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature ?? '—',
+      metadata: entry.metadata ?? {}
+    };
+  });
+}
+
+// Backwards-compatibility for older inline calls.
+const normalizePlan = normalizeProcurementPlan;
+
 function renderProcurementTable(plan = [], filterText = '') {
   const tbody = document.getElementById('procurement-table-body');
   if (!tbody) return;
@@ -22878,44 +22906,18 @@ async function initProcurementPage() {
           entries = await fetchFromTable();
         }
 
-        const normalizedEntries = entries.map(entry => {
-          const normalized = value => (value ?? '').toString();
+        const normalizedEntries = normalizeProcurementPlan(entries);
 
-          const resolvedName = normalized(
-            entry.product_name ?? entry.productName ?? entry.name ?? entry.product_label
-          );
-
-          const resolvedVariant = normalized(
-            entry.variant_label ?? entry.variantLabel ?? entry.variant_name ?? entry.variant
-          );
-
-          return {
-            ...entry,
-            product_id:
-              entry.product_id ?? entry.productId ?? entry.product_id_uuid ?? entry.product_uuid,
-            variant_id:
-              entry.variant_id ?? entry.variantId ?? entry.variant_id_uuid ?? entry.variant_uuid,
-            sku: normalized(entry.sku ?? entry.product_sku ?? entry.productCode ?? entry.code),
-            product_name: resolvedName || 'Produk tanpa nama',
-            variant_label: resolvedVariant || 'Varian default',
-            next_procurement_date:
-              entry.next_procurement_date ?? entry.nextProcurementDate ?? entry.due_date,
-            next_procurement_period:
-              entry.next_procurement_period ?? entry.nextProcurementPeriod ?? entry.period,
-            next_procurement_signature:
-              entry.next_procurement_signature ?? entry.nextProcurementSignature ?? entry.signature,
-            metadata: entry.metadata ?? {}
-          };
-        });
+        const normalizeText = value => (value ?? '').toString();
 
         return normalizedEntries.sort((a, b) => {
-          const nameA = normalized(a.product_name);
-          const nameB = normalized(b.product_name);
+          const nameA = normalizeText(a.product_name);
+          const nameB = normalizeText(b.product_name);
           const nameOrder = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
           if (nameOrder !== 0) return nameOrder;
 
-          const variantA = normalized(a.variant_label);
-          const variantB = normalized(b.variant_label);
+          const variantA = normalizeText(a.variant_label);
+          const variantB = normalizeText(b.variant_label);
           return variantA.localeCompare(variantB, 'id', { sensitivity: 'base' });
         });
       };
