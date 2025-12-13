@@ -22720,6 +22720,16 @@ function renderProcurementTable(plan = [], filterText = '') {
   const countEl = document.getElementById('procurement-count');
   const metaEl = document.getElementById('procurement-meta');
   const normalized = (filterText ?? '').toString().trim().toLowerCase();
+  const toWibDateKey = date => {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+
+    return formatter.format(date instanceof Date ? date : new Date(date));
+  };
 
   const rows = normalized
     ? plan.filter(entry =>
@@ -22729,34 +22739,50 @@ function renderProcurementTable(plan = [], filterText = '') {
       )
     : [...plan];
 
+  const grouped = rows.reduce((acc, entry) => {
+    const dateKey = entry.next_procurement_date ? toWibDateKey(entry.next_procurement_date) : '0000-00-00';
+    if (!acc[dateKey]) {
+      acc[dateKey] = [];
+    }
+    acc[dateKey].push(entry);
+    return acc;
+  }, {});
+
+  const groupedOrder = Object.entries(grouped).sort(([dateA], [dateB]) =>
+    dateA === dateB ? 0 : dateA < dateB ? 1 : -1
+  );
+
   if (countEl) {
     countEl.textContent = `${formatNumber(rows.length)} item`;
   }
 
   if (metaEl) {
     metaEl.textContent = rows.length
-      ? `Menampilkan ${formatNumber(rows.length)} pengadaan jatuh tempo hari ini.`
-      : 'Tidak ada kebutuhan pengadaan otomatis untuk hari ini.';
+      ? `Menampilkan ${formatNumber(rows.length)} pengadaan dalam rentang 30 hari ke belakang hingga 30 hari ke depan.`
+      : 'Tidak ada kebutuhan pengadaan otomatis dalam rentang 30 hari yang diambil.';
   }
 
   if (!rows.length) {
     tbody.innerHTML =
-      '<tr><td colspan="6" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis yang jatuh tempo hari ini.</td></tr>';
+      '<tr><td colspan="6" class="empty-state">Semua stok masih aman. Tidak ada pengadaan otomatis pada rentang tanggal yang diambil.</td></tr>';
     return;
   }
 
-  const rowMarkup = rows
-    .map(entry => {
-      const skuLabel = entry.sku || 'Tanpa SKU';
-      const productName = entry.product_name || 'Produk tanpa nama';
-      const variantLabel = entry.variant_label || 'Varian default';
-      const periodLabel = entry.next_procurement_period || 'Periode belum tercatat';
-      const procurementDate = entry.next_procurement_date
-        ? formatDateInWib(new Date(entry.next_procurement_date))
-        : '—';
-      const resolvedRequiredStock = (() => {
-        const primary = parseNumericValue(entry.required_stock);
-        if (Number.isFinite(primary)) return primary;
+  const rowMarkup = groupedOrder
+    .map(([dateKey, entries]) => {
+      const headingDate = entries[0]?.next_procurement_date
+        ? formatDateInWib(new Date(entries[0].next_procurement_date))
+        : 'Tanggal tidak tercatat';
+
+      const rowsForDate = entries
+        .map(entry => {
+          const skuLabel = entry.sku || 'Tanpa SKU';
+          const productName = entry.product_name || 'Produk tanpa nama';
+          const variantLabel = entry.variant_label || 'Varian default';
+          const periodLabel = entry.next_procurement_period || 'Periode belum tercatat';
+          const resolvedRequiredStock = (() => {
+            const primary = parseNumericValue(entry.required_stock);
+            if (Number.isFinite(primary)) return primary;
 
         const fromMeta = parseNumericValue(entry.metadata?.nextProcurement ?? entry.metadata?.next_procurement);
         return Number.isFinite(fromMeta) ? fromMeta : null;
@@ -22797,55 +22823,68 @@ function renderProcurementTable(plan = [], filterText = '') {
           ? Math.round(resolvedAvailableStock)
           : null;
 
-      const requiredStockDisplay =
-        roundedRequiredStock !== null && roundedRequiredStock !== undefined
-          ? formatNumber(roundedRequiredStock)
-          : '—';
+          const requiredStockDisplay =
+            roundedRequiredStock !== null && roundedRequiredStock !== undefined
+              ? formatNumber(roundedRequiredStock)
+              : '—';
 
-      const unitPriceValue = Number.isFinite(resolvedUnitPrice) ? resolvedUnitPrice : '';
-      const availableStockValue = Number.isFinite(roundedAvailableStock) ? roundedAvailableStock : '';
+          const unitPriceValue = Number.isFinite(resolvedUnitPrice) ? resolvedUnitPrice : '';
+          const availableStockValue = Number.isFinite(roundedAvailableStock) ? roundedAvailableStock : '';
+
+          return `
+            <tr data-date-row="${escapeHtml(dateKey)}">
+              <td>
+                <div class="table-primary">${escapeHtml(skuLabel)}</div>
+              </td>
+              <td>
+                <div class="table-primary">${escapeHtml(productName)}</div>
+                <div class="table-meta">${escapeHtml(variantLabel)}</div>
+              </td>
+              <td>
+                <div class="table-primary">${escapeHtml(periodLabel)}</div>
+              </td>
+              <td>
+                <div class="table-primary">${escapeHtml(requiredStockDisplay)}</div>
+              </td>
+              <td>
+                <div class="table-primary">
+                  <input
+                    type="number"
+                    class="table-input"
+                    value="${escapeHtml(availableStockValue.toString())}"
+                    placeholder="Isi stok tersedia"
+                    min="0"
+                    step="any"
+                  >
+                </div>
+              </td>
+              <td>
+                <div class="table-primary">
+                  <input
+                    type="number"
+                    class="table-input"
+                    value="${escapeHtml(unitPriceValue.toString())}"
+                    placeholder="Isi harga produk"
+                    min="0"
+                    step="any"
+                  >
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
 
       return `
-        <tr>
-          <td>
-            <div class="table-primary">${escapeHtml(skuLabel)}</div>
-            <div class="table-meta">Tanggal: ${escapeHtml(procurementDate)}</div>
-          </td>
-          <td>
-            <div class="table-primary">${escapeHtml(productName)}</div>
-            <div class="table-meta">${escapeHtml(variantLabel)}</div>
-          </td>
-          <td>
-            <div class="table-primary">${escapeHtml(periodLabel)}</div>
-          </td>
-          <td>
-            <div class="table-primary">${escapeHtml(requiredStockDisplay)}</div>
-          </td>
-          <td>
-            <div class="table-primary">
-              <input
-                type="number"
-                class="table-input"
-                value="${escapeHtml(availableStockValue.toString())}"
-                placeholder="Isi stok tersedia"
-                min="0"
-                step="any"
-              >
-            </div>
-          </td>
-          <td>
-            <div class="table-primary">
-              <input
-                type="number"
-                class="table-input"
-                value="${escapeHtml(unitPriceValue.toString())}"
-                placeholder="Isi harga produk"
-                min="0"
-                step="any"
-              >
-            </div>
+        <tr class="procurement-date" data-date="${escapeHtml(dateKey)}">
+          <td colspan="6">
+            <button class="procurement-date__toggle" type="button" data-date-toggle="${escapeHtml(dateKey)}">
+              <span class="procurement-date__label">${escapeHtml(headingDate)}</span>
+              <span class="procurement-date__count">${formatNumber(entries.length)} item</span>
+            </button>
           </td>
         </tr>
+        ${rowsForDate}
       `;
     })
     .join('');
@@ -22943,6 +22982,7 @@ async function initProcurementPage() {
     try {
       const fetchPlan = async () => {
         const client = getSupabaseClient();
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
         const toWibDateKey = date => {
           const formatter = new Intl.DateTimeFormat('en-CA', {
             timeZone: 'Asia/Jakarta',
@@ -22954,41 +22994,29 @@ async function initProcurementPage() {
           return formatter.format(date instanceof Date ? date : new Date(date));
         };
 
-        const fetchFromView = async () => {
-          const { data, error } = await client.from('procurement_due_today').select('*');
-          if (error) throw error;
-          return Array.isArray(data) ? data : [];
-        };
+        const today = new Date();
+        const startDateKey = toWibDateKey(new Date(today.getTime() - 30 * MS_PER_DAY));
+        const endDateKey = toWibDateKey(new Date(today.getTime() + 30 * MS_PER_DAY));
 
-        const fetchFromTable = async () => {
-          const todayWibKey = toWibDateKey(new Date());
-          const { data, error } = await client
-            .from('procurement_due')
-            .select('*')
-            .eq('next_procurement_date', todayWibKey);
+        const { data, error } = await client
+          .from('procurement_due')
+          .select('*')
+          .gte('next_procurement_date', startDateKey)
+          .lte('next_procurement_date', endDateKey)
+          .order('next_procurement_date', { ascending: false })
+          .order('product_name', { ascending: true, nullsFirst: false });
 
-          if (error) throw error;
-          return Array.isArray(data) ? data : [];
-        };
+        if (error) throw error;
 
-        let entries;
-        try {
-          entries = await fetchFromView();
-
-          if (!entries.length) {
-            console.info('View procurement_due_today kosong, mencoba mengambil langsung dari tabel.');
-            entries = await fetchFromTable();
-          }
-        } catch (viewError) {
-          console.warn('Gagal memuat view procurement_due_today, mencoba tabel dasar.', viewError);
-          entries = await fetchFromTable();
-        }
-
-        const normalizedEntries = normalizeProcurementPlan(entries);
+        const normalizedEntries = normalizeProcurementPlan(Array.isArray(data) ? data : []);
 
         const normalizeText = value => (value ?? '').toString();
 
         return normalizedEntries.sort((a, b) => {
+          const dateA = a.next_procurement_date ? new Date(a.next_procurement_date).getTime() : 0;
+          const dateB = b.next_procurement_date ? new Date(b.next_procurement_date).getTime() : 0;
+          if (dateA !== dateB) return dateB - dateA;
+
           const nameA = normalizeText(a.product_name);
           const nameB = normalizeText(b.product_name);
           const nameOrder = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' });
@@ -23015,6 +23043,22 @@ async function initProcurementPage() {
       renderProcurementTable(currentPlan, searchInput.value);
     });
   }
+
+  tbody.addEventListener('click', event => {
+    const toggle = event.target.closest('[data-date-toggle]');
+    if (!toggle) return;
+
+    const targetDate = toggle.dataset.dateToggle;
+    const escapedKey = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(targetDate)
+      : targetDate.replaceAll('"', '\\"');
+    const rows = tbody.querySelectorAll(`[data-date-row="${escapedKey}"]`);
+    const nowCollapsed = toggle.classList.toggle('is-collapsed');
+
+    rows.forEach(row => {
+      row.hidden = nowCollapsed;
+    });
+  });
 
   await refreshPlan();
 
